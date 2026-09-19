@@ -6,6 +6,7 @@ import {
   PostgresBackchannelLogoutRepository,
   PostgresOidcTransactionRepository,
   PostgresRateLimitRepository,
+  PostgresSessionRepository,
 } from "@/server/auth/postgres-repositories";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -60,6 +61,67 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       id: "11111111-1111-4111-8111-111111111111",
       payloadCiphertext: "encrypted",
     });
+  });
+
+  it("rotates a still-valid previous handle so a lost Set-Cookie response can recover", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const now = new Date("2026-09-20T00:20:00Z");
+    const original = Buffer.alloc(32, 21);
+    const firstReplacement = Buffer.alloc(32, 22);
+    const recoveryReplacement = Buffer.alloc(32, 23);
+    await repository.insert({
+      id: "88888888-8888-4888-8888-888888888888",
+      subject: "rotation-recovery",
+      keycloakSid: "rotation-recovery-sid",
+      handleHash: original,
+      tokenCiphertext: "encrypted",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      rotatedAt: new Date("2026-09-20T00:00:00Z"),
+      lastSeenAt: new Date("2026-09-20T00:00:00Z"),
+      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
+    });
+
+    const first = await repository.useHandle({
+      handleHash: original,
+      replacementHandleHash: firstReplacement,
+      now,
+      idleTtlSeconds: 1_800,
+      rotateAfterSeconds: 900,
+      previousHandleGraceSeconds: 30,
+      allowRotation: true,
+    });
+    expect(first).toMatchObject({ rotated: true });
+
+    const recovery = await repository.useHandle({
+      handleHash: original,
+      replacementHandleHash: recoveryReplacement,
+      now: new Date("2026-09-20T00:20:01Z"),
+      idleTtlSeconds: 1_800,
+      rotateAfterSeconds: 900,
+      previousHandleGraceSeconds: 30,
+      allowRotation: true,
+    });
+    expect(recovery).toMatchObject({ rotated: true });
+
+    await expect(repository.useHandle({
+      handleHash: firstReplacement,
+      replacementHandleHash: Buffer.alloc(32, 24),
+      now: new Date("2026-09-20T00:20:02Z"),
+      idleTtlSeconds: 1_800,
+      rotateAfterSeconds: 900,
+      previousHandleGraceSeconds: 30,
+      allowRotation: false,
+    })).resolves.not.toBeNull();
+    await expect(repository.useHandle({
+      handleHash: recoveryReplacement,
+      replacementHandleHash: Buffer.alloc(32, 25),
+      now: new Date("2026-09-20T00:20:02Z"),
+      idleTtlSeconds: 1_800,
+      rotateAfterSeconds: 900,
+      previousHandleGraceSeconds: 30,
+      allowRotation: false,
+    })).resolves.not.toBeNull();
   });
 
   it("hard-deletes only authentication material beyond the retention grace", async () => {

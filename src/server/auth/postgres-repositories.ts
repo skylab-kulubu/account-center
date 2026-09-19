@@ -142,10 +142,13 @@ export class PostgresSessionRepository implements SessionRepository {
         return { proofRejected: true };
       }
 
+      // Re-rotate a valid previous handle so a client can recover when the
+      // response carrying the first replacement cookie was lost or aborted.
       const rotationDue =
         input.allowRotation &&
-        matchedCurrent &&
-        row.rotated_at.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000;
+        (matchedPrevious ||
+          (matchedCurrent &&
+            row.rotated_at.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000));
       const idleExpiresAt = new Date(
         Math.min(
           row.absolute_expires_at.getTime(),

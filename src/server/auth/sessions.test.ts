@@ -25,8 +25,9 @@ class MemorySessions implements SessionRepository {
     if (input.authorizeSessionId && !input.authorizeSessionId(row.id)) return { proofRejected: true };
     const rotated = Boolean(
       input.allowRotation &&
-      current &&
-      row.rotatedAt.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000,
+      (previous ||
+        (current &&
+          row.rotatedAt.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000)),
     );
     if (rotated) {
       row.previousHandleHash = row.handleHash;
@@ -140,6 +141,34 @@ describe("SessionManager", () => {
     now = new Date("2026-09-20T00:01:32Z");
     await expect(manager.authenticate(created.handle)).resolves.toBeNull();
     await expect(manager.authenticate(rotated?.rotatedHandle)).resolves.not.toBeNull();
+  });
+
+  it("recovers when a rotation response is lost before the browser stores its cookie", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 9)),
+      Buffer.alloc(32, 8),
+      {
+        absoluteTtlSeconds: 3_600,
+        upstreamSessionMaxSeconds: 3_600,
+        idleTtlSeconds: 600,
+        rotationSeconds: 60,
+        previousHandleGraceSeconds: 30,
+      },
+      () => now,
+    );
+    const created = await manager.create({ subject: "rotation-recovery", authenticatedAt, tokens });
+
+    now = new Date("2026-09-20T00:01:01Z");
+    const lostResponse = await manager.authenticate(created.handle, { allowRotation: true });
+    expect(lostResponse?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const recovered = await manager.authenticate(created.handle, { allowRotation: true });
+    expect(recovered?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    await expect(manager.authenticate(lostResponse?.rotatedHandle)).resolves.not.toBeNull();
+    await expect(manager.authenticate(recovered?.rotatedHandle)).resolves.not.toBeNull();
   });
 
   it("binds CSRF values to one active session", async () => {
