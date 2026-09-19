@@ -1,0 +1,228 @@
+import { describe, expect, it } from "vitest";
+import { AesGcmSecretCipher } from "@/server/auth/crypto";
+import type { SessionRepository, SessionUseOutcome, UseSessionInput } from "@/server/auth/repositories";
+import type { NewSessionRecord } from "@/server/auth/types";
+import { DeletedSessionTokenDecryptError, SessionManager } from "@/server/auth/sessions";
+
+class MemorySessions implements SessionRepository {
+  record?: NewSessionRecord & {
+    previousHandleHash?: Buffer;
+    previousHandleExpiresAt?: Date;
+    revokedAt?: Date;
+  };
+
+  async insert(value: NewSessionRecord) {
+    this.record = value;
+  }
+
+  async useHandle(input: UseSessionInput): Promise<SessionUseOutcome | null> {
+    const row = this.record;
+    if (!row || row.revokedAt || row.absoluteExpiresAt <= input.now || row.idleExpiresAt <= input.now) return null;
+    const current = row.handleHash.equals(input.handleHash);
+    const previous = row.previousHandleHash?.equals(input.handleHash) &&
+      row.previousHandleExpiresAt && row.previousHandleExpiresAt > input.now;
+    if (!current && !previous) return null;
+    if (input.authorizeSessionId && !input.authorizeSessionId(row.id)) return { proofRejected: true };
+    const rotated = Boolean(
+      input.allowRotation &&
+      current &&
+      row.rotatedAt.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000,
+    );
+    if (rotated) {
+      row.previousHandleHash = row.handleHash;
+      row.previousHandleExpiresAt = new Date(input.now.getTime() + input.previousHandleGraceSeconds * 1_000);
+      row.handleHash = input.replacementHandleHash;
+      row.rotatedAt = input.now;
+    }
+    row.lastSeenAt = input.now;
+    row.idleExpiresAt = new Date(
+      Math.min(row.absoluteExpiresAt.getTime(), input.now.getTime() + input.idleTtlSeconds * 1_000),
+    );
+    return {
+      rotated,
+      session: {
+        id: row.id,
+        subject: row.subject,
+        keycloakSid: row.keycloakSid,
+        createdAt: row.createdAt,
+        lastSeenAt: row.lastSeenAt,
+        idleExpiresAt: row.idleExpiresAt,
+        absoluteExpiresAt: row.absoluteExpiresAt,
+      },
+    };
+  }
+
+  async revokeByHandle(handleHash: Buffer, revokedAt: Date) {
+    if (!this.record || !this.record.handleHash.equals(handleHash)) return false;
+    this.record.revokedAt = revokedAt;
+    return true;
+  }
+
+  async revokeById(id: string, revokedAt: Date) {
+    if (!this.record || this.record.id !== id) return false;
+    this.record.revokedAt = revokedAt;
+    return true;
+  }
+
+  async deleteByIdReturningToken(id: string) {
+    if (!this.record || this.record.id !== id) return null;
+    const tokenCiphertext = this.record.tokenCiphertext;
+    this.record = undefined;
+    return tokenCiphertext;
+  }
+}
+
+const tokens = {
+  accessToken: "access-secret",
+  refreshToken: "refresh-secret",
+  idToken: "id-secret",
+  tokenType: "bearer",
+};
+
+const authenticatedAt = new Date("2026-09-20T00:00:00Z");
+
+describe("SessionManager", () => {
+  it("bounds the local absolute deadline by the verified upstream authentication time", async () => {
+    const now = new Date("2026-09-20T01:00:00Z");
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 9)),
+      Buffer.alloc(32, 8),
+      {
+        absoluteTtlSeconds: 8 * 60 * 60,
+        upstreamSessionMaxSeconds: 4 * 60 * 60,
+        idleTtlSeconds: 600,
+        rotationSeconds: 60,
+        previousHandleGraceSeconds: 30,
+      },
+      () => now,
+    );
+
+    await manager.create({
+      subject: "upstream-bounded-user",
+      authenticatedAt: new Date("2026-09-19T22:00:00Z"),
+      tokens,
+    });
+    expect(repository.record?.absoluteExpiresAt).toEqual(new Date("2026-09-20T02:00:00Z"));
+
+    await expect(
+      manager.create({
+        subject: "expired-upstream-user",
+        authenticatedAt: new Date("2026-09-19T20:00:00Z"),
+        tokens,
+      }),
+    ).rejects.toThrow(/upstream.*expired/i);
+  });
+
+  it("stores only a handle hash, encrypts tokens, and rotates due handles", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 9)),
+      Buffer.alloc(32, 8),
+      { absoluteTtlSeconds: 3600, upstreamSessionMaxSeconds: 3600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+      () => now,
+    );
+    const created = await manager.create({ subject: "user-id", authenticatedAt, tokens });
+
+    expect(repository.record?.tokenCiphertext).not.toContain("access-secret");
+    expect(repository.record?.handleHash.toString("utf8")).not.toBe(created.handle);
+    await expect(manager.authenticate(created.handle)).resolves.toMatchObject({ rotated: false });
+
+    now = new Date("2026-09-20T00:01:01Z");
+    const rotated = await manager.authenticate(created.handle, { allowRotation: true });
+    expect(rotated?.rotated).toBe(true);
+    expect(rotated?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    await expect(manager.authenticate(created.handle)).resolves.not.toBeNull();
+
+    now = new Date("2026-09-20T00:01:32Z");
+    await expect(manager.authenticate(created.handle)).resolves.toBeNull();
+    await expect(manager.authenticate(rotated?.rotatedHandle)).resolves.not.toBeNull();
+  });
+
+  it("binds CSRF values to one active session", async () => {
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 1)),
+      Buffer.alloc(32, 2),
+      { absoluteTtlSeconds: 3600, upstreamSessionMaxSeconds: 3600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+    );
+    const created = await manager.create({ subject: "user-id", authenticatedAt: new Date(), tokens });
+    const sessionId = repository.record!.id;
+    const token = manager.csrfToken(sessionId);
+    await expect(manager.authenticateMutation(created.handle, token)).resolves.toMatchObject({ status: "active" });
+    await expect(manager.authenticateMutation(created.handle, manager.csrfToken("different"))).resolves.toEqual({ status: "forbidden" });
+  });
+
+  it("rejects idle-expired, absolute-expired, and revoked sessions", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const makeManager = (policy: {
+      absoluteTtlSeconds: number;
+      idleTtlSeconds: number;
+    }) => {
+      const repository = new MemorySessions();
+      const manager = new SessionManager(
+        repository,
+        new AesGcmSecretCipher(Buffer.alloc(32, 4)),
+        Buffer.alloc(32, 5),
+        { ...policy, upstreamSessionMaxSeconds: policy.absoluteTtlSeconds, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+        () => now,
+      );
+      return { manager, repository };
+    };
+
+    const idle = makeManager({ absoluteTtlSeconds: 3_600, idleTtlSeconds: 60 });
+    const idleSession = await idle.manager.create({ subject: "idle-user", authenticatedAt: now, tokens });
+    now = new Date("2026-09-20T00:01:01Z");
+    await expect(idle.manager.authenticate(idleSession.handle)).resolves.toBeNull();
+
+    now = new Date("2026-09-20T00:00:00Z");
+    const absolute = makeManager({ absoluteTtlSeconds: 60, idleTtlSeconds: 600 });
+    const absoluteSession = await absolute.manager.create({ subject: "absolute-user", authenticatedAt: now, tokens });
+    now = new Date("2026-09-20T00:01:01Z");
+    await expect(absolute.manager.authenticate(absoluteSession.handle)).resolves.toBeNull();
+
+    now = new Date("2026-09-20T00:00:00Z");
+    const revoked = makeManager({ absoluteTtlSeconds: 3_600, idleTtlSeconds: 600 });
+    const revokedSession = await revoked.manager.create({ subject: "revoked-user", authenticatedAt: now, tokens });
+    await expect(revoked.manager.revokeHandle(revokedSession.handle)).resolves.toBe(true);
+    await expect(revoked.manager.authenticate(revokedSession.handle)).resolves.toBeNull();
+  });
+
+  it("hard-deletes the local session and returns decrypted tokens for upstream revocation", async () => {
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 6)),
+      Buffer.alloc(32, 7),
+      { absoluteTtlSeconds: 3_600, upstreamSessionMaxSeconds: 3_600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+    );
+    await manager.create({ subject: "logout-user", authenticatedAt: new Date(), tokens });
+    const sessionId = repository.record!.id;
+
+    await expect(manager.deleteSessionAndGetTokens(sessionId)).resolves.toEqual(tokens);
+    expect(repository.record).toBeUndefined();
+    await expect(manager.deleteSessionAndGetTokens(sessionId)).resolves.toBeNull();
+  });
+
+  it("reports corrupt token material only after the session row is hard-deleted", async () => {
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 6)),
+      Buffer.alloc(32, 7),
+      { absoluteTtlSeconds: 3_600, upstreamSessionMaxSeconds: 3_600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+    );
+    await manager.create({ subject: "corrupt-token-user", authenticatedAt: new Date(), tokens });
+    const sessionId = repository.record!.id;
+    repository.record!.tokenCiphertext = "not-an-encrypted-token-envelope";
+
+    await expect(manager.deleteSessionAndGetTokens(sessionId)).rejects.toBeInstanceOf(
+      DeletedSessionTokenDecryptError,
+    );
+    expect(repository.record).toBeUndefined();
+  });
+});

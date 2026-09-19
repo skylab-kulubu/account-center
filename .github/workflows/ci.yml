@@ -11,6 +11,20 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: account_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d account_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/setup@v2
@@ -23,10 +37,26 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
       - run: pnpm build
 
   browser:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: account_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d account_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/setup@v2
@@ -37,7 +67,20 @@ jobs:
           require-lockfile: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
       - run: pnpm test:e2e
+        env:
+          APP_URL: https://127.0.0.1:3100
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
+          SESSION_SECRET: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          OIDC_ISSUER: https://e.yildizskylab.com/realms/e-skylab
+          OIDC_CLIENT_ID: account-center
+          OIDC_CLIENT_SECRET: e2e-client-secret-00000000000000
+          OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
+          AUTH_TRUSTED_PROXY: cloudflare
 
   container:
     if: github.event_name == 'pull_request'

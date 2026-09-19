@@ -1,0 +1,117 @@
+// @vitest-environment node
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import type { AuthConfig } from "@/server/auth/config";
+import {
+  OidcContractError,
+  OAuth4WebApiProtocol,
+  validateAuthenticationTime,
+} from "@/server/auth/oidc-protocol";
+import discovery from "../../../tests/fixtures/keycloak-26.7.4-discovery.json";
+
+const config = {
+  appUrl: new URL("https://my.yildizskylab.com"),
+  issuer: new URL("https://e.yildizskylab.com/realms/e-skylab"),
+  clientId: "account-center",
+  clientSecret: "client-secret-000000000000000000",
+} as AuthConfig;
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("OAuth4WebApiProtocol", () => {
+  it("sends the minimal exact openid scope in its pushed authorization request", async () => {
+    const requests: Array<{ url: string; body?: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push({
+        url,
+        ...(init?.body ? { body: String(init.body) } : {}),
+      });
+      if (url.includes(".well-known")) {
+        return Response.json(discovery);
+      }
+      return Response.json(
+        { request_uri: "urn:ietf:params:oauth:request_uri:test", expires_in: 90 },
+        { status: 201 },
+      );
+    }));
+
+    await new OAuth4WebApiProtocol(config).begin({
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+    });
+
+    const pushed = requests.find(({ url }) => url === discovery.pushed_authorization_request_endpoint);
+    expect(new URLSearchParams(pushed?.body).getAll("scope")).toEqual(["openid"]);
+  });
+
+  it("requires a sane auth_time from the verified ID-token claims", () => {
+    const now = new Date("2026-09-20T01:00:00Z");
+    expect(
+      validateAuthenticationTime({ auth_time: 1_789_862_400 }, now),
+    ).toEqual(new Date("2026-09-20T00:00:00Z"));
+    for (const claims of [
+      {},
+      { auth_time: "1789862400" },
+      { auth_time: 1_789_862_400.5 },
+      { auth_time: 1_789_866_006 },
+    ]) {
+      expect(() => validateAuthenticationTime(claims, now)).toThrow(/auth_time/);
+    }
+  });
+
+  it("accepts auth_time only from a signature-validated ID token", async () => {
+    const keys = await generateKeyPair("RS256", { modulusLength: 2048 });
+    const publicKey = await exportJWK(keys.publicKey);
+    publicKey.kid = "exchange-test-key";
+    const issuedAt = Math.floor(Date.now() / 1_000);
+    const makeIdToken = (includeAuthTime: boolean) => new SignJWT({
+      nonce: "nonce-value",
+      sid: "keycloak-session",
+      ...(includeAuthTime ? { auth_time: issuedAt - 60 } : {}),
+    })
+      .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
+      .setIssuer(config.issuer.href)
+      .setAudience(config.clientId)
+      .setSubject("user-id")
+      .setIssuedAt(issuedAt)
+      .setExpirationTime(issuedAt + 300)
+      .sign(keys.privateKey);
+
+    const exchange = async (includeAuthTime: boolean) => {
+      const idToken = await makeIdToken(includeAuthTime);
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.includes(".well-known")) return Response.json(discovery);
+        if (url === discovery.token_endpoint) {
+          return Response.json({
+            access_token: "server-only-access-token",
+            token_type: "Bearer",
+            expires_in: 300,
+            id_token: idToken,
+          });
+        }
+        if (url === discovery.jwks_uri) return Response.json({ keys: [publicKey] });
+        throw new Error(`Unexpected OIDC request: ${url}`);
+      }));
+      const callbackUrl = new URL("https://my.yildizskylab.com/api/auth/callback");
+      callbackUrl.searchParams.set("code", "authorization-code");
+      callbackUrl.searchParams.set("state", "state-value");
+      callbackUrl.searchParams.set("iss", config.issuer.href);
+      return new OAuth4WebApiProtocol(config).exchange({
+        callbackUrl,
+        state: "state-value",
+        nonce: "nonce-value",
+        codeVerifier: "v".repeat(43),
+      });
+    };
+
+    await expect(exchange(true)).resolves.toMatchObject({
+      subject: "user-id",
+      authenticatedAt: new Date((issuedAt - 60) * 1_000),
+    });
+    await expect(exchange(false)).rejects.toBeInstanceOf(OidcContractError);
+  });
+});

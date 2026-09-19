@@ -2,6 +2,9 @@ import { Buffer } from "node:buffer";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+const sessionCookie = "__Host-sky-account";
+const publicPages = new Set(["/login"]);
+
 function contentSecurityPolicy(nonce: string) {
   const isDevelopment = process.env.NODE_ENV === "development";
 
@@ -28,7 +31,14 @@ export function proxy(request: NextRequest) {
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", policy);
 
-  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  const needsLogin =
+    !publicPages.has(request.nextUrl.pathname) &&
+    !request.cookies.has(sessionCookie);
+  const response = needsLogin
+    ? NextResponse.redirect(
+        new URL(`/login?returnTo=${encodeURIComponent(request.nextUrl.pathname)}`, request.url),
+      )
+    : NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", policy);
   return response;
 }
