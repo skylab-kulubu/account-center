@@ -81,6 +81,8 @@ jobs:
           OIDC_CLIENT_SECRET: e2e-client-secret-00000000000000
           OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
           AUTH_TRUSTED_PROXY: cloudflare
+          NATIVE_BRIDGE_HMAC_SECRET: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+          NATIVE_BRIDGE_MTLS_CLIENT_SHA256: abababababababababababababababababababababababababababababababab
 
   container:
     if: github.event_name == 'pull_request'

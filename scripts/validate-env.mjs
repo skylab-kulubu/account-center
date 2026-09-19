@@ -8,6 +8,8 @@ const required = [
   "OIDC_CLIENT_SECRET",
   "OIDC_UPSTREAM_SESSION_MAX_SECONDS",
   "AUTH_TRUSTED_PROXY",
+  "NATIVE_BRIDGE_HMAC_SECRET",
+  "NATIVE_BRIDGE_MTLS_CLIENT_SHA256",
 ];
 
 const forbiddenPublicSecrets = [
@@ -15,6 +17,7 @@ const forbiddenPublicSecrets = [
   "NEXT_PUBLIC_SESSION_SECRET",
   "NEXT_PUBLIC_TOKEN_ENCRYPTION_KEY",
   "NEXT_PUBLIC_OIDC_CLIENT_SECRET",
+  "NEXT_PUBLIC_NATIVE_BRIDGE_HMAC_SECRET",
 ];
 
 const placeholderPattern = /(?:change[-_ ]?me|replace[-_ ]?with|example|placeholder|<[^>]+>)/i;
@@ -107,13 +110,27 @@ export function validateEnvironment(env) {
   }
 
   const values = Object.fromEntries(required.map((name) => [name, env[name].trim()]));
-  const sensitive = ["DATABASE_URL", "SESSION_SECRET", "TOKEN_ENCRYPTION_KEY", "OIDC_CLIENT_SECRET"];
+  const sensitive = ["DATABASE_URL", "SESSION_SECRET", "TOKEN_ENCRYPTION_KEY", "OIDC_CLIENT_SECRET", "NATIVE_BRIDGE_HMAC_SECRET"];
   const placeholder = sensitive.find((name) => placeholderPattern.test(values[name]));
   if (placeholder) throw new Error(`${placeholder} contains a placeholder value.`);
 
-  decodeBase64Secret("SESSION_SECRET", values.SESSION_SECRET, 32);
+  const sessionSecret = decodeBase64Secret("SESSION_SECRET", values.SESSION_SECRET, 32);
   const encryptionKey = decodeBase64Secret("TOKEN_ENCRYPTION_KEY", values.TOKEN_ENCRYPTION_KEY, 32);
   if (encryptionKey.length !== 32) throw new Error("TOKEN_ENCRYPTION_KEY must decode to exactly 32 bytes.");
+  const nativeBridgeHmacSecret = decodeBase64Secret(
+    "NATIVE_BRIDGE_HMAC_SECRET",
+    values.NATIVE_BRIDGE_HMAC_SECRET,
+    32,
+  );
+  if (
+    nativeBridgeHmacSecret.equals(sessionSecret) ||
+    nativeBridgeHmacSecret.equals(encryptionKey)
+  ) {
+    throw new Error("NATIVE_BRIDGE_HMAC_SECRET must differ from other server keys.");
+  }
+  if (!/^[a-f0-9]{64}$/.test(values.NATIVE_BRIDGE_MTLS_CLIENT_SHA256)) {
+    throw new Error("NATIVE_BRIDGE_MTLS_CLIENT_SHA256 must be a lowercase SHA-256 fingerprint.");
+  }
 
   if (values.OIDC_CLIENT_SECRET.length < 32) {
     throw new Error("OIDC_CLIENT_SECRET must contain at least 32 characters.");

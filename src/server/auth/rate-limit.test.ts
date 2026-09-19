@@ -53,4 +53,25 @@ describe("anonymous auth rate limiting", () => {
     expect(repository.inputs[0]?.windowStartedAt).toEqual(new Date("2026-09-20T00:00:00Z"));
     expect(repository.inputs[0]?.windowExpiresAt).toEqual(new Date("2026-09-20T00:01:00Z"));
   });
+
+  it.each([
+    ["native_create" as const, 10],
+    ["native_consume" as const, 30],
+    ["native_redeem" as const, 120],
+  ])("enforces the %s native policy atomically at %d requests per minute", async (scope, limit) => {
+    const repository = new CapturingRateLimits();
+    const limiter = new AnonymousAuthRateLimiter(
+      repository,
+      Buffer.alloc(32, 3),
+      "cloudflare",
+      () => new Date("2026-09-20T00:00:10Z"),
+    );
+
+    const results = [];
+    for (let index = 0; index <= limit; index += 1) {
+      results.push(await limiter.consumeKey(scope, "stable-caller"));
+    }
+    expect(results.filter((result) => result.allowed)).toHaveLength(limit);
+    expect(results.at(-1)).toMatchObject({ allowed: false, retryAfterSeconds: 50 });
+  });
 });

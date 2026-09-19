@@ -10,12 +10,14 @@ function environment(upstreamSeconds: string) {
     APP_URL: "https://my.yildizskylab.com",
     DATABASE_URL: "postgres://account_center:secret@postgres:5432/account_center",
     SESSION_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-    TOKEN_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    TOKEN_ENCRYPTION_KEY: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
     OIDC_ISSUER: "https://e.yildizskylab.com/realms/e-skylab",
     OIDC_CLIENT_ID: "account-center",
     OIDC_CLIENT_SECRET: "client-secret-000000000000000000",
     OIDC_UPSTREAM_SESSION_MAX_SECONDS: upstreamSeconds,
     AUTH_TRUSTED_PROXY: "cloudflare",
+    NATIVE_BRIDGE_HMAC_SECRET: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+    NATIVE_BRIDGE_MTLS_CLIENT_SHA256: "ab".repeat(32),
   });
 }
 
@@ -62,5 +64,24 @@ describe("authentication configuration", () => {
       process.env.OIDC_ISSUER = issuer;
       expect(() => getAuthConfig()).toThrow(/OIDC_ISSUER/);
     }
+  });
+
+  it("requires separate pinned HMAC and mTLS credentials for bridge redemption", () => {
+    environment("3600");
+    expect(getAuthConfig()).toMatchObject({
+      nativeBridgeHmacSecret: Buffer.alloc(32, 1),
+      nativeBridgeMtlsClientSha256: "ab".repeat(32),
+    });
+    process.env.NATIVE_BRIDGE_MTLS_CLIENT_SHA256 = "not-a-certificate-fingerprint";
+    expect(() => getAuthConfig()).toThrow(/NATIVE_BRIDGE_MTLS_CLIENT_SHA256/);
+    environment("3600");
+    process.env.NATIVE_BRIDGE_HMAC_SECRET = "c2hvcnQ=";
+    expect(() => getAuthConfig()).toThrow(/NATIVE_BRIDGE_HMAC_SECRET/);
+    environment("3600");
+    process.env.NATIVE_BRIDGE_HMAC_SECRET = process.env.SESSION_SECRET;
+    expect(() => getAuthConfig()).toThrow(/must differ/);
+    environment("3600");
+    process.env.NATIVE_BRIDGE_HMAC_SECRET = process.env.TOKEN_ENCRYPTION_KEY;
+    expect(() => getAuthConfig()).toThrow(/must differ/);
   });
 });

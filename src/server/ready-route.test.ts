@@ -16,7 +16,7 @@ describe("readiness route", () => {
     vi.clearAllMocks();
     readyMocks.config.mockReturnValue({});
     readyMocks.query.mockResolvedValue({
-      rows: [{ sessions_ready: true, controls_ready: true, migrations_ready: true }],
+      rows: [{ sessions_ready: true, controls_ready: true, native_ready: true, migrations_ready: true }],
     });
   });
 
@@ -27,14 +27,15 @@ describe("readiness route", () => {
     expect(await response.json()).toEqual({ status: "ready", service: "account-center" });
     expect(readyMocks.query).toHaveBeenCalledWith(
       expect.stringContaining("account_center_schema_migrations"),
-      [["0001_bff_web_sessions.sql", "0002_auth_security_controls.sql"]],
+      [["0001_bff_web_sessions.sql", "0002_auth_security_controls.sql", "0003_native_handoff.sql"]],
     );
   });
 
   it.each([
-    { sessions_ready: false, controls_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: false, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, migrations_ready: false },
+    { sessions_ready: false, controls_ready: true, native_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: false, native_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, native_ready: false, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, native_ready: true, migrations_ready: false },
   ])("reports not ready for an incomplete schema", async (row) => {
     readyMocks.query.mockResolvedValue({ rows: [row] });
 

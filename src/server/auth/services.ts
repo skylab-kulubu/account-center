@@ -14,12 +14,16 @@ import {
   PostgresBackchannelLogoutRepository,
   PostgresRateLimitRepository,
   PostgresSessionRepository,
+  PostgresNativeHandoffRepository,
 } from "@/server/auth/postgres-repositories";
 import { AnonymousAuthRateLimiter } from "@/server/auth/rate-limit";
 import { SessionManager } from "@/server/auth/sessions";
 import { getDatabasePool } from "@/server/db/pool";
 import { Keycloak26AccountReadAdapter } from "@/server/keycloak-account/adapter";
 import { AccountReadService } from "@/server/keycloak-account/service";
+import { NativeHandoffService } from "@/server/auth/native-handoff";
+import { createNativeAccessTokenVerifier } from "@/server/auth/native-handoff-token";
+import { NativeBridgeRequestVerifier } from "@/server/auth/native-bridge-auth";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
 const globalServices = globalThis as typeof globalThis & { accountCenterAuthServices?: AuthServices };
@@ -46,15 +50,27 @@ function createAuthServices() {
     cipher,
     config.oidcTransactionTtlSeconds,
   );
+  const oidc = new OidcFlowService(protocol, transactions, sessions);
+  const nativeHandoff = new NativeHandoffService(
+    createNativeAccessTokenVerifier(config.issuer),
+    new PostgresNativeHandoffRepository(pool),
+    oidc,
+    config.appUrl,
+  );
   return {
     config,
     sessions,
-    oidc: new OidcFlowService(protocol, transactions, sessions),
+    oidc,
     account: new AccountReadService(
       new Keycloak26AccountReadAdapter(config.issuer),
       sessions,
       protocol,
       { issuer: config.issuer, clientId: config.clientId },
+    ),
+    nativeHandoff,
+    nativeBridgeRequest: new NativeBridgeRequestVerifier(
+      config.nativeBridgeHmacSecret,
+      config.nativeBridgeMtlsClientSha256,
     ),
     backchannelLogout: new BackchannelLogoutService(
       new KeycloakBackchannelLogoutVerifier(config),

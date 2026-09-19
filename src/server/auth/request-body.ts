@@ -7,18 +7,16 @@ export class RequestBodyError extends Error {
   }
 }
 
-export async function readUrlEncodedBody(
+export async function readUtf8Body(
   request: Request,
-  options: { maxBytes: number; exactContentType?: boolean },
+  options: { maxBytes: number; exactContentType?: string },
 ) {
   const contentType = request.headers.get("content-type")?.trim() ?? "";
-  const acceptedContentType = options.exactContentType
-    ? contentType === "application/x-www-form-urlencoded"
-    : contentType.split(";", 1)[0]?.trim() === "application/x-www-form-urlencoded";
-  const contentEncoding = request.headers.get("content-encoding")?.trim().toLowerCase();
-  if (!acceptedContentType || (contentEncoding && contentEncoding !== "identity")) {
+  if (options.exactContentType !== undefined && contentType !== options.exactContentType) {
     throw new RequestBodyError(400);
   }
+  const contentEncoding = request.headers.get("content-encoding")?.trim().toLowerCase();
+  if (contentEncoding && contentEncoding !== "identity") throw new RequestBodyError(400);
 
   const declaredLength = request.headers.get("content-length");
   if (declaredLength !== null) {
@@ -49,8 +47,22 @@ export async function readUrlEncodedBody(
     offset += chunk.byteLength;
   }
   try {
-    return new URLSearchParams(new TextDecoder("utf-8", { fatal: true }).decode(body));
+    return new TextDecoder("utf-8", { fatal: true }).decode(body);
   } catch {
     throw new RequestBodyError(400);
   }
+}
+
+export async function readUrlEncodedBody(
+  request: Request,
+  options: { maxBytes: number; exactContentType?: boolean },
+) {
+  const contentType = request.headers.get("content-type")?.trim() ?? "";
+  const acceptedContentType = options.exactContentType
+    ? contentType === "application/x-www-form-urlencoded"
+    : contentType.split(";", 1)[0]?.trim() === "application/x-www-form-urlencoded";
+  if (!acceptedContentType) {
+    throw new RequestBodyError(400);
+  }
+  return new URLSearchParams(await readUtf8Body(request, { maxBytes: options.maxBytes }));
 }

@@ -28,6 +28,8 @@ Auth materyali retention işi uygulama timer’ı değildir. Deployment schedule
 
 Production başlangıcında `.env.example` içindeki sunucu değişkenleri doğrulanır. Secret’lar `NEXT_PUBLIC_` önekiyle tanımlanamaz ve client bundle’a taşınmaz. Dosyadaki köşeli parantezli değerler bilerek geçersizdir; doğrudan kullanılırsa servis başlamaz. `SESSION_SECRET` için `openssl rand -base64 48`, `TOKEN_ENCRYPTION_KEY` için `openssl rand -base64 32` kullanılabilir. Keycloak client secret en az 32 karakterli gerçek confidential-client secret’ı olmalıdır.
 
+Native SSO köprüsü için `NATIVE_BRIDGE_HMAC_SECRET`, `SESSION_SECRET` ve `TOKEN_ENCRYPTION_KEY` değerlerinden farklı ayrı bir 32-byte secret; `NATIVE_BRIDGE_MTLS_CLIENT_SHA256` ise internal ingress’in doğruladığı Keycloak client certificate’ın lowercase SHA-256 fingerprint’idir. Public native kod, PAR bridge ve Keycloak authenticator sözleşmesi [native handoff belgesinde](docs/native-handoff-keycloak-contract.md) tanımlıdır. SPI ve gerçek WebView/AIA production-clone testi tamamlanmadan bu akış production’a açılmaz.
+
 `APP_URL` credentials, path, query, fragment, trailing slash veya normalize edilen port içermeyen canonical HTTPS origin olmalıdır. `OIDC_ISSUER` aynı kurallara ek olarak tam `https://<host>/realms/<realm>` biçimini taşır. Startup doğrulaması ile runtime/readiness aynı fixture tabanlı kabul-red sözleşmesine karşı test edilir.
 
 `/api/health` yalnız proses liveness’ını, `/api/ready` ise production environment sözleşmesini, PostgreSQL erişimini ve beklenen migration sürümlerini doğrular. Trafik yalnız readiness 200 döndüğünde yönlendirilmelidir.

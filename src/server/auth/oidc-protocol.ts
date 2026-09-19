@@ -10,6 +10,7 @@ export type BeginAuthorizationInput = {
   state: string;
   nonce: string;
   codeVerifier: string;
+  nativeBridgeCode?: string;
 };
 
 export type ExchangeAuthorizationInput = BeginAuthorizationInput & {
@@ -141,6 +142,7 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
     });
+    if (input.nativeBridgeCode) parameters.set("sky_native_handoff", input.nativeBridgeCode);
     const response = await oauth.pushedAuthorizationRequest(
       authorizationServer,
       this.#client,

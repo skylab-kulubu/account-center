@@ -12,6 +12,7 @@ Account Center, `my.yildizskylab.com` üzerinde çalışan ayrı bir Next.js ür
 - Mutation endpoint’leri exact origin ve session-bound CSRF token doğrular.
 - Password, OTP ve passkey değişiklikleri sabit allowlist içindeki AIA işlemleridir.
 - Native handoff kodu kısa ömürlü, hash’lenmiş ve tek kullanımlıdır; browser’a native token aktarılmaz.
+- Public native kod ile Keycloak’a giden internal bridge kodu ayrıdır. Bridge yalnız PAR gövdesinde taşınır; callback beklenen `sub` ve özgün `auth_time` ile bağlanır. Internal redemption sözleşmesi [ayrı belgede](native-handoff-keycloak-contract.md) tanımlıdır.
 - Account/auth cevapları ve loglar token, cookie, PII, handoff code ve credential id içermez.
 
 Browser cookie’sinde yalnız 256-bit rastgele bir opaque handle bulunur; veritabanında bunun SHA-256 özeti tutulur. Handle ilk mount, beş dakikalık timer, görünürlük ve focus olaylarında sunucuya doğrulatılır; 15 dakika dolduğunda döndürülür ve yarışan istekler için önceki değer yalnız 30 saniyelik grace süresinde kabul edilir. ID token’ın imza doğrulamasından geçmiş `auth_time` claim’i zorunludur. Yerel mutlak deadline, callback anında `min(now + local 8 saatlik cap, auth_time + doğrulanmış OIDC_UPSTREAM_SESSION_MAX_SECONDS)` olarak hesaplanır; geçmiş veya geçersiz deadline session yaratmaz. Idle ömür 30 dakikadır. OIDC transaction bağlamı ve Keycloak token seti kayıt kimliğine bağlı AAD ile AES-256-GCM şifrelenir.

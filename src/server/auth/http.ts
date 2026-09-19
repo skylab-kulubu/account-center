@@ -53,6 +53,13 @@ export function mutationHasExactOrigin(request: NextRequest, config: AuthConfig)
   return !fetchSite || fetchSite === "same-origin";
 }
 
+export function nativeRequestHasSafeOrigin(request: NextRequest, config: AuthConfig) {
+  const origin = request.headers.get("origin");
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (!origin && !fetchSite) return true;
+  return origin === config.appUrl.origin && fetchSite === "same-origin";
+}
+
 export function noStore(response: NextResponse) {
   response.headers.set("Cache-Control", "no-store");
   response.headers.set("Pragma", "no-cache");

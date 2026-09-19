@@ -10,6 +10,8 @@ export type AuthConfig = {
   databaseUrl: string;
   sessionHmacKey: Buffer;
   tokenEncryptionKey: Buffer;
+  nativeBridgeHmacSecret: Buffer;
+  nativeBridgeMtlsClientSha256: string;
   oidcTransactionTtlSeconds: number;
   sessionAbsoluteTtlSeconds: number;
   sessionIdleTtlSeconds: number;
@@ -93,6 +95,19 @@ export function getAuthConfig(): AuthConfig {
   if (trustedProxy !== "cloudflare") {
     throw new Error("AUTH_TRUSTED_PROXY must be cloudflare.");
   }
+  const nativeBridgeMtlsClientSha256 = required("NATIVE_BRIDGE_MTLS_CLIENT_SHA256");
+  if (!/^[a-f0-9]{64}$/.test(nativeBridgeMtlsClientSha256)) {
+    throw new Error("NATIVE_BRIDGE_MTLS_CLIENT_SHA256 must be a lowercase SHA-256 fingerprint.");
+  }
+  const sessionHmacKey = decodeKey("SESSION_SECRET");
+  const tokenEncryptionKey = decodeKey("TOKEN_ENCRYPTION_KEY", 32);
+  const nativeBridgeHmacSecret = decodeKey("NATIVE_BRIDGE_HMAC_SECRET");
+  if (
+    nativeBridgeHmacSecret.equals(sessionHmacKey) ||
+    nativeBridgeHmacSecret.equals(tokenEncryptionKey)
+  ) {
+    throw new Error("NATIVE_BRIDGE_HMAC_SECRET must differ from other server keys.");
+  }
 
   return {
     appUrl,
@@ -102,8 +117,10 @@ export function getAuthConfig(): AuthConfig {
     upstreamSessionMaxSeconds,
     trustedProxy,
     databaseUrl: required("DATABASE_URL"),
-    sessionHmacKey: decodeKey("SESSION_SECRET"),
-    tokenEncryptionKey: decodeKey("TOKEN_ENCRYPTION_KEY", 32),
+    sessionHmacKey,
+    tokenEncryptionKey,
+    nativeBridgeHmacSecret,
+    nativeBridgeMtlsClientSha256,
     oidcTransactionTtlSeconds: 5 * 60,
     sessionAbsoluteTtlSeconds: Math.min(8 * 60 * 60, upstreamSessionMaxSeconds),
     sessionIdleTtlSeconds: 30 * 60,
