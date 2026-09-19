@@ -79,15 +79,27 @@ describe("OAuth4WebApiProtocol", () => {
       .setIssuedAt(issuedAt)
       .setExpirationTime(issuedAt + 300)
       .sign(keys.privateKey);
+    const makeAccessToken = () => new SignJWT({
+      azp: config.clientId,
+      scope: "openid",
+    })
+      .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
+      .setIssuer(config.issuer.href)
+      .setAudience("account")
+      .setSubject("user-id")
+      .setIssuedAt(issuedAt)
+      .setExpirationTime(issuedAt + 300)
+      .sign(keys.privateKey);
 
     const exchange = async (includeAuthTime: boolean) => {
       const idToken = await makeIdToken(includeAuthTime);
+      const accessToken = await makeAccessToken();
       vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
         const url = input instanceof Request ? input.url : String(input);
         if (url.includes(".well-known")) return Response.json(discovery);
         if (url === discovery.token_endpoint) {
           return Response.json({
-            access_token: "server-only-access-token",
+            access_token: accessToken,
             token_type: "Bearer",
             expires_in: 300,
             id_token: idToken,
@@ -113,5 +125,47 @@ describe("OAuth4WebApiProtocol", () => {
       authenticatedAt: new Date((issuedAt - 60) * 1_000),
     });
     await expect(exchange(false)).rejects.toBeInstanceOf(OidcContractError);
+  });
+
+  it("refreshes with the confidential client and preserves the original verified ID token", async () => {
+    const requests: Array<{ url: string; body?: string; authorization?: string | null }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const headers = new Headers(init?.headers);
+      requests.push({
+        url,
+        ...(init?.body ? { body: String(init.body) } : {}),
+        authorization: headers.get("authorization"),
+      });
+      if (url.includes(".well-known")) return Response.json(discovery);
+      if (url === discovery.token_endpoint) {
+        return Response.json({
+          access_token: "refreshed-access-token",
+          refresh_token: "rotated-refresh-token",
+          token_type: "Bearer",
+          expires_in: 300,
+          scope: "openid",
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    const refreshed = await new OAuth4WebApiProtocol(config).refresh({
+      accessToken: "expired-access-token",
+      refreshToken: "server-only-refresh-token",
+      idToken: "original-verified-id-token",
+      tokenType: "bearer",
+      scope: "openid",
+    });
+    expect(refreshed).toMatchObject({
+      accessToken: "refreshed-access-token",
+      refreshToken: "rotated-refresh-token",
+      idToken: "original-verified-id-token",
+      scope: "openid",
+    });
+    const tokenRequest = requests.find(({ url }) => url === discovery.token_endpoint);
+    expect(new URLSearchParams(tokenRequest?.body).get("grant_type")).toBe("refresh_token");
+    expect(new URLSearchParams(tokenRequest?.body).get("refresh_token")).toBe("server-only-refresh-token");
+    expect(tokenRequest?.authorization).toMatch(/^Basic /);
   });
 });

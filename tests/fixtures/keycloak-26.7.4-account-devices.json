@@ -1,0 +1,42 @@
+[
+  {
+    "os": "macOS",
+    "osVersion": "15.6",
+    "device": "Other",
+    "lastAccess": 1789862700,
+    "current": true,
+    "sessions": [
+      {
+        "id": "session-current-id",
+        "ipAddress": "203.0.113.42",
+        "started": 1789862400,
+        "lastAccess": 1789862700,
+        "expires": 1789891200,
+        "clients": [],
+        "browser": "Chrome/140.0",
+        "current": true
+      }
+    ],
+    "mobile": false
+  },
+  {
+    "os": "iOS",
+    "osVersion": "26.0",
+    "device": "iPhone",
+    "lastAccess": 1789860000,
+    "current": false,
+    "sessions": [
+      {
+        "id": "session-other-id",
+        "ipAddress": "198.51.100.12",
+        "started": 1789850000,
+        "lastAccess": 1789860000,
+        "expires": 1789878800,
+        "clients": [],
+        "browser": "Mobile Safari/26.0",
+        "current": false
+      }
+    ],
+    "mobile": true
+  }
+]

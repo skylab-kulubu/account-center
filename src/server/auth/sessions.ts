@@ -21,6 +21,13 @@ export class DeletedSessionTokenDecryptError extends Error {
   }
 }
 
+export class ActiveSessionTokenDecryptError extends Error {
+  constructor() {
+    super("Active session token material could not be decrypted.");
+    this.name = "ActiveSessionTokenDecryptError";
+  }
+}
+
 export class SessionManager {
   constructor(
     private readonly repository: SessionRepository,
@@ -134,6 +141,29 @@ export class SessionManager {
   async revokeHandle(handle: string | undefined) {
     if (!handle || !/^[A-Za-z0-9_-]{43}$/.test(handle)) return false;
     return this.repository.revokeByHandle(sha256(handle), this.clock());
+  }
+
+  async readTokens(id: string) {
+    const ciphertext = await this.repository.getTokenCiphertext(id, this.clock());
+    if (!ciphertext) return null;
+    try {
+      return {
+        tokens: this.cipher.decrypt<OidcTokenSet>(ciphertext, `session:${id}`),
+        version: ciphertext,
+      };
+    } catch {
+      throw new ActiveSessionTokenDecryptError();
+    }
+  }
+
+  async replaceTokens(id: string, expectedVersion: string, tokens: OidcTokenSet) {
+    const replacement = this.cipher.encrypt(tokens, `session:${id}`);
+    return this.repository.replaceTokenCiphertext(
+      id,
+      expectedVersion,
+      replacement,
+      this.clock(),
+    );
   }
 
   revokeSession(id: string) {

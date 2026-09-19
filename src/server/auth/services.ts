@@ -18,6 +18,8 @@ import {
 import { AnonymousAuthRateLimiter } from "@/server/auth/rate-limit";
 import { SessionManager } from "@/server/auth/sessions";
 import { getDatabasePool } from "@/server/db/pool";
+import { Keycloak26AccountReadAdapter } from "@/server/keycloak-account/adapter";
+import { AccountReadService } from "@/server/keycloak-account/service";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
 const globalServices = globalThis as typeof globalThis & { accountCenterAuthServices?: AuthServices };
@@ -26,6 +28,7 @@ function createAuthServices() {
   const config = getAuthConfig();
   const pool = getDatabasePool();
   const cipher = new AesGcmSecretCipher(config.tokenEncryptionKey);
+  const protocol = new OAuth4WebApiProtocol(config);
   const sessions = new SessionManager(
     new PostgresSessionRepository(pool),
     cipher,
@@ -46,7 +49,13 @@ function createAuthServices() {
   return {
     config,
     sessions,
-    oidc: new OidcFlowService(new OAuth4WebApiProtocol(config), transactions, sessions),
+    oidc: new OidcFlowService(protocol, transactions, sessions),
+    account: new AccountReadService(
+      new Keycloak26AccountReadAdapter(config.issuer),
+      sessions,
+      protocol,
+      { issuer: config.issuer, clientId: config.clientId },
+    ),
     backchannelLogout: new BackchannelLogoutService(
       new KeycloakBackchannelLogoutVerifier(config),
       new PostgresBackchannelLogoutRepository(pool),

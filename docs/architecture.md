@@ -20,6 +20,16 @@ Keycloak backchannel logout RS256/JWKS, issuer, audience, event, `sid|sub`, `iat
 
 Anonymous login/callback limiti PostgreSQL’de atomiktir. İstemci adresi yalnız güvenilen Cloudflare sınırından alınır ve bellekte normalize edildikten hemen sonra HMAC’lenir; ham IP veritabanına veya loglara yazılmaz. Edge güven varsayımları [ayrı sözleşmede](auth-edge-trust.md) tanımlıdır.
 
+## Keycloak Account REST okuma sınırı
+
+Hesap bilgileri yalnız sunucu tarafındaki, `26.7.4` sürümüne sabitlenmiş adaptörden okunur. Adaptör yalnız kullanıcının authorization-code oturumundan gelen, `iss`, `sub`, `azp=account-center`, `scope=openid` ve tek `aud=account` sözleşmesini karşılayan access token’ı kabul eder. Client-credentials/service-account ve `/admin` yolu bu tasarımda yoktur.
+
+Adaptör `/account/`, `/account/credentials`, `/account/sessions` ve isteğe bağlı `/account/sessions/devices` uçlarını kullanır. `/sessions` kanonik listedir; cihaz yanıtı farklı oturumları birleştirebildiği için yalnız işletim sistemi/cihaz etiketi sağlar. Normalize edilen view model yalnız ad, soyad, birincil e-posta, doğrulanma durumu, şifre/OTP/passkey özeti ve oturum zamanı/tarayıcı/cihaz etiketlerini içerir. Keycloak attributes, IP adresleri, credential kimlikleri/verileri, client listeleri ve ham JSON tarayıcıya taşınmaz.
+
+Access token süresi dolduğunda refresh token yine yalnız şifreli sunucu oturumundan okunur. Yenilenen token aynı sıkı sözleşmeden geçer ve ciphertext optimistic compare-and-swap ile değiştirilir; yarışta kazanan geçerli değer okunur. İlk girişte doğrulanan ID token ve özgün `auth_time` korunur, refresh yerel mutlak oturum ömrünü uzatmaz.
+
+Upstream JSON bilinen alan/tür sözleşmesinden saparsa okuma fail-closed olur. API `application/problem+json`, sayfalar ise aynı güvenli Türkçe durum kartını üretir; upstream gövdesi, alan değeri veya token hata/log metnine eklenmez.
+
 ## Üretime açılış blokları
 
 1. Keycloak, SPI ve test fixture’ları doğrulanmış `26.7.4` sürümüne birlikte yükseltilmeli.
@@ -27,6 +37,7 @@ Anonymous login/callback limiti PostgreSQL’de atomiktir. İstemci adresi yaln�
 3. Mobile WebView için client-specific browser flow ve `sky-native-handoff` authenticator kurulmalı; köprü orijinal `auth_time` değerini korumalı.
 4. Core’da `active/deletion_pending/anonymized` hesap durumu, JIT guard ve cascade güvenli anonimleştirme tamamlanmalı.
 5. Core, Forms, CMS ve SkyMail eski JWT’leri ortak access gate ile reddetmeli.
+6. Production clone’da SKY LAB kullanıcısıyla profile, credentials, sessions ve devices yanıtları alınarak `tests/fixtures/keycloak-26.7.4-account-*.json` sözleşmesi doğrulanmalı; cihaz endpoint’i yoksa yalnız 404 opsiyonel kabulü kanıtlanmalı.
 
 ## Hesap silme
 

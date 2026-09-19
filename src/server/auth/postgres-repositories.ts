@@ -202,6 +202,38 @@ export class PostgresSessionRepository implements SessionRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
+  async getTokenCiphertext(id: string, now: Date) {
+    const result = await this.pool.query<{ token_ciphertext: string }>(
+      `SELECT token_ciphertext
+         FROM account_sessions
+        WHERE id = $1
+          AND revoked_at IS NULL
+          AND idle_expires_at > $2
+          AND absolute_expires_at > $2`,
+      [id, now],
+    );
+    return result.rows[0]?.token_ciphertext ?? null;
+  }
+
+  async replaceTokenCiphertext(
+    id: string,
+    expectedCiphertext: string,
+    replacementCiphertext: string,
+    now: Date,
+  ) {
+    const result = await this.pool.query(
+      `UPDATE account_sessions
+          SET token_ciphertext = $3
+        WHERE id = $1
+          AND token_ciphertext = $2
+          AND revoked_at IS NULL
+          AND idle_expires_at > $4
+          AND absolute_expires_at > $4`,
+      [id, expectedCiphertext, replacementCiphertext, now],
+    );
+    return result.rowCount === 1;
+  }
+
   async revokeById(id: string, revokedAt: Date) {
     const result = await this.pool.query(
       `UPDATE account_sessions

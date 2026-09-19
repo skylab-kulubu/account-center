@@ -124,6 +124,44 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     })).resolves.not.toBeNull();
   });
 
+  it("compare-and-swaps token ciphertext only for an active matching session", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const now = new Date("2026-09-20T00:20:00Z");
+    await repository.insert({
+      id: "99999999-9999-4999-8999-999999999999",
+      subject: "token-refresh-user",
+      keycloakSid: "token-refresh-sid",
+      handleHash: Buffer.alloc(32, 26),
+      tokenCiphertext: "encrypted-v1",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      rotatedAt: new Date("2026-09-20T00:00:00Z"),
+      lastSeenAt: now,
+      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
+    });
+    await expect(repository.getTokenCiphertext(
+      "99999999-9999-4999-8999-999999999999",
+      now,
+    )).resolves.toBe("encrypted-v1");
+    await expect(repository.replaceTokenCiphertext(
+      "99999999-9999-4999-8999-999999999999",
+      "stale",
+      "encrypted-v2",
+      now,
+    )).resolves.toBe(false);
+    await expect(repository.replaceTokenCiphertext(
+      "99999999-9999-4999-8999-999999999999",
+      "encrypted-v1",
+      "encrypted-v2",
+      now,
+    )).resolves.toBe(true);
+    await repository.revokeById("99999999-9999-4999-8999-999999999999", now);
+    await expect(repository.getTokenCiphertext(
+      "99999999-9999-4999-8999-999999999999",
+      now,
+    )).resolves.toBeNull();
+  });
+
   it("hard-deletes only authentication material beyond the retention grace", async () => {
     await pool.query(
       `INSERT INTO account_oidc_transactions
