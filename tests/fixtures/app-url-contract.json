@@ -1,0 +1,14 @@
+{
+  "valid": [
+    "https://my.yildizskylab.com"
+  ],
+  "invalid": [
+    "http://my.yildizskylab.com",
+    "https://user:password@my.yildizskylab.com",
+    "https://my.yildizskylab.com/",
+    "https://my.yildizskylab.com/account",
+    "https://my.yildizskylab.com?source=unsafe",
+    "https://my.yildizskylab.com#fragment",
+    "https://my.yildizskylab.com:443"
+  ]
+}

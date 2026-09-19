@@ -1,0 +1,15 @@
+{
+  "valid": [
+    "https://e.yildizskylab.com/realms/e-skylab"
+  ],
+  "invalid": [
+    "http://e.yildizskylab.com/realms/e-skylab",
+    "https://user:password@e.yildizskylab.com/realms/e-skylab",
+    "https://e.yildizskylab.com/realms/e-skylab?source=unsafe",
+    "https://e.yildizskylab.com/realms/e-skylab#fragment",
+    "https://e.yildizskylab.com/realms/e-skylab/",
+    "https://e.yildizskylab.com/realms//e-skylab",
+    "https://e.yildizskylab.com/realms/../e-skylab",
+    "https://e.yildizskylab.com/realms/e-skylab%2Fadmin"
+  ]
+}

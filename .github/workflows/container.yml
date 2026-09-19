@@ -8,8 +8,28 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  verify-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: account_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d account_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
+      CANDIDATE_IMAGE: ghcr.io/skylab-kulubu/account-center:candidate-${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/setup@v2
@@ -23,29 +43,60 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      - run: pnpm test:e2e
+        env:
+          APP_URL: https://127.0.0.1:3100
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          SESSION_SECRET: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          OIDC_ISSUER: https://e.yildizskylab.com/realms/e-skylab
+          OIDC_CLIENT_ID: account-center
+          OIDC_CLIENT_SECRET: e2e-client-secret-00000000000000
+          OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
+          AUTH_TRUSTED_PROXY: cloudflare
       - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v7
+      - id: candidate
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
+          load: true
           push: false
+          tags: ${{ env.CANDIDATE_IMAGE }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  publish:
-    needs: verify
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Smoke-test candidate image
+        env:
+          EXPECTED_IMAGE_ID: ${{ steps.candidate.outputs.imageid }}
+        run: |
+          set -euo pipefail
+          actual_image_id="$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")"
+          test "$actual_image_id" = "$EXPECTED_IMAGE_ID"
+          docker run --rm --network host \
+            -e DATABASE_URL="$TEST_DATABASE_URL" \
+            "$CANDIDATE_IMAGE" node scripts/migrate.mjs
+          docker run --rm --network host \
+            -e DATABASE_URL="$TEST_DATABASE_URL" \
+            "$CANDIDATE_IMAGE" node scripts/prune-auth.mjs
+          docker run --rm -d --name account-center-candidate --network host \
+            -e PORT=33100 \
+            -e APP_URL=https://my.yildizskylab.com \
+            -e DATABASE_URL="$TEST_DATABASE_URL" \
+            -e SESSION_SECRET=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            -e TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            -e OIDC_ISSUER=https://e.yildizskylab.com/realms/e-skylab \
+            -e OIDC_CLIENT_ID=account-center \
+            -e OIDC_CLIENT_SECRET=container-smoke-secret-000000000000 \
+            -e OIDC_UPSTREAM_SESSION_MAX_SECONDS=28800 \
+            -e AUTH_TRUSTED_PROXY=cloudflare \
+            "$CANDIDATE_IMAGE"
+          trap 'docker rm -f account-center-candidate >/dev/null 2>&1 || true' EXIT
+          curl --fail --silent --show-error --retry 20 --retry-connrefused \
+            --retry-delay 1 http://127.0.0.1:33100/api/ready
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -53,12 +104,20 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha,prefix=${{ github.ref_name }}-
-      - uses: docker/build-push-action@v7
+      - uses: docker/login-action@v4
         with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the verified image without rebuilding
+        env:
+          TARGET_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          source_image_id="$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")"
+          while IFS= read -r target; do
+            test -n "$target" || continue
+            docker image tag "$CANDIDATE_IMAGE" "$target"
+            test "$(docker image inspect --format '{{.Id}}' "$target")" = "$source_image_id"
+            docker push "$target"
+          done <<< "$TARGET_TAGS"

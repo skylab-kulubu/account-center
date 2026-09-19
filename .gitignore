@@ -10,4 +10,5 @@ test-results/
 *.log
 *.tsbuildinfo
 .DS_Store
+.e2e-certificates/
 next-env.d.ts

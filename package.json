@@ -11,18 +11,25 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "node scripts/start.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:prune-auth": "node scripts/prune-auth.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node --test scripts/*.test.mjs",
     "test:watch": "vitest",
+    "test:e2e:server": "node scripts/start-e2e-server.mjs",
     "test:e2e": "playwright test",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
+    "jose": "6.2.12",
     "lucide-react": "1.47.0",
     "next": "16.3.5",
+    "oauth4webapi": "3.8.8",
+    "pg": "8.16.3",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
@@ -30,6 +37,7 @@
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.3",
     "@types/node": "24.10.9",
+    "@types/pg": "8.15.5",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.1.1",

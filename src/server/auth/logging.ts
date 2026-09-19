@@ -1,0 +1,47 @@
+import "server-only";
+
+import { randomUUID } from "node:crypto";
+
+const sensitiveKey = /(?:authorization|cookie|token|secret|code|state|nonce|verifier|email|name|subject|sid|credential)/i;
+
+export function requestCorrelationId(request: Request) {
+  const value = request.headers.get("x-request-id");
+  return value && /^[A-Za-z0-9._-]{8,128}$/.test(value) ? value : randomUUID();
+}
+
+export function redactAuthMaterial(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactAuthMaterial);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      sensitiveKey.test(key) ? "[REDACTED]" : redactAuthMaterial(child),
+    ]),
+  );
+}
+
+type AuthLog = {
+  event:
+    | "oidc_login_started"
+    | "oidc_login_completed"
+    | "oidc_login_failed"
+    | "local_logout"
+    | "backchannel_logout";
+  requestId: string;
+  outcome: "success" | "failure";
+  reason?:
+    | "invalid_transaction"
+    | "provider_unavailable"
+    | "contract_blocked"
+    | "invalid_csrf"
+    | "invalid_logout_token"
+    | "replayed_logout_token"
+    | "deleted_token_decrypt_failed"
+    | "upstream_revocation_failed";
+};
+
+export function logAuthEvent(entry: AuthLog) {
+  const serialized = JSON.stringify(redactAuthMaterial(entry));
+  if (entry.outcome === "failure") console.warn(serialized);
+  else console.info(serialized);
+}
