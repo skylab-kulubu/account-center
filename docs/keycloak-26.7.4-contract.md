@@ -15,3 +15,16 @@ Production’a açılmadan önce 00A Keycloak foundation işi şu kanıtları sa
 - `OIDC_UPSTREAM_SESSION_MAX_SECONDS`, doğrulanmış Keycloak SSO Session Max değerinden config-as-code ile beslenmeli. BFF absolute deadline’ı `min(callback now + 8 saat local cap, doğrulanmış auth_time + bu upstream sınır)` olarak uygular ve placeholder/güvensiz aralığı startup’ta reddeder.
 
 Bu maddeler tamamlanana kadar yalnız fixture/unit testleri güvenilir kabul edilir; canlı `e.yildizskylab.com` smoke testi veya production deploy yapılmaz.
+
+## Account REST okuma sözleşmesi
+
+Account Center, service account veya Admin REST kullanmaz. Sunucu oturumundaki kullanıcı access token’ı tek `aud=account`, `azp=account-center`, `scope=openid`, eşleşen `iss/sub`, `RS256` ve `typ=JWT` şartlarıyla doğrulanmadan Account REST çağrısı yapılmaz.
+
+Sürüm sabitlemesi şu fixture’larda tutulur:
+
+- `tests/fixtures/keycloak-26.7.4-account-profile.json`
+- `tests/fixtures/keycloak-26.7.4-account-credentials.json`
+- `tests/fixtures/keycloak-26.7.4-account-sessions.json`
+- `tests/fixtures/keycloak-26.7.4-account-devices.json`
+
+Fixture’lar tagged `26.7.4` Java representation ve resource kodundaki alan sözleşmesini test eder. Foundation entegrasyonu şu anda yalnız canlı `/account/` profil okumasını kanıtlar. Credentials, canonical sessions ve optional devices payload’larının gerçek production-clone capture’ı release gate olarak açıktır; bu kanıt gelmeden Account REST adaptörü production-ready sayılmaz.

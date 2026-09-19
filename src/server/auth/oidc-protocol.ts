@@ -4,6 +4,7 @@ import * as oauth from "oauth4webapi";
 import type { AuthConfig } from "@/server/auth/config";
 import { oidcRedirectUri } from "@/server/auth/config";
 import type { OidcTokenSet } from "@/server/auth/types";
+import { validateAccountAccessToken } from "@/server/keycloak-account/access-token";
 
 export type BeginAuthorizationInput = {
   state: string;
@@ -25,6 +26,7 @@ export type AuthorizationResult = {
 export interface OidcProtocol {
   begin(input: BeginAuthorizationInput): Promise<{ authorizationUrl: URL; expiresIn: number }>;
   exchange(input: ExchangeAuthorizationInput): Promise<AuthorizationResult>;
+  refresh(tokens: OidcTokenSet): Promise<OidcTokenSet>;
   revokeRefreshToken(refreshToken: string): Promise<void>;
 }
 
@@ -189,6 +191,16 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
     if (!claims?.sub || !tokens.id_token) throw new OidcContractError("OIDC response has no usable identity.");
     const authenticatedAt = validateAuthenticationTime(claims);
     const keycloakSid = typeof claims.sid === "string" ? claims.sid : undefined;
+    try {
+      if (tokens.token_type !== "bearer") throw new Error("unsupported token type");
+      validateAccountAccessToken(tokens.access_token, {
+        issuer: this.config.issuer,
+        clientId: this.config.clientId,
+        subject: claims.sub,
+      });
+    } catch {
+      throw new OidcContractError("OIDC access token does not match the Account REST contract.");
+    }
     return {
       subject: claims.sub,
       ...(keycloakSid ? { keycloakSid } : {}),
@@ -201,6 +213,43 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
         ...(tokens.scope ? { scope: tokens.scope } : {}),
         ...(tokens.expires_in ? { expiresAt: Math.floor(Date.now() / 1_000) + tokens.expires_in } : {}),
       },
+    };
+  }
+
+  async refresh(current: OidcTokenSet) {
+    if (!current.refreshToken) throw new OidcContractError("OIDC session has no refresh token.");
+    const authorizationServer = await this.#authorizationServer();
+    const response = await oauth.refreshTokenGrantRequest(
+      authorizationServer,
+      this.#client,
+      this.#clientAuthentication,
+      current.refreshToken,
+      { [oauth.customFetch]: timeoutFetch },
+    );
+    const tokens = await oauth.processRefreshTokenResponse(
+      authorizationServer,
+      this.#client,
+      response,
+    );
+    if (tokens.token_type !== "bearer") {
+      throw new OidcContractError("OIDC refresh returned an unsupported access token type.");
+    }
+    if (tokens.id_token) {
+      await oauth.validateApplicationLevelSignature(authorizationServer, response, {
+        [oauth.customFetch]: timeoutFetch,
+      });
+    }
+    return {
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token ?? current.refreshToken,
+      // Keep the signature-validated login ID token and its original auth_time.
+      // Refreshed identity claims never extend the local absolute session cap.
+      idToken: current.idToken,
+      tokenType: tokens.token_type,
+      ...(tokens.scope ? { scope: tokens.scope } : current.scope ? { scope: current.scope } : {}),
+      ...(tokens.expires_in
+        ? { expiresAt: Math.floor(Date.now() / 1_000) + tokens.expires_in }
+        : {}),
     };
   }
 

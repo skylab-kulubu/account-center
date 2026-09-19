@@ -59,6 +59,35 @@ class MemorySessions implements SessionRepository {
     return true;
   }
 
+  async getTokenCiphertext(id: string, now: Date) {
+    if (
+      !this.record ||
+      this.record.id !== id ||
+      this.record.revokedAt ||
+      this.record.idleExpiresAt <= now ||
+      this.record.absoluteExpiresAt <= now
+    ) return null;
+    return this.record.tokenCiphertext;
+  }
+
+  async replaceTokenCiphertext(
+    id: string,
+    expectedCiphertext: string,
+    replacementCiphertext: string,
+    now: Date,
+  ) {
+    if (
+      !this.record ||
+      this.record.id !== id ||
+      this.record.tokenCiphertext !== expectedCiphertext ||
+      this.record.revokedAt ||
+      this.record.idleExpiresAt <= now ||
+      this.record.absoluteExpiresAt <= now
+    ) return false;
+    this.record.tokenCiphertext = replacementCiphertext;
+    return true;
+  }
+
   async revokeById(id: string, revokedAt: Date) {
     if (!this.record || this.record.id !== id) return false;
     this.record.revokedAt = revokedAt;
@@ -235,6 +264,33 @@ describe("SessionManager", () => {
     await expect(manager.deleteSessionAndGetTokens(sessionId)).resolves.toEqual(tokens);
     expect(repository.record).toBeUndefined();
     await expect(manager.deleteSessionAndGetTokens(sessionId)).resolves.toBeNull();
+  });
+
+  it("reads and compare-and-swaps encrypted active-session token material", async () => {
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 6)),
+      Buffer.alloc(32, 7),
+      { absoluteTtlSeconds: 3_600, upstreamSessionMaxSeconds: 3_600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+    );
+    await manager.create({ subject: "read-token-user", authenticatedAt: new Date(), tokens });
+    const sessionId = repository.record!.id;
+    const snapshot = await manager.readTokens(sessionId);
+
+    expect(snapshot?.tokens).toEqual(tokens);
+    await expect(manager.replaceTokens(sessionId, "stale-version", {
+      ...tokens,
+      accessToken: "replacement-access",
+    })).resolves.toBe(false);
+    await expect(manager.replaceTokens(sessionId, snapshot!.version, {
+      ...tokens,
+      accessToken: "replacement-access",
+    })).resolves.toBe(true);
+    await expect(manager.readTokens(sessionId)).resolves.toMatchObject({
+      tokens: { accessToken: "replacement-access" },
+    });
+    expect(repository.record?.tokenCiphertext).not.toContain("replacement-access");
   });
 
   it("reports corrupt token material only after the session row is hard-deleted", async () => {

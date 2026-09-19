@@ -30,6 +30,8 @@ class CapturingSessions implements SessionRepository {
   async insert(value: NewSessionRecord) { this.inserted = value; }
   async useHandle(): Promise<SessionUseResult | null> { return null; }
   async revokeByHandle() { return false; }
+  async getTokenCiphertext() { return null; }
+  async replaceTokenCiphertext() { return false; }
   async revokeById() { return false; }
   async deleteByIdReturningToken() { return null; }
 }
@@ -62,6 +64,7 @@ class FakeProtocol implements OidcProtocol {
   }
 
   async revokeRefreshToken() {}
+  async refresh(): Promise<never> { throw new Error("not used"); }
 }
 
 function fixture() {

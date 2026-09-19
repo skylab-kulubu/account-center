@@ -580,6 +580,63 @@ a.settings-row:hover .settings-row__chevron {
   line-height: 1.6;
 }
 
+.account-data-problem .primary-button {
+  margin-top: 20px;
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-card);
+}
+
+.session-card {
+  display: flex;
+  min-height: 82px;
+  align-items: center;
+  gap: 13px;
+  padding: 16px;
+}
+
+.session-card + .session-card {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.session-card__icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.session-card__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.session-card__copy strong {
+  color: #e8e5e9;
+  font-size: 0.82rem;
+  font-weight: 550;
+}
+
+.session-card__copy small {
+  margin-top: 5px;
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
 .danger-card {
   display: flex;
   align-items: flex-start;
@@ -840,6 +897,15 @@ a.settings-row:hover .settings-row__chevron {
 
   .danger-card {
     flex-direction: column;
+  }
+
+  .session-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .session-card .status-badge {
+    margin-left: 51px;
   }
 }
 

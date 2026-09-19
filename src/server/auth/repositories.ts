@@ -29,6 +29,13 @@ export type SessionUseOutcome = SessionUseResult | { proofRejected: true };
 export interface SessionRepository {
   insert(session: NewSessionRecord): Promise<void>;
   useHandle(input: UseSessionInput): Promise<SessionUseOutcome | null>;
+  getTokenCiphertext(id: string, now: Date): Promise<string | null>;
+  replaceTokenCiphertext(
+    id: string,
+    expectedCiphertext: string,
+    replacementCiphertext: string,
+    now: Date,
+  ): Promise<boolean>;
   revokeByHandle(handleHash: Buffer, revokedAt: Date): Promise<boolean>;
   revokeById(id: string, revokedAt: Date): Promise<boolean>;
   deleteByIdReturningToken(id: string): Promise<string | null>;
