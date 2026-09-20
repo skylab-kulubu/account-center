@@ -20,9 +20,29 @@ deleted_rate_limits AS (
   DELETE FROM account_auth_rate_limits
    WHERE expires_at < now()
   RETURNING 1
+),
+deleted_native_handoffs AS (
+  DELETE FROM account_native_handoffs
+   WHERE expires_at < now() - interval '1 hour'
+      OR consumed_at < now() - interval '1 hour'
+  RETURNING 1
+),
+deleted_native_bridges AS (
+  DELETE FROM account_native_bridges
+   WHERE expires_at < now() - interval '1 hour'
+      OR consumed_at < now() - interval '1 hour'
+  RETURNING 1
+),
+deleted_native_bridge_nonces AS (
+  DELETE FROM account_native_bridge_request_nonces
+   WHERE expires_at < now()
+  RETURNING 1
 )
 SELECT
   (SELECT count(*)::integer FROM deleted_transactions) AS deleted_transactions,
   (SELECT count(*)::integer FROM deleted_sessions) AS deleted_sessions,
   (SELECT count(*)::integer FROM deleted_logout_replays) AS deleted_logout_replays,
-  (SELECT count(*)::integer FROM deleted_rate_limits) AS deleted_rate_limits;
+  (SELECT count(*)::integer FROM deleted_rate_limits) AS deleted_rate_limits,
+  (SELECT count(*)::integer FROM deleted_native_handoffs) AS deleted_native_handoffs,
+  (SELECT count(*)::integer FROM deleted_native_bridges) AS deleted_native_bridges,
+  (SELECT count(*)::integer FROM deleted_native_bridge_nonces) AS deleted_native_bridge_nonces;

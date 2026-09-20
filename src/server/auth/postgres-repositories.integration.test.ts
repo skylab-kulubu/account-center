@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   PostgresBackchannelLogoutRepository,
+  PostgresNativeHandoffRepository,
   PostgresOidcTransactionRepository,
   PostgresRateLimitRepository,
   PostgresSessionRepository,
@@ -19,6 +20,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     for (const migrationName of [
       "0001_bff_web_sessions.sql",
       "0002_auth_security_controls.sql",
+      "0003_native_handoff.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);
@@ -27,7 +29,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
 
   beforeEach(async () => {
     await pool.query(
-      "TRUNCATE account_oidc_transactions, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits",
+      "TRUNCATE account_oidc_transactions, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_native_handoffs, account_native_bridges, account_native_bridge_request_nonces",
     );
   });
 
@@ -185,6 +187,28 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       [Buffer.alloc(32, 14), Buffer.alloc(32, 15)],
     );
     await pool.query(
+      `INSERT INTO account_native_handoffs
+        (id, code_hash, subject, keycloak_sid, authenticated_at, created_at, expires_at, consumed_at)
+       VALUES
+        ('12121212-1212-4212-8212-121212121212', $1, 'old-native', 'old-sid', now() - interval '3 hours', now() - interval '3 hours', now() - interval '2 hours', now() - interval '2 hours'),
+        ('13131313-1313-4313-8313-131313131313', $2, 'fresh-native', 'fresh-sid', now(), now(), now() + interval '45 seconds', NULL)`,
+      [Buffer.alloc(32, 50), Buffer.alloc(32, 51)],
+    );
+    await pool.query(
+      `INSERT INTO account_native_bridges
+        (id, code_hash, subject, keycloak_sid, authenticated_at, created_at, expires_at, consumed_at)
+       VALUES
+        ('14141414-1414-4414-8414-141414141414', $1, 'old-native', 'old-sid', now() - interval '3 hours', now() - interval '3 hours', now() - interval '2 hours', now() - interval '2 hours'),
+        ('15151515-1515-4515-8515-151515151515', $2, 'fresh-native', 'fresh-sid', now(), now(), now() + interval '45 seconds', NULL)`,
+      [Buffer.alloc(32, 52), Buffer.alloc(32, 53)],
+    );
+    await pool.query(
+      `INSERT INTO account_native_bridge_request_nonces (nonce_hash, seen_at, expires_at)
+       VALUES ($1, now() - interval '2 minutes', now() - interval '1 minute'),
+              ($2, now(), now() + interval '1 minute')`,
+      [Buffer.alloc(32, 54), Buffer.alloc(32, 55)],
+    );
+    await pool.query(
       `INSERT INTO account_sessions
         (id, subject, handle_hash, token_ciphertext, created_at, rotated_at, last_seen_at,
          idle_expires_at, absolute_expires_at, revoked_at)
@@ -209,6 +233,9 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     expect(result.rows[0]?.deleted_sessions).toBe(2);
     expect(result.rows[0]?.deleted_logout_replays).toBe(1);
     expect(result.rows[0]?.deleted_rate_limits).toBe(1);
+    expect(result.rows[0]?.deleted_native_handoffs).toBe(1);
+    expect(result.rows[0]?.deleted_native_bridges).toBe(1);
+    expect(result.rows[0]?.deleted_native_bridge_nonces).toBe(1);
     const remainingTransactions = await pool.query(
       "SELECT payload_ciphertext FROM account_oidc_transactions",
     );
@@ -266,5 +293,151 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     );
     expect(decisions.filter((decision) => decision.allowed)).toHaveLength(10);
     expect(Math.max(...decisions.map((decision) => decision.count))).toBe(30);
+  });
+
+  it("atomically exchanges and redeems native handoffs under concurrent replay", async () => {
+    const repository = new PostgresNativeHandoffRepository(pool);
+    const now = new Date("2026-09-20T12:00:00Z");
+    await repository.insert({
+      id: "99999999-9999-4999-8999-999999999999",
+      codeHash: Buffer.alloc(32, 30),
+      subject: "native-user",
+      keycloakSid: "native-session",
+      authenticatedAt: new Date("2026-09-20T11:45:00Z"),
+      createdAt: now,
+      expiresAt: new Date("2026-09-20T12:00:45Z"),
+    });
+
+    const exchanges = await Promise.all([
+      repository.consumeAndCreateBridge({
+        publicCodeHash: Buffer.alloc(32, 30),
+        bridgeId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        bridgeCodeHash: Buffer.alloc(32, 31),
+        now: new Date("2026-09-20T12:00:01Z"),
+        bridgeExpiresAt: new Date("2026-09-20T12:00:46Z"),
+      }),
+      repository.consumeAndCreateBridge({
+        publicCodeHash: Buffer.alloc(32, 30),
+        bridgeId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        bridgeCodeHash: Buffer.alloc(32, 32),
+        now: new Date("2026-09-20T12:00:01Z"),
+        bridgeExpiresAt: new Date("2026-09-20T12:00:46Z"),
+      }),
+    ]);
+    expect(exchanges.filter(Boolean)).toHaveLength(1);
+    expect(exchanges.find(Boolean)).toEqual({
+      subject: "native-user",
+      keycloakSid: "native-session",
+      authenticatedAt: new Date("2026-09-20T11:45:00Z"),
+    });
+    const winningBridgeHash = exchanges[0] ? Buffer.alloc(32, 31) : Buffer.alloc(32, 32);
+
+    const redemptions = await Promise.all([
+      repository.redeemBridge({
+        bridgeCodeHash: winningBridgeHash,
+        requestNonceHash: Buffer.alloc(32, 33),
+        now: new Date("2026-09-20T12:00:02Z"),
+        requestNonceExpiresAt: new Date("2026-09-20T12:01:02Z"),
+      }),
+      repository.redeemBridge({
+        bridgeCodeHash: winningBridgeHash,
+        requestNonceHash: Buffer.alloc(32, 34),
+        now: new Date("2026-09-20T12:00:02Z"),
+        requestNonceExpiresAt: new Date("2026-09-20T12:01:02Z"),
+      }),
+    ]);
+    expect(redemptions.filter(Boolean)).toHaveLength(1);
+    expect(redemptions.find(Boolean)).toEqual({
+      subject: "native-user",
+      keycloakSid: "native-session",
+      authenticatedAt: new Date("2026-09-20T11:45:00Z"),
+    });
+    const stored = await pool.query(
+      "SELECT octet_length(code_hash) AS hash_bytes FROM account_native_handoffs UNION ALL SELECT octet_length(code_hash) FROM account_native_bridges",
+    );
+    expect(stored.rows).toEqual([{ hash_bytes: 32 }, { hash_bytes: 32 }]);
+  });
+
+  it("rejects expired codes and persists request nonces even when bridge lookup fails", async () => {
+    const repository = new PostgresNativeHandoffRepository(pool);
+    await repository.insert({
+      id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      codeHash: Buffer.alloc(32, 40),
+      subject: "native-user",
+      keycloakSid: "native-session",
+      authenticatedAt: new Date("2026-09-20T11:45:00Z"),
+      createdAt: new Date("2026-09-20T12:00:00Z"),
+      expiresAt: new Date("2026-09-20T12:00:45Z"),
+    });
+    await expect(repository.consumeAndCreateBridge({
+      publicCodeHash: Buffer.alloc(32, 40),
+      bridgeId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      bridgeCodeHash: Buffer.alloc(32, 41),
+      now: new Date("2026-09-20T12:00:45Z"),
+      bridgeExpiresAt: new Date("2026-09-20T12:01:30Z"),
+    })).resolves.toBeNull();
+
+    await repository.insert({
+      id: "abababab-abab-4bab-8bab-abababababab",
+      codeHash: Buffer.alloc(32, 43),
+      subject: "native-user",
+      keycloakSid: "native-session",
+      authenticatedAt: new Date("2026-09-20T11:45:00Z"),
+      createdAt: new Date("2026-09-20T12:00:00Z"),
+      expiresAt: new Date("2026-09-20T12:00:45Z"),
+    });
+    await expect(repository.consumeAndCreateBridge({
+      publicCodeHash: Buffer.alloc(32, 43),
+      bridgeId: "acacacac-acac-4cac-8cac-acacacacacac",
+      bridgeCodeHash: Buffer.alloc(32, 44),
+      now: new Date("2026-09-20T12:00:01Z"),
+      bridgeExpiresAt: new Date("2026-09-20T12:00:45Z"),
+    })).resolves.not.toBeNull();
+
+    await expect(repository.redeemBridge({
+      bridgeCodeHash: Buffer.alloc(32, 99),
+      requestNonceHash: Buffer.alloc(32, 42),
+      now: new Date("2026-09-20T12:00:10Z"),
+      requestNonceExpiresAt: new Date("2026-09-20T12:01:10Z"),
+    })).resolves.toBeNull();
+    await expect(repository.redeemBridge({
+      bridgeCodeHash: Buffer.alloc(32, 44),
+      requestNonceHash: Buffer.alloc(32, 42),
+      now: new Date("2026-09-20T12:00:11Z"),
+      requestNonceExpiresAt: new Date("2026-09-20T12:01:11Z"),
+    })).resolves.toBeNull();
+    await expect(repository.redeemBridge({
+      bridgeCodeHash: Buffer.alloc(32, 44),
+      requestNonceHash: Buffer.alloc(32, 45),
+      now: new Date("2026-09-20T12:00:12Z"),
+      requestNonceExpiresAt: new Date("2026-09-20T12:01:12Z"),
+    })).resolves.toMatchObject({ subject: "native-user" });
+    await repository.insert({
+      id: "adadadad-adad-4dad-8dad-adadadadadad",
+      codeHash: Buffer.alloc(32, 46),
+      subject: "native-user",
+      keycloakSid: "native-session",
+      authenticatedAt: new Date("2026-09-20T11:45:00Z"),
+      createdAt: new Date("2026-09-20T12:00:00Z"),
+      expiresAt: new Date("2026-09-20T12:00:45Z"),
+    });
+    await repository.consumeAndCreateBridge({
+      publicCodeHash: Buffer.alloc(32, 46),
+      bridgeId: "aeaeaeae-aeae-4eae-8eae-aeaeaeaeaeae",
+      bridgeCodeHash: Buffer.alloc(32, 47),
+      now: new Date("2026-09-20T12:00:01Z"),
+      bridgeExpiresAt: new Date("2026-09-20T12:00:10Z"),
+    });
+    await expect(repository.redeemBridge({
+      bridgeCodeHash: Buffer.alloc(32, 47),
+      requestNonceHash: Buffer.alloc(32, 48),
+      now: new Date("2026-09-20T12:00:10Z"),
+      requestNonceExpiresAt: new Date("2026-09-20T12:01:10Z"),
+    })).resolves.toBeNull();
+    const nonces = await pool.query(
+      "SELECT count(*)::integer AS count FROM account_native_bridge_request_nonces WHERE nonce_hash = $1",
+      [Buffer.alloc(32, 42)],
+    );
+    expect(nonces.rows).toEqual([{ count: 1 }]);
   });
 });

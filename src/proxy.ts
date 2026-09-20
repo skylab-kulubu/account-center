@@ -3,7 +3,12 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 const sessionCookie = "__Host-sky-account";
-const publicPages = new Set(["/login"]);
+const publicPages = new Set([
+  "/login",
+  "/handoff",
+  "/v1/native-handoff",
+  "/internal/v1/native-handoff/redeem",
+]);
 
 function contentSecurityPolicy(nonce: string) {
   const isDevelopment = process.env.NODE_ENV === "development";

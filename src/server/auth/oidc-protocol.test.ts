@@ -47,6 +47,38 @@ describe("OAuth4WebApiProtocol", () => {
     expect(new URLSearchParams(pushed?.body).getAll("scope")).toEqual(["openid"]);
   });
 
+  it("keeps the native bridge hint inside PAR and out of the browser authorization URL", async () => {
+    const requests: Array<{ url: string; body?: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push({ url, ...(init?.body ? { body: String(init.body) } : {}) });
+      if (url.includes(".well-known")) return Response.json(discovery);
+      return Response.json(
+        { request_uri: "urn:ietf:params:oauth:request_uri:native", expires_in: 45 },
+        { status: 201 },
+      );
+    }));
+
+    const result = await new OAuth4WebApiProtocol(config).begin({
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+      nativeBridgeCode: "opaque-bridge-hint",
+    });
+
+    const pushed = requests.find(({ url }) => url === discovery.pushed_authorization_request_endpoint);
+    expect(new URLSearchParams(pushed?.body).get("sky_native_handoff")).toBe("opaque-bridge-hint");
+    expect(result.authorizationUrl.searchParams.get("request_uri")).toBe(
+      "urn:ietf:params:oauth:request_uri:native",
+    );
+    expect([...result.authorizationUrl.searchParams.keys()].sort()).toEqual([
+      "client_id",
+      "request_uri",
+    ]);
+    expect(result.authorizationUrl.searchParams.get("sky_native_handoff")).toBeNull();
+    expect(result.authorizationUrl.href).not.toContain("opaque-bridge-hint");
+  });
+
   it("requires a sane auth_time from the verified ID-token claims", () => {
     const now = new Date("2026-09-20T01:00:00Z");
     expect(

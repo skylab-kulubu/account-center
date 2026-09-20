@@ -5,11 +5,19 @@ import type { NextRequest } from "next/server";
 import { hmacSha256 } from "@/server/auth/crypto";
 import type { RateLimitRepository } from "@/server/auth/repositories";
 
-export type AnonymousAuthRateLimitScope = "login" | "callback";
+export type AnonymousAuthRateLimitScope =
+  | "login"
+  | "callback"
+  | "native_create"
+  | "native_consume"
+  | "native_redeem";
 
 const policies: Record<AnonymousAuthRateLimitScope, { limit: number; windowSeconds: number }> = {
   login: { limit: 10, windowSeconds: 60 },
   callback: { limit: 30, windowSeconds: 60 },
+  native_create: { limit: 10, windowSeconds: 60 },
+  native_consume: { limit: 30, windowSeconds: 60 },
+  native_redeem: { limit: 120, windowSeconds: 60 },
 };
 
 function canonicalIp(value: string) {
@@ -38,6 +46,11 @@ export class AnonymousAuthRateLimiter {
   ) {}
 
   async consume(request: Pick<NextRequest, "headers">, scope: AnonymousAuthRateLimitScope) {
+    const address = trustedClientAddress(request, this.trustedProxy);
+    return this.consumeKey(scope, address);
+  }
+
+  async consumeKey(scope: AnonymousAuthRateLimitScope, identity: string) {
     const now = this.clock();
     const policy = policies[scope];
     const windowMilliseconds = policy.windowSeconds * 1_000;
@@ -45,9 +58,8 @@ export class AnonymousAuthRateLimiter {
       Math.floor(now.getTime() / windowMilliseconds) * windowMilliseconds,
     );
     const windowExpiresAt = new Date(windowStartedAt.getTime() + windowMilliseconds);
-    const address = trustedClientAddress(request, this.trustedProxy);
     const result = await this.repository.consume({
-      keyHash: hmacSha256(this.hmacKey, `rate-limit:${scope}`, address),
+      keyHash: hmacSha256(this.hmacKey, `rate-limit:${scope}`, identity),
       windowStartedAt,
       windowExpiresAt,
       limit: policy.limit,

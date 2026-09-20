@@ -59,11 +59,30 @@ export class OidcTransactionStore {
         sha256(browserBinding).toString("base64url"),
       )
     ) return null;
+    const hasExpectedSubject = payload.expectedSubject !== undefined;
+    const hasExpectedAuthenticationTime = payload.expectedAuthenticatedAt !== undefined;
+    if (hasExpectedSubject !== hasExpectedAuthenticationTime) return null;
+    if (hasExpectedSubject) {
+      const expectedTime = new Date(payload.expectedAuthenticatedAt!);
+      if (
+        typeof payload.expectedSubject !== "string" ||
+        payload.expectedSubject.length === 0 ||
+        payload.expectedSubject.length > 255 ||
+        !Number.isFinite(expectedTime.getTime()) ||
+        expectedTime.toISOString() !== payload.expectedAuthenticatedAt
+      ) return null;
+    }
     return {
       state: payload.state,
       nonce: payload.nonce,
       codeVerifier: payload.codeVerifier,
       returnTo: payload.returnTo,
+      ...(hasExpectedSubject
+        ? {
+            expectedSubject: payload.expectedSubject,
+            expectedAuthenticatedAt: payload.expectedAuthenticatedAt,
+          }
+        : {}),
     };
   }
 }

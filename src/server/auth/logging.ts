@@ -26,7 +26,10 @@ type AuthLog = {
     | "oidc_login_completed"
     | "oidc_login_failed"
     | "local_logout"
-    | "backchannel_logout";
+    | "backchannel_logout"
+    | "native_handoff_created"
+    | "native_handoff_consumed"
+    | "native_bridge_redeemed";
   requestId: string;
   outcome: "success" | "failure";
   reason?:
@@ -37,7 +40,12 @@ type AuthLog = {
     | "invalid_logout_token"
     | "replayed_logout_token"
     | "deleted_token_decrypt_failed"
-    | "upstream_revocation_failed";
+    | "upstream_revocation_failed"
+    | "invalid_origin"
+    | "invalid_token"
+    | "invalid_handoff"
+    | "invalid_bridge_request"
+    | "rate_limited";
 };
 
 export function logAuthEvent(entry: AuthLog) {

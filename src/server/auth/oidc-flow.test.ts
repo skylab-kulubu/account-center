@@ -40,6 +40,12 @@ class FakeProtocol implements OidcProtocol {
   proof?: BeginAuthorizationInput;
   exchanged?: ExchangeAuthorizationInput;
   rejectExchange = false;
+  authorization: AuthorizationResult = {
+    subject: "user-id",
+    keycloakSid: "keycloak-session",
+    authenticatedAt: new Date(),
+    tokens: { accessToken: "access", idToken: "id", tokenType: "bearer" },
+  };
 
   async begin(input: BeginAuthorizationInput) {
     this.proof = input;
@@ -55,12 +61,7 @@ class FakeProtocol implements OidcProtocol {
     ) {
       throw new Error("nonce or PKCE validation failed");
     }
-    return {
-      subject: "user-id",
-      keycloakSid: "keycloak-session",
-      authenticatedAt: new Date(),
-      tokens: { accessToken: "access", idToken: "id", tokenType: "bearer" },
-    };
+    return this.authorization;
   }
 
   async revokeRefreshToken() {}
@@ -117,5 +118,54 @@ describe("OidcFlowService", () => {
     callback.searchParams.set("state", protocol.proof!.state);
     await expect(flow.callback(callback, started.browserBinding)).rejects.toThrow(/nonce or PKCE/);
     expect(repository.inserted).toBeUndefined();
+  });
+
+  it("binds a native PAR bridge to the expected subject and original authentication time", async () => {
+    const { flow, protocol, repository } = fixture();
+    const authenticatedAt = new Date(Date.now() - 15 * 60 * 1_000);
+    const started = await flow.beginNative(
+      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt },
+      "bridge-hint",
+    );
+    expect(protocol.proof).toMatchObject({ nativeBridgeCode: "bridge-hint" });
+
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    callback.searchParams.set("state", protocol.proof!.state);
+    protocol.authorization = {
+      ...protocol.authorization,
+      subject: "other-user",
+      authenticatedAt,
+    };
+    await expect(flow.callback(callback, started.browserBinding)).rejects.toThrow(/native identity/);
+    expect(repository.inserted).toBeUndefined();
+  });
+
+  it("creates a session only when native callback identity and auth_time both match", async () => {
+    const { flow, protocol, repository } = fixture();
+    const authenticatedAt = new Date(Date.now() - 15 * 60 * 1_000);
+    const started = await flow.beginNative(
+      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt },
+      "bridge-hint",
+    );
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    callback.searchParams.set("state", protocol.proof!.state);
+    protocol.authorization = {
+      ...protocol.authorization,
+      subject: "native-user",
+      authenticatedAt: new Date(authenticatedAt.getTime() + 1_000),
+    };
+    await expect(flow.callback(callback, started.browserBinding)).rejects.toThrow(/authentication time/);
+    expect(repository.inserted).toBeUndefined();
+
+    const retry = await flow.beginNative(
+      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt },
+      "bridge-hint-2",
+    );
+    callback.searchParams.set("state", protocol.proof!.state);
+    protocol.authorization.authenticatedAt = authenticatedAt;
+    await expect(flow.callback(callback, retry.browserBinding)).resolves.toMatchObject({
+      returnTo: "/",
+    });
+    expect(repository.inserted?.subject).toBe("native-user");
   });
 });

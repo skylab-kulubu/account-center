@@ -33,6 +33,9 @@ try {
         deletedSessions: result.rows[0]?.deleted_sessions ?? 0,
         deletedLogoutReplays: result.rows[0]?.deleted_logout_replays ?? 0,
         deletedRateLimits: result.rows[0]?.deleted_rate_limits ?? 0,
+        deletedNativeHandoffs: result.rows[0]?.deleted_native_handoffs ?? 0,
+        deletedNativeBridges: result.rows[0]?.deleted_native_bridges ?? 0,
+        deletedNativeBridgeNonces: result.rows[0]?.deleted_native_bridge_nonces ?? 0,
       }));
     }
   } catch (error) {
