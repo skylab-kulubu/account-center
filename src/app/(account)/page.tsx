@@ -6,8 +6,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { AccountDataProblem } from "@/components/account-data-problem";
-import { PageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { accountRoute } from "@/config/account-routes";
 import { loadOverview } from "@/server/keycloak-account/page-data";
+
+const route = accountRoute("/");
+
+export const metadata = { title: route.documentTitle };
 
 export default async function OverviewPage() {
   const data = await loadOverview();
@@ -16,11 +21,7 @@ export default async function OverviewPage() {
     : null;
   return (
     <div className="page-stack">
-      <PageHeader
-        eyebrow="SKY LAB"
-        title="Hesabın, tek ve güvenli bir merkezde."
-        description="Kimlik bilgilerini, giriş yöntemlerini ve açık oturumlarını buradan yönetebilirsin."
-      />
+      <AccountPageHeader route={route} />
 
       {data.ok ? (
         <section className="identity-card" aria-labelledby="identity-heading">

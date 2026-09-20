@@ -1,18 +1,18 @@
 import { AtSign, UserRound } from "lucide-react";
 import { AccountDataProblem } from "@/components/account-data-problem";
-import { PageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { accountRoute } from "@/config/account-routes";
 import { loadProfile } from "@/server/keycloak-account/page-data";
 
-export const metadata = { title: "Kişisel bilgiler" };
+const route = accountRoute("/personal-information");
+
+export const metadata = { title: route.documentTitle };
 
 export default async function PersonalInformationPage() {
   const data = await loadProfile();
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Kişisel bilgiler"
-        description="SKY LAB kimliğinde kullanılan temel bilgileri görüntüle ve yönet."
-      />
+      <AccountPageHeader route={route} />
       {data.ok ? (
         <SettingsGroup title="Kimlik bilgileri" description="Bu alanlar merkezi SKY LAB kimliğine bağlıdır.">
           <SettingsRow
@@ -33,9 +33,9 @@ export default async function PersonalInformationPage() {
           />
         </SettingsGroup>
       ) : <AccountDataProblem problem={data.problem} retryHref="/personal-information" />}
-      <p className="page-hint">
-        Üniversite, bölüm, kulüp rolleri ve üyelik bilgileri Hesap Merkezi kapsamına dahil değildir.
-      </p>
+      <aside className="read-only-note" aria-label="Bilgileri değiştirme">
+        Bu bilgiler salt okunurdur. Bir düzeltme gerekiyorsa SKY LAB yönetim ekibiyle iletişime geç.
+      </aside>
     </div>
   );
 }

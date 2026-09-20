@@ -179,10 +179,22 @@ BEGIN
   IF actual_columns IS DISTINCT FROM expected_columns THEN
     RAISE EXCEPTION 'account_deletion_intents has an unexpected column fingerprint';
   END IF;
-  IF actual_constraints IS DISTINCT FROM expected_constraints THEN
+  IF (
+    SELECT array_agg(signature ORDER BY signature COLLATE "C")
+      FROM unnest(actual_constraints) AS fingerprint(signature)
+  ) IS DISTINCT FROM (
+    SELECT array_agg(signature ORDER BY signature COLLATE "C")
+      FROM unnest(expected_constraints) AS fingerprint(signature)
+  ) THEN
     RAISE EXCEPTION 'account_deletion_intents has an unexpected constraint fingerprint';
   END IF;
-  IF actual_indexes IS DISTINCT FROM expected_indexes THEN
+  IF (
+    SELECT array_agg(signature ORDER BY signature COLLATE "C")
+      FROM unnest(actual_indexes) AS fingerprint(signature)
+  ) IS DISTINCT FROM (
+    SELECT array_agg(signature ORDER BY signature COLLATE "C")
+      FROM unnest(expected_indexes) AS fingerprint(signature)
+  ) THEN
     RAISE EXCEPTION 'account_deletion_intents has an unexpected index fingerprint';
   END IF;
 END

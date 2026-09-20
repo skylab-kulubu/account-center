@@ -2,10 +2,13 @@ import { Fingerprint, KeyRound, ShieldCheck, Smartphone } from "lucide-react";
 import { AccountActionNotice } from "@/components/account-action-notice";
 import { AccountDataProblem } from "@/components/account-data-problem";
 import { SecurityActionForm } from "@/components/security-action-form";
-import { PageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { accountRoute } from "@/config/account-routes";
 import { loadSecurity } from "@/server/keycloak-account/page-data";
 
-export const metadata = { title: "Giriş ve güvenlik" };
+const route = accountRoute("/security");
+
+export const metadata = { title: route.documentTitle };
 
 function formattedDate(value: string | null) {
   if (!value) return "Eklenme tarihi bilinmiyor";
@@ -27,10 +30,7 @@ export default async function SecurityPage({
   const actionCsrfToken = data.ok ? data.value.actionCsrfToken : data.actionCsrfToken;
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Giriş ve güvenlik"
-        description="Şifreni, passkey’lerini ve iki adımlı doğrulamayı tek yerden yönet. Her değişiklik SKY LAB giriş ekranında yeniden doğrulama ister."
-      />
+      <AccountPageHeader route={route} />
       <AccountActionNotice
         result={actionResult}
         reference={actionResult ? feedback.result : undefined}

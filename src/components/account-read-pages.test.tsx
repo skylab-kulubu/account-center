@@ -73,6 +73,8 @@ describe("Account REST-backed pages", () => {
     render(await PersonalInformationPage());
     expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
     expect(screen.getByText("Doğrulandı")).toBeInTheDocument();
+    expect(screen.getByText(/yalnızca görüntüleyebilirsin/i)).toBeInTheDocument();
+    expect(screen.queryByText(/görüntüle ve yönet/i)).not.toBeInTheDocument();
   });
 
   it("renders authentication status and account security actions", async () => {

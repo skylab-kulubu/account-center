@@ -1,16 +1,16 @@
 import { ShieldOff } from "lucide-react";
 import { SessionManager } from "@/components/session-manager";
-import { PageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/settings";
+import { accountRoute } from "@/config/account-routes";
 
-export const metadata = { title: "Oturumlar ve cihazlar" };
+const route = accountRoute("/sessions");
+
+export const metadata = { title: route.documentTitle };
 
 export default function SessionsPage() {
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Oturumlar ve cihazlar"
-        description="Hesabının açık olduğu cihazları gör ve tanımadığın oturumların erişimini kaldır."
-      />
+      <AccountPageHeader route={route} />
       <SessionManager />
       <aside className="security-note">
         <ShieldOff aria-hidden="true" size={19} />

@@ -20,11 +20,26 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile", use: { ...devices["Pixel 7"] } },
+    {
+      name: "desktop",
+      testIgnore: /account-ui\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "mobile",
+      testIgnore: /account-ui\.spec\.ts/,
+      use: { ...devices["Pixel 7"] },
+    },
     {
       name: "reduced-motion",
+      testIgnore: /account-ui\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], reducedMotion: "reduce" },
+    },
+    {
+      name: "account-ui-matrix",
+      dependencies: ["desktop", "mobile", "reduced-motion"],
+      testMatch: /account-ui\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
   webServer: {
