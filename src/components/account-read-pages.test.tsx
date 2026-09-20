@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import OverviewPage from "@/app/(account)/page";
 import PersonalInformationPage from "@/app/(account)/personal-information/page";
 import SecurityPage from "@/app/(account)/security/page";
-import SessionsPage from "@/app/(account)/sessions/page";
 import { loadSecurity } from "@/server/keycloak-account/page-data";
 import type { AccountActionResult } from "@/server/auth/types";
 
@@ -49,23 +48,6 @@ const pageData = vi.hoisted(() => ({
       }],
     },
   },
-  sessions: {
-    ok: true as const,
-    value: [{
-      id: "server-session-id",
-      startedAt: "2026-09-20T09:00:00.000Z",
-      lastAccessAt: "2026-09-20T10:00:00.000Z",
-      expiresAt: "2026-09-20T17:00:00.000Z",
-      browser: "Chrome/140.0",
-      current: true,
-      device: {
-        name: "MacBook",
-        operatingSystem: "macOS",
-        operatingSystemVersion: "15.6",
-        mobile: false,
-      },
-    }],
-  },
 }));
 
 vi.mock("@/server/keycloak-account/page-data", () => ({
@@ -73,7 +55,6 @@ vi.mock("@/server/keycloak-account/page-data", () => ({
   loadProfile: vi.fn(async () => pageData.profile),
   loadAuthentication: vi.fn(async () => pageData.authentication),
   loadSecurity: vi.fn(async () => pageData.security),
-  loadSessions: vi.fn(async () => pageData.sessions),
 }));
 
 describe("Account REST-backed pages", () => {
@@ -89,8 +70,8 @@ describe("Account REST-backed pages", () => {
     expect(screen.getByText("Doğrulandı")).toBeInTheDocument();
   });
 
-  it("renders authentication status and canonical session device hints", async () => {
-    const { unmount } = render(await SecurityPage({}));
+  it("renders authentication status and account security actions", async () => {
+    render(await SecurityPage({}));
     expect(screen.getByText("1 kayıtlı")).toBeInTheDocument();
     expect(screen.getAllByText("Ayarlı değil")).toHaveLength(1);
     expect(screen.getByText("MacBook Touch ID")).toBeInTheDocument();
@@ -99,13 +80,6 @@ describe("Account REST-backed pages", () => {
     expect(screen.getByRole("button", { name: "Doğrulama uygulaması ekle" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "MacBook Touch ID yöntemini kaldır" })).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("credential-passkey-one");
-    unmount();
-
-    const rendered = render(await SessionsPage());
-    expect(screen.getByText("MacBook · macOS · 15.6")).toBeInTheDocument();
-    expect(screen.getByText("Bu oturum")).toBeInTheDocument();
-    expect(rendered.container.textContent).not.toContain("server-session-id");
-    expect(rendered.container.textContent).not.toContain("203.0.113.42");
   });
 
   it("renders only a server-consumed one-time action result", async () => {

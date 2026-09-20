@@ -31,7 +31,8 @@ type AuthLog = {
     | "native_handoff_consumed"
     | "native_bridge_redeemed"
     | "account_action_started"
-    | "account_action_completed";
+    | "account_action_completed"
+    | "account_session_cleanup";
   requestId: string;
   outcome: "success" | "failure";
   reason?:
@@ -49,7 +50,8 @@ type AuthLog = {
     | "invalid_bridge_request"
     | "invalid_account_action"
     | "account_action_unverified"
-    | "rate_limited";
+    | "rate_limited"
+    | "local_session_revocation_failed";
 };
 
 export function logAuthEvent(entry: AuthLog) {

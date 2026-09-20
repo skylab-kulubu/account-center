@@ -98,6 +98,18 @@ export function sessionCsrfToken(secret: Buffer, sessionId: string) {
   return createHmac("sha256", secret).update(`account-center:csrf:v1:${sessionId}`, "utf8").digest("base64url");
 }
 
+export function upstreamSessionReference(
+  secret: Buffer,
+  browserSessionId: string,
+  upstreamSessionId: string,
+) {
+  return hmacSha256(
+    secret,
+    "upstream-session-reference",
+    `${browserSessionId}\0${upstreamSessionId}`,
+  ).toString("base64url");
+}
+
 export function hmacSha256(secret: Buffer, purpose: string, value: string) {
   return createHmac("sha256", secret)
     .update(`account-center:${purpose}:v1:`, "utf8")

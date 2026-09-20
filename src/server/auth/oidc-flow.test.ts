@@ -101,6 +101,8 @@ function fixture(decision: "active" | "blocked" | "unavailable" = "active") {
     authentication: async () => inventory.summary,
     credentialInventory: async () => inventory,
     sessions: async () => [],
+    revokeSession: async () => undefined,
+    revokeOtherSessions: async () => undefined,
     snapshot: async () => ({
       profile: { firstName: null, lastName: null, email: null, emailVerified: false },
       authentication: inventory.summary,

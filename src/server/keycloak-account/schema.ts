@@ -372,10 +372,12 @@ export function parseDeviceHints(value: unknown): Map<string, DeviceHint> {
 export function parseSessions(value: unknown, deviceHints = new Map<string, DeviceHint>()): AccountSession[] {
   if (!Array.isArray(value)) throw new KeycloakAccountContractError("sessions");
   const seen = new Set<string>();
+  let currentCount = 0;
   const sessions = value.map((session) => {
     const parsed = parseSession(session, "sessions");
     if (seen.has(parsed.id)) throw new KeycloakAccountContractError("sessions");
     seen.add(parsed.id);
+    if (parsed.current) currentCount += 1;
     return {
       id: parsed.id,
       startedAt: asIsoDate(parsed.started),
@@ -386,6 +388,9 @@ export function parseSessions(value: unknown, deviceHints = new Map<string, Devi
       device: deviceHints.get(parsed.id) ?? null,
     };
   });
+  if (sessions.length > 0 && currentCount !== 1) {
+    throw new KeycloakAccountContractError("sessions");
+  }
   return sessions.sort((left, right) =>
     Number(right.current) - Number(left.current) ||
     right.lastAccessAt.localeCompare(left.lastAccessAt),

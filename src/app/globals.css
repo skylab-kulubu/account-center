@@ -707,6 +707,207 @@ a.settings-row:hover .settings-row__chevron {
   line-height: 1.45;
 }
 
+.session-card__times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 9px;
+  color: #88818c;
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
+
+.session-card__times span {
+  white-space: nowrap;
+}
+
+.session-card__times time {
+  color: #b8b1bb;
+}
+
+.session-card__action {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.quiet-danger-button,
+.secondary-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: 8px;
+  color: #f5b5b5;
+  background: rgba(239, 68, 68, 0.07);
+  font-size: 0.68rem;
+  font-weight: 580;
+  cursor: pointer;
+}
+
+.quiet-danger-button:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.quiet-danger-button:disabled,
+.quiet-danger-button[aria-disabled="true"],
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.session-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.session-actions > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.session-actions strong {
+  color: #e8e5e9;
+  font-size: 0.76rem;
+  font-weight: 560;
+}
+
+.session-actions small {
+  margin-top: 4px;
+  color: var(--ink-faint);
+  font-size: 0.67rem;
+  line-height: 1.45;
+}
+
+.session-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(74, 222, 128, 0.14);
+  border-radius: 9px;
+  color: #bce7c9;
+  background: rgba(34, 197, 94, 0.07);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.session-feedback[data-tone="danger"] {
+  border-color: rgba(248, 113, 113, 0.16);
+  color: #eab8b8;
+  background: var(--danger-muted);
+}
+
+.session-feedback span {
+  display: flex;
+  flex-direction: column;
+}
+
+.session-feedback strong {
+  color: #f3cccc;
+  font-weight: 620;
+}
+
+.session-state .logo-loader {
+  width: 72px;
+  height: 72px;
+}
+
+.confirmation-dialog::backdrop {
+  background: rgba(2, 2, 4, 0.72);
+  backdrop-filter: blur(9px);
+}
+
+.confirmation-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(100%, 420px);
+  max-width: calc(100% - 40px);
+  margin: auto;
+  padding: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  color: inherit;
+  background: #151319;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+}
+
+.confirmation-dialog__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.confirmation-dialog__close:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.confirmation-dialog__icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgba(248, 113, 113, 0.18);
+  border-radius: 10px;
+  color: var(--danger);
+  background: var(--danger-muted);
+}
+
+.confirmation-dialog h2 {
+  margin: 18px 0 0;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 620;
+}
+
+.confirmation-dialog p {
+  margin: 9px 0 0;
+  color: var(--ink-muted);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+.confirmation-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 22px;
+}
+
+.secondary-button {
+  color: var(--ink-muted);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.danger-button--inline {
+  width: auto;
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 12px;
+}
+
 .danger-card {
   display: flex;
   align-items: flex-start;
@@ -982,6 +1183,42 @@ a.settings-row:hover .settings-row__chevron {
 
   .session-card .status-badge {
     margin-left: 51px;
+  }
+
+  .session-card__copy {
+    min-width: calc(100% - 51px);
+  }
+
+  .session-card__action {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .session-card__action .quiet-danger-button {
+    width: 100%;
+    margin-left: 51px;
+  }
+
+  .session-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .session-actions .quiet-danger-button {
+    width: 100%;
+  }
+
+  .confirmation-dialog {
+    padding: 22px;
+  }
+
+  .confirmation-dialog__actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .confirmation-dialog__actions button {
+    width: 100%;
   }
 }
 

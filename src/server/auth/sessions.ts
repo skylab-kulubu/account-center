@@ -1,7 +1,14 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { constantTimeEqual, hmacSha256, randomOpaqueValue, sessionCsrfToken, sha256 } from "@/server/auth/crypto";
+import {
+  constantTimeEqual,
+  hmacSha256,
+  randomOpaqueValue,
+  sessionCsrfToken,
+  sha256,
+  upstreamSessionReference,
+} from "@/server/auth/crypto";
 import type { SecretCipher } from "@/server/auth/crypto";
 import type { SessionRepository } from "@/server/auth/repositories";
 import type { BrowserSession, OidcTokenSet } from "@/server/auth/types";
@@ -150,6 +157,21 @@ export class SessionManager {
       "owned-credential-reference",
       `${sessionId}\0${credentialId}`,
     ).toString("base64url");
+  }
+
+  upstreamSessionReference(sessionId: string, upstreamSessionId: string) {
+    return upstreamSessionReference(this.csrfSecret, sessionId, upstreamSessionId);
+  }
+
+  verifyUpstreamSessionReference(
+    sessionId: string,
+    upstreamSessionId: string,
+    candidate: string,
+  ) {
+    return constantTimeEqual(
+      this.upstreamSessionReference(sessionId, upstreamSessionId),
+      candidate,
+    );
   }
 
   async revokeHandle(handle: string | undefined) {

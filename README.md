@@ -42,12 +42,15 @@ Browser login katmanı Authorization Code + S256 PKCE + PAR kullanır. OIDC tran
 
 Şifre, passkey ve TOTP değişiklikleri aynı callback URI’sini kullanan server-side PAR/AIA akışlarıdır. Allowlist, sahiplik referansı, fresh-auth ve başarı sonrası credential envanteri doğrulaması [hesap aksiyonları sözleşmesinde](docs/account-actions.md) tanımlıdır. AIA için ayrı URL/env yoktur; `OIDC_CLIENT_ID` tam olarak `account-center` olmalıdır.
 
+Oturum yönetimi yalnız kullanıcının sunucu tarafında tutulan Account REST token’ıyla çalışır. `/api/account/sessions` güvenli cihaz/tarayıcı/zaman görünümünü ve session-bound CSRF proof’unu döndürür; Keycloak session ID’si tarayıcıya verilmez. Boş olmayan upstream listede tam bir `current=true` kaydı yoksa liste salt-okunur hata durumuna geçer, opaque referans üretilmez ve hiçbir revoke çağrısı yapılmaz; gerçek boş liste ayrı bir boş durumdur. Tekil kapatma `DELETE /api/account/sessions/{opaque-reference}`, diğer tüm cihazları kapatma `DELETE /api/account/sessions` üzerinden raw `Origin` değerinin yapılandırılmış scheme+host(+port) ile birebir eşleşmesi ve CSRF denetiminden sonra yapılır. Her iki işlem de Keycloak’ın mevcut oturumunu korur. Keycloak yeniden doğrulama istediğinde yerel opaque session revoke edilir ve cookie temizlenir; yerel revoke geçici olarak hata verse de tarayıcı cookie’si kesin olarak sonlandırılır.
+
 ## Sınırlar
 
 - Kişisel bilgiler yalnız Keycloak’taki ad, soyad ve birincil e-postadır.
 - Şifre, OTP ve passkey mutasyonları Keycloak AIA ile yapılır.
 - Telefon, öğrenci kartı, kulüp rolleri, SkyPass ve uygulama verileri bu ürünün kapsamında değildir.
 - Mobile repository değiştirilmez; WebView entegrasyonu ayrı, sürümlü bir sözleşmeyle teslim edilir.
+- Oturum kapatma için browser veya BFF tarafında Keycloak Admin API, service account ya da kullanıcı/subject parametresi kullanılmaz.
 - Hesap silme mevcut fiziksel kullanıcı silme endpoint’ini çağırmaz; dayanıklı silme/anonimleştirme akışı kullanır.
 
 Ayrıntılar için [mimari notlara](docs/architecture.md) bakın.

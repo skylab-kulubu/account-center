@@ -232,6 +232,117 @@ test("mobile authenticated detail pages keep the direct back affordance", async 
   await expect(page.getByRole("heading", { name: "Oturumlar ve cihazlar" })).toBeVisible();
 });
 
+test("session management confirms a revoke and keeps the current browser signed in", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `sessions-${testInfo.retry}`);
+  const reference = "s".repeat(43);
+  const csrfToken = "e2e-session-bound-csrf";
+  const current = {
+    reference: null,
+    startedAt: "2026-09-20T08:00:00.000Z",
+    lastAccessAt: "2026-09-20T10:00:00.000Z",
+    expiresAt: "2026-09-20T16:00:00.000Z",
+    browser: "Chrome/140.0",
+    current: true,
+    device: { name: "MacBook", operatingSystem: "macOS", operatingSystemVersion: "15.6", mobile: false },
+  };
+  const other = {
+    reference,
+    startedAt: "2026-09-19T08:00:00.000Z",
+    lastAccessAt: "2026-09-19T10:00:00.000Z",
+    expiresAt: "2026-09-20T16:00:00.000Z",
+    browser: "Mobile Safari/26.0",
+    current: false,
+    device: { name: "iPhone", operatingSystem: "iOS", operatingSystemVersion: "26.0", mobile: true },
+  };
+  let sessions = [current, other];
+  let revokeHeaders: Record<string, string> | undefined;
+  let revokeStatus: number | undefined;
+  let bulkRevokeStatus: number | undefined;
+  page.on("response", (response) => {
+    if (
+      response.request().method() === "DELETE" &&
+      new URL(response.url()).pathname === `/api/account/sessions/${reference}`
+    ) revokeStatus = response.status();
+    if (
+      response.request().method() === "DELETE" &&
+      new URL(response.url()).pathname === "/api/account/sessions"
+    ) bulkRevokeStatus = response.status();
+  });
+  await page.route(/\/api\/account\/sessions(?:\/[^/?]+)?(?:\?.*)?$/, async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === "GET" && url.pathname === "/api/account/sessions") {
+      await route.fulfill({ json: { sessions, csrfToken } });
+      return;
+    }
+    if (request.method() === "DELETE" && url.pathname === `/api/account/sessions/${reference}`) {
+      revokeHeaders = await request.allHeaders();
+      sessions = [current];
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    if (request.method() === "DELETE" && url.pathname === "/api/account/sessions") {
+      sessions = [current];
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    await route.abort();
+  });
+
+  await page.goto("/sessions");
+  await expect(page.getByText("MacBook · macOS · 15.6")).toBeVisible();
+  await expect(page.getByText("iPhone · iOS · 26.0")).toBeVisible();
+  expect(await page.locator("body").textContent()).not.toContain(reference);
+
+  const revokeTrigger = page.getByRole("button", { name: "Oturumu kapat" });
+  await revokeTrigger.click();
+  const dialog = page.getByRole("dialog", { name: "Oturumu kapat" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await expect(dialog.getByRole("button", { name: "Pencereyi kapat" })).toBeFocused();
+  expect(await page.evaluate(() => {
+    const outside = document.querySelector<HTMLElement>(".account-sidebar a");
+    outside?.focus();
+    return document.activeElement === outside;
+  })).toBe(false);
+  for (let index = 0; index < 5; index += 1) {
+    await page.keyboard.press("Tab");
+    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(revokeTrigger).toBeFocused();
+
+  await revokeTrigger.click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Oturumu kapat" }).click();
+
+  await expect.poll(() => revokeStatus).toBe(204);
+  const singleSuccess = page.getByText("Oturum kapatıldı.");
+  await expect(singleSuccess).toBeVisible();
+  await expect(singleSuccess).toBeFocused();
+  await expect(page.getByText("iPhone · iOS · 26.0")).toBeHidden();
+  await expect(page.getByText("MacBook · macOS · 15.6")).toBeVisible();
+  expect(revokeHeaders?.["x-csrf-token"]).toBe(csrfToken);
+  expect(revokeHeaders?.origin).toBe(baseUrl);
+  expect(
+    (await context.cookies(baseUrl)).find((cookie) => cookie.name === sessionCookieName),
+  ).toBeDefined();
+
+  sessions = [current, other];
+  await page.reload();
+  const bulkTrigger = page.getByRole("button", { name: "Diğer tüm oturumları kapat" });
+  await bulkTrigger.click();
+  const bulkDialog = page.getByRole("dialog", { name: "Diğer tüm oturumları kapat" });
+  await bulkDialog.getByRole("button", { name: "Diğer tüm oturumları kapat" }).click();
+
+  await expect.poll(() => bulkRevokeStatus).toBe(204);
+  await expect(page.getByText("Diğer oturumlar kapatıldı.")).toBeVisible();
+  await expect(bulkTrigger).toBeFocused();
+  await expect(bulkTrigger).toHaveAttribute("aria-disabled", "true");
+});
+
 test("reduced motion removes ambient animation in the authenticated shell", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "reduced-motion", "reduced-motion-only assertion");
   await installAuthenticatedSession(context, `${testInfo.project.name}-${testInfo.retry}`);

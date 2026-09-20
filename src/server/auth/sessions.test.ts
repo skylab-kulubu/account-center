@@ -241,6 +241,24 @@ describe("SessionManager", () => {
     await expect(manager.authenticateMutation(created.handle, manager.csrfToken("different"))).resolves.toEqual({ status: "forbidden" });
   });
 
+  it("binds opaque upstream-session references to one local session and one upstream id", () => {
+    const manager = new SessionManager(
+      new MemorySessions(),
+      new AesGcmSecretCipher(Buffer.alloc(32, 1)),
+      Buffer.alloc(32, 2),
+      { absoluteTtlSeconds: 3600, upstreamSessionMaxSeconds: 3600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+    );
+
+    const reference = manager.upstreamSessionReference("local-one", "keycloak-one");
+
+    expect(reference).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(reference).not.toContain("keycloak-one");
+    expect(manager.verifyUpstreamSessionReference("local-one", "keycloak-one", reference)).toBe(true);
+    expect(manager.verifyUpstreamSessionReference("local-two", "keycloak-one", reference)).toBe(false);
+    expect(manager.verifyUpstreamSessionReference("local-one", "keycloak-two", reference)).toBe(false);
+    expect(manager.verifyUpstreamSessionReference("local-one", "keycloak-one", "x".repeat(43))).toBe(false);
+  });
+
   it("rejects idle-expired, absolute-expired, and revoked sessions", async () => {
     let now = new Date("2026-09-20T00:00:00Z");
     const makeManager = (policy: {
