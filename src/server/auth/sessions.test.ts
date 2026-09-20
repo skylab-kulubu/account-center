@@ -15,6 +15,24 @@ class MemorySessions implements SessionRepository {
     this.record = value;
   }
 
+  async findByHandle(handleHash: Buffer, now: Date) {
+    const row = this.record;
+    if (!row || row.revokedAt || row.absoluteExpiresAt <= now || row.idleExpiresAt <= now) return null;
+    const current = row.handleHash.equals(handleHash);
+    const previous = row.previousHandleHash?.equals(handleHash) &&
+      row.previousHandleExpiresAt && row.previousHandleExpiresAt > now;
+    if (!current && !previous) return null;
+    return {
+      id: row.id,
+      subject: row.subject,
+      keycloakSid: row.keycloakSid,
+      createdAt: row.createdAt,
+      lastSeenAt: row.lastSeenAt,
+      idleExpiresAt: row.idleExpiresAt,
+      absoluteExpiresAt: row.absoluteExpiresAt,
+    };
+  }
+
   async useHandle(input: UseSessionInput): Promise<SessionUseOutcome | null> {
     const row = this.record;
     if (!row || row.revokedAt || row.absoluteExpiresAt <= input.now || row.idleExpiresAt <= input.now) return null;
@@ -57,6 +75,12 @@ class MemorySessions implements SessionRepository {
     if (!this.record || !this.record.handleHash.equals(handleHash)) return false;
     this.record.revokedAt = revokedAt;
     return true;
+  }
+
+  async revokeBySubject(subject: string, revokedAt: Date) {
+    if (!this.record || this.record.subject !== subject || this.record.revokedAt) return 0;
+    this.record.revokedAt = revokedAt;
+    return 1;
   }
 
   async getTokenCiphertext(id: string, now: Date) {

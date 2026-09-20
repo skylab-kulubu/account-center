@@ -5,6 +5,10 @@ import { POST as createRoute } from "@/app/v1/native-handoff/route";
 import { OIDC_TRANSACTION_COOKIE } from "@/server/auth/http";
 import { InvalidNativeHandoffError } from "@/server/auth/native-handoff";
 import { InvalidNativeAccessTokenError } from "@/server/auth/native-handoff-token";
+import {
+  AccountAccessBlockedError,
+  AccountAccessUnavailableError,
+} from "@/server/access-gate/authorization";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -169,6 +173,46 @@ describe("native handoff public routes", () => {
     expect(duplicate.headers.get("location")).toBe(
       "https://my.yildizskylab.com/login?error=invalid_request",
     );
+    expect(replay.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(duplicate.headers.get("referrer-policy")).toBe("no-referrer");
     expect(replay.cookies.get(OIDC_TRANSACTION_COOKIE)).toBeUndefined();
+  });
+
+  it("maps blocked native identity to the same generic invalid-token response", async () => {
+    mocks.create.mockRejectedValue(new AccountAccessBlockedError());
+
+    const response = await createRoute(new NextRequest(
+      "https://my.yildizskylab.com/v1/native-handoff",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer header.payload.signature" },
+      },
+    ));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_token" });
+  });
+
+  it("returns retryable 503 without creating or consuming state when the gate is unavailable", async () => {
+    mocks.create.mockRejectedValue(new AccountAccessUnavailableError());
+    const create = await createRoute(new NextRequest(
+      "https://my.yildizskylab.com/v1/native-handoff",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer header.payload.signature" },
+      },
+    ));
+    mocks.consume.mockRejectedValue(new AccountAccessUnavailableError());
+    const consume = await handoffRoute(new NextRequest(
+      `https://my.yildizskylab.com/handoff?code=${"p".repeat(43)}`,
+    ));
+
+    for (const response of [create, consume]) {
+      expect(response.status).toBe(503);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("retry-after")).toBe("3");
+    }
+    expect(consume.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(consume.cookies.get(OIDC_TRANSACTION_COOKIE)).toBeUndefined();
   });
 });

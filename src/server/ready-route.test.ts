@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "@/app/api/ready/route";
 
 const readyMocks = vi.hoisted(() => ({
-  config: vi.fn(),
+  gateReady: vi.fn(),
   query: vi.fn(),
 }));
 
-vi.mock("@/server/auth/config", () => ({ getAuthConfig: readyMocks.config }));
+vi.mock("@/server/auth/services", () => ({
+  getAuthServices: () => ({ accountAccess: { ready: readyMocks.gateReady } }),
+}));
 vi.mock("@/server/db/pool", () => ({
   getDatabasePool: () => ({ query: readyMocks.query }),
 }));
@@ -14,7 +16,7 @@ vi.mock("@/server/db/pool", () => ({
 describe("readiness route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    readyMocks.config.mockReturnValue({});
+    readyMocks.gateReady.mockResolvedValue(true);
     readyMocks.query.mockResolvedValue({
       rows: [{ sessions_ready: true, controls_ready: true, native_ready: true, migrations_ready: true }],
     });
@@ -45,14 +47,21 @@ describe("readiness route", () => {
     expect(await response.json()).toEqual({ status: "not_ready", service: "account-center" });
   });
 
-  it("reports not ready when config or PostgreSQL validation fails", async () => {
-    readyMocks.config.mockImplementation(() => {
-      throw new Error("invalid environment");
-    });
+  it("reports not ready when PostgreSQL validation fails", async () => {
+    readyMocks.query.mockRejectedValue(new Error("database unavailable"));
 
     const response = await GET();
 
     expect(response.status).toBe(503);
-    expect(readyMocks.query).not.toHaveBeenCalled();
+    expect(readyMocks.gateReady).not.toHaveBeenCalled();
+  });
+
+  it("reports not ready when the access-gate contract is unavailable", async () => {
+    readyMocks.gateReady.mockResolvedValue(false);
+
+    const response = await GET();
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ status: "not_ready", service: "account-center" });
   });
 });

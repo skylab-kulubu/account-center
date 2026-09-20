@@ -10,6 +10,7 @@ const required = [
   "AUTH_TRUSTED_PROXY",
   "NATIVE_BRIDGE_HMAC_SECRET",
   "NATIVE_BRIDGE_MTLS_CLIENT_SHA256",
+  "ACCOUNT_ACCESS_GATE_MODE",
 ];
 
 const forbiddenPublicSecrets = [
@@ -18,6 +19,7 @@ const forbiddenPublicSecrets = [
   "NEXT_PUBLIC_TOKEN_ENCRYPTION_KEY",
   "NEXT_PUBLIC_OIDC_CLIENT_SECRET",
   "NEXT_PUBLIC_NATIVE_BRIDGE_HMAC_SECRET",
+  "NEXT_PUBLIC_ACCOUNT_ACCESS_REDIS_PASSWORD",
 ];
 
 const placeholderPattern = /(?:change[-_ ]?me|replace[-_ ]?with|example|placeholder|<[^>]+>)/i;
@@ -59,6 +61,59 @@ function requireOidcIssuer(value) {
     value !== `${url.origin}${url.pathname}`
   ) {
     throw new Error("OIDC_ISSUER must be a canonical credential-free Keycloak realm HTTPS URL.");
+  }
+}
+
+function requireInteger(name, value, minimum, maximum) {
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer.`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} is outside the safe range.`);
+  }
+}
+
+function validateAccountAccessEnvironment(env, issuer) {
+  const mode = env.ACCOUNT_ACCESS_GATE_MODE?.trim();
+  if (mode !== "off" && mode !== "enforce") {
+    throw new Error("ACCOUNT_ACCESS_GATE_MODE must be off or enforce.");
+  }
+  if (mode === "off") return;
+  if (issuer !== "https://e.yildizskylab.com/realms/e-skylab") {
+    throw new Error("OIDC_ISSUER must match the account access v1 contract in enforce mode.");
+  }
+  const names = [
+    "ACCOUNT_ACCESS_REDIS_HOST",
+    "ACCOUNT_ACCESS_REDIS_PORT",
+    "ACCOUNT_ACCESS_REDIS_USERNAME",
+    "ACCOUNT_ACCESS_REDIS_PASSWORD",
+    "ACCOUNT_ACCESS_REDIS_DATABASE",
+    "ACCOUNT_ACCESS_REDIS_TLS",
+    "ACCOUNT_ACCESS_REDIS_TLS_SERVER_NAME",
+    "ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS",
+  ];
+  const missing = names.filter((name) => !env[name]?.trim());
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
+  }
+  const placeholder = names.find((name) => placeholderPattern.test(env[name]));
+  if (placeholder) throw new Error(`${placeholder} contains a placeholder value.`);
+  if (env.ACCOUNT_ACCESS_REDIS_TLS.trim() !== "true") {
+    throw new Error("ACCOUNT_ACCESS_REDIS_TLS must be true in production.");
+  }
+  requireInteger("ACCOUNT_ACCESS_REDIS_PORT", env.ACCOUNT_ACCESS_REDIS_PORT.trim(), 1, 65_535);
+  requireInteger("ACCOUNT_ACCESS_REDIS_DATABASE", env.ACCOUNT_ACCESS_REDIS_DATABASE.trim(), 0, 255);
+  requireInteger(
+    "ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS",
+    env.ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS.trim(),
+    50,
+    1_000,
+  );
+  if (env.ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64?.trim()) {
+    decodeBase64Secret(
+      "ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64",
+      env.ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64.trim(),
+      1,
+    );
   }
 }
 
@@ -153,5 +208,6 @@ export function validateEnvironment(env) {
 
   requireHttpsOrigin("APP_URL", values.APP_URL);
   requireOidcIssuer(values.OIDC_ISSUER);
+  validateAccountAccessEnvironment(env, values.OIDC_ISSUER);
   validateDatabaseEnvironment(env);
 }

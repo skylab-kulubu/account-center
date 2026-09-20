@@ -6,6 +6,7 @@ import { OidcContractError, type OidcProtocol } from "@/server/auth/oidc-protoco
 import type { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import type { SessionManager } from "@/server/auth/sessions";
 import type { NativeHandoffIdentity } from "@/server/auth/types";
+import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
 
 const allowedReturnPaths = new Set([
   "/",
@@ -38,6 +39,7 @@ export class OidcFlowService {
     private readonly protocol: OidcProtocol,
     private readonly transactions: OidcTransactionStore,
     private readonly sessions: SessionManager,
+    private readonly accountAccess: AccountAccessAuthorizer,
   ) {}
 
   async begin(returnTo?: string | null) {
@@ -107,6 +109,7 @@ export class OidcFlowService {
         throw new OidcContractError("OIDC callback changed the native authentication time.");
       }
     }
+    await this.accountAccess.requireActive(authorization.subject);
     const session = await this.sessions.create({
       subject: authorization.subject,
       keycloakSid: authorization.keycloakSid,

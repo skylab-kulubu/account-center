@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getAuthConfig } from "@/server/auth/config";
+import { getAuthServices } from "@/server/auth/services";
 import { getDatabasePool } from "@/server/db/pool";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    getAuthConfig();
+    const services = getAuthServices();
     const result = await getDatabasePool().query<{
       sessions_ready: boolean;
       controls_ready: boolean;
@@ -29,7 +29,8 @@ export async function GET() {
       !result.rows[0]?.sessions_ready ||
       !result.rows[0]?.controls_ready ||
       !result.rows[0]?.native_ready ||
-      !result.rows[0]?.migrations_ready
+      !result.rows[0]?.migrations_ready ||
+      !await services.accountAccess.ready()
     ) {
       return NextResponse.json(
         { status: "not_ready", service: "account-center" },

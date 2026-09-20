@@ -5,6 +5,18 @@ import {
   randomUUID,
 } from "node:crypto";
 import pg from "pg";
+import Redis from "ioredis";
+
+const accountAccessIssuer = "https://e.yildizskylab.com/realms/e-skylab";
+const accountAccessContractKey = "skylab:account-access:v1:contract";
+const accountAccessContractValue = "sha256(iss\\0sub);marker=1;ttl=none";
+
+function accountAccessMarkerKey(subject: string) {
+  const digest = createHash("sha256")
+    .update(`${accountAccessIssuer}\0${subject}`, "utf8")
+    .digest("hex");
+  return `skylab:account-access:v1:blocked:${digest}`;
+}
 
 function testDatabaseUrl() {
   const value = process.env.DATABASE_URL;
@@ -25,6 +37,53 @@ function encryptionKey() {
   const key = Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/"), "base64");
   if (key.length !== 32) throw new Error("TOKEN_ENCRYPTION_KEY must decode to 32 bytes.");
   return key;
+}
+
+function accessRedis() {
+  const host = process.env.ACCOUNT_ACCESS_REDIS_HOST;
+  const port = Number(process.env.ACCOUNT_ACCESS_REDIS_PORT);
+  const username = process.env.ACCOUNT_ACCESS_REDIS_USERNAME;
+  const password = process.env.ACCOUNT_ACCESS_REDIS_PASSWORD;
+  const database = Number(process.env.ACCOUNT_ACCESS_REDIS_DATABASE);
+  if (
+    process.env.ACCOUNT_ACCESS_GATE_MODE !== "enforce" ||
+    !host || !["127.0.0.1", "localhost", "::1"].includes(host) ||
+    !Number.isSafeInteger(port) || !username || !password || database !== 15
+  ) {
+    throw new Error("Authenticated E2E gate writes are restricted to loopback database 15.");
+  }
+  return new Redis({
+    host,
+    port,
+    username,
+    password,
+    db: database,
+    lazyConnect: true,
+    maxRetriesPerRequest: 0,
+    retryStrategy: () => null,
+  });
+}
+
+async function writeGate(operation: (redis: Redis) => Promise<void>) {
+  const redis = accessRedis();
+  try {
+    await redis.connect();
+    await operation(redis);
+  } finally {
+    redis.disconnect();
+  }
+}
+
+export async function ensureAccessGateContract() {
+  await writeGate(async (redis) => {
+    await redis.set(accountAccessContractKey, accountAccessContractValue);
+  });
+}
+
+export async function setSubjectGateMarker(subject: string, value: string) {
+  await writeGate(async (redis) => {
+    await redis.set(accountAccessMarkerKey(subject), value);
+  });
 }
 
 function encryptedTokenFixture(
@@ -58,7 +117,9 @@ export async function seedAuthenticatedSession(
   label: string,
   options: { includeRefreshToken?: boolean } = {},
 ) {
+  await ensureAccessGateContract();
   const sessionId = randomUUID();
+  const subject = `e2e-${label}-${sessionId}`;
   const handle = randomBytes(32).toString("base64url");
   const generatedCanaries = {
     accessToken: `e2e-access-${randomBytes(16).toString("base64url")}`,
@@ -84,7 +145,7 @@ export async function seedAuthenticatedSession(
          now() + interval '30 minutes', now() + interval '8 hours')`,
       [
         sessionId,
-        `e2e-${label}-${sessionId}`,
+        subject,
         `e2e-sid-${sessionId}`,
         createHash("sha256").update(handle, "utf8").digest(),
         encryptedTokenFixture(sessionId, tokenCanaries),
@@ -93,7 +154,7 @@ export async function seedAuthenticatedSession(
   } finally {
     await client.end();
   }
-  return { sessionId, handle, tokenCanaries: Object.values(tokenCanaries) };
+  return { sessionId, subject, handle, tokenCanaries: Object.values(tokenCanaries) };
 }
 
 export async function sessionExists(sessionId: string) {
@@ -102,6 +163,24 @@ export async function sessionExists(sessionId: string) {
   try {
     const result = await client.query("SELECT 1 FROM account_sessions WHERE id = $1", [sessionId]);
     return result.rowCount === 1;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function sessionState(sessionId: string) {
+  const client = new pg.Client({ connectionString: testDatabaseUrl() });
+  await client.connect();
+  try {
+    const result = await client.query<{
+      last_seen_at: Date;
+      idle_expires_at: Date;
+      revoked_at: Date | null;
+    }>(
+      "SELECT last_seen_at, idle_expires_at, revoked_at FROM account_sessions WHERE id = $1",
+      [sessionId],
+    );
+    return result.rows[0] ?? null;
   } finally {
     await client.end();
   }

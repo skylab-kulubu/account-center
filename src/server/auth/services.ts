@@ -24,6 +24,10 @@ import { AccountReadService } from "@/server/keycloak-account/service";
 import { NativeHandoffService } from "@/server/auth/native-handoff";
 import { createNativeAccessTokenVerifier } from "@/server/auth/native-handoff-token";
 import { NativeBridgeRequestVerifier } from "@/server/auth/native-bridge-auth";
+import { getAccountAccessGateConfig } from "@/server/access-gate/config";
+import { createAccountAccessGate } from "@/server/access-gate/gate";
+import { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
+import { AccountSessionAccess } from "@/server/access-gate/session-access";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
 const globalServices = globalThis as typeof globalThis & { accountCenterAuthServices?: AuthServices };
@@ -45,21 +49,29 @@ function createAuthServices() {
       previousHandleGraceSeconds: config.previousHandleGraceSeconds,
     },
   );
+  const accountAccess = new AccountAccessAuthorizer(
+    createAccountAccessGate(getAccountAccessGateConfig(config.issuer)),
+    sessions,
+  );
+  const sessionAccess = new AccountSessionAccess(sessions, accountAccess);
   const transactions = new OidcTransactionStore(
     new PostgresOidcTransactionRepository(pool),
     cipher,
     config.oidcTransactionTtlSeconds,
   );
-  const oidc = new OidcFlowService(protocol, transactions, sessions);
+  const oidc = new OidcFlowService(protocol, transactions, sessions, accountAccess);
   const nativeHandoff = new NativeHandoffService(
     createNativeAccessTokenVerifier(config.issuer),
     new PostgresNativeHandoffRepository(pool),
     oidc,
+    accountAccess,
     config.appUrl,
   );
   return {
     config,
     sessions,
+    sessionAccess,
+    accountAccess,
     oidc,
     account: new AccountReadService(
       new Keycloak26AccountReadAdapter(config.issuer),

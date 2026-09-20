@@ -110,6 +110,24 @@ export class PostgresSessionRepository implements SessionRepository {
     );
   }
 
+  async findByHandle(handleHash: Buffer, now: Date) {
+    const result = await this.pool.query<SessionRow>(
+      `SELECT id, subject, keycloak_sid, handle_hash, previous_handle_hash,
+              previous_handle_expires_at, created_at, rotated_at, last_seen_at,
+              idle_expires_at, absolute_expires_at, revoked_at
+         FROM account_sessions
+        WHERE (handle_hash = $1
+               OR (previous_handle_hash = $1 AND previous_handle_expires_at > $2))
+          AND revoked_at IS NULL
+          AND idle_expires_at > $2
+          AND absolute_expires_at > $2
+        LIMIT 1`,
+      [handleHash, now],
+    );
+    const row = result.rows[0];
+    return row ? activeSession(row) : null;
+  }
+
   async useHandle(input: UseSessionInput): Promise<SessionUseOutcome | null> {
     return transaction(this.pool, async (client) => {
       const selected = await client.query<SessionRow>(
@@ -203,6 +221,17 @@ export class PostgresSessionRepository implements SessionRepository {
       [handleHash, revokedAt],
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async revokeBySubject(subject: string, revokedAt: Date) {
+    const result = await this.pool.query(
+      `UPDATE account_sessions
+          SET revoked_at = COALESCE(revoked_at, $2)
+        WHERE subject = $1
+          AND revoked_at IS NULL`,
+      [subject, revokedAt],
+    );
+    return result.rowCount ?? 0;
   }
 
   async getTokenCiphertext(id: string, now: Date) {
@@ -341,6 +370,19 @@ export class PostgresNativeHandoffRepository implements NativeHandoffRepository 
     );
   }
 
+  async findActiveHandoff(codeHash: Buffer, now: Date) {
+    const result = await this.pool.query<NativeIdentityRow>(
+      `SELECT subject, keycloak_sid, authenticated_at
+         FROM account_native_handoffs
+        WHERE code_hash = $1
+          AND consumed_at IS NULL
+          AND expires_at > $2`,
+      [codeHash, now],
+    );
+    const row = result.rows[0];
+    return row ? nativeIdentity(row) : null;
+  }
+
   async consumeAndCreateBridge(input: ConsumeNativeHandoffInput) {
     const result = await this.pool.query<NativeIdentityRow>(
       `WITH consumed AS (
@@ -363,6 +405,19 @@ export class PostgresNativeHandoffRepository implements NativeHandoffRepository 
         input.now,
         input.bridgeExpiresAt,
       ],
+    );
+    const row = result.rows[0];
+    return row ? nativeIdentity(row) : null;
+  }
+
+  async findActiveBridge(codeHash: Buffer, now: Date) {
+    const result = await this.pool.query<NativeIdentityRow>(
+      `SELECT subject, keycloak_sid, authenticated_at
+         FROM account_native_bridges
+        WHERE code_hash = $1
+          AND consumed_at IS NULL
+          AND expires_at > $2`,
+      [codeHash, now],
     );
     const row = result.rows[0];
     return row ? nativeIdentity(row) : null;

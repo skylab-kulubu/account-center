@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
   clearOidcTransactionCookie,
+  clearSessionCookie,
   noStore,
   OIDC_TRANSACTION_COOKIE,
   SESSION_COOKIE,
@@ -11,6 +12,11 @@ import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import { InvalidOidcTransactionError } from "@/server/auth/oidc-flow";
 import { OidcContractError } from "@/server/auth/oidc-protocol";
 import { getAuthServices } from "@/server/auth/services";
+import {
+  AccountAccessBlockedError,
+  AccountAccessUnavailableError,
+} from "@/server/access-gate/authorization";
+import { accountAccessUnavailableResponse } from "@/server/access-gate/http";
 
 export const dynamic = "force-dynamic";
 
@@ -37,16 +43,34 @@ export async function GET(request: NextRequest) {
     return noStore(response);
   } catch (error) {
     const invalidTransaction = error instanceof InvalidOidcTransactionError;
+    const blocked = error instanceof AccountAccessBlockedError;
+    const unavailable = error instanceof AccountAccessUnavailableError;
     logAuthEvent({
       event: "oidc_login_failed",
       requestId,
       outcome: "failure",
       reason: invalidTransaction
         ? "invalid_transaction"
-        : error instanceof OidcContractError
+        : error instanceof OidcContractError || blocked
           ? "contract_blocked"
           : "provider_unavailable",
     });
+    if (unavailable) {
+      const response = accountAccessUnavailableResponse();
+      clearOidcTransactionCookie(response);
+      response.headers.set("x-request-id", requestId);
+      return response;
+    }
+    if (blocked) {
+      const response = NextResponse.redirect(
+        new URL("/login?sessionEnded=1", services.config.appUrl),
+        303,
+      );
+      clearSessionCookie(response);
+      clearOidcTransactionCookie(response);
+      response.headers.set("x-request-id", requestId);
+      return noStore(response);
+    }
     const destination = new URL("/login", services.config.appUrl);
     destination.searchParams.set("error", invalidTransaction ? "invalid_request" : "unavailable");
     const response = NextResponse.redirect(destination, 303);

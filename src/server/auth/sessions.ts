@@ -5,6 +5,7 @@ import { constantTimeEqual, randomOpaqueValue, sessionCsrfToken, sha256 } from "
 import type { SecretCipher } from "@/server/auth/crypto";
 import type { SessionRepository } from "@/server/auth/repositories";
 import type { BrowserSession, OidcTokenSet } from "@/server/auth/types";
+import type { ActiveSession } from "@/server/auth/types";
 
 type SessionPolicy = {
   absoluteTtlSeconds: number;
@@ -105,6 +106,11 @@ export class SessionManager {
     };
   }
 
+  async candidate(handle: string | undefined) {
+    if (!handle || !/^[A-Za-z0-9_-]{43}$/.test(handle)) return null;
+    return this.repository.findByHandle(sha256(handle), this.clock());
+  }
+
   async authenticate(
     handle: string | undefined,
     options: { allowRotation?: boolean } = {},
@@ -141,6 +147,25 @@ export class SessionManager {
   async revokeHandle(handle: string | undefined) {
     if (!handle || !/^[A-Za-z0-9_-]{43}$/.test(handle)) return false;
     return this.repository.revokeByHandle(sha256(handle), this.clock());
+  }
+
+  revokeSubject(subject: string) {
+    return this.repository.revokeBySubject(subject, this.clock());
+  }
+
+  async authenticateCleanupMutation(
+    handle: string | undefined,
+    csrfToken: string | undefined,
+  ): Promise<
+    | { status: "active"; value: { session: ActiveSession } }
+    | { status: "forbidden" }
+    | { status: "missing" }
+  > {
+    if (!csrfToken) return { status: "forbidden" };
+    const session = await this.candidate(handle);
+    if (!session) return { status: "missing" };
+    if (!this.verifyCsrf(session.id, csrfToken)) return { status: "forbidden" };
+    return { status: "active", value: { session } };
   }
 
   async readTokens(id: string) {

@@ -1,9 +1,8 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { SESSION_COOKIE } from "@/server/auth/http";
 import { getAuthServices } from "@/server/auth/services";
+import { currentAccountSession } from "@/server/access-gate/current-session";
 import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
 import type {
@@ -24,11 +23,12 @@ async function load<T>(
   ) => Promise<T>,
 ): Promise<AccountPageData<T>> {
   const services = getAuthServices();
-  const handle = (await cookies()).get(SESSION_COOKIE)?.value;
-  const authorization = await services.sessions.authenticate(handle);
-  if (!authorization) redirect("/login");
+  const authorization = await currentAccountSession();
+  if (authorization.status === "blocked") redirect("/api/auth/session/end");
+  if (authorization.status === "unavailable") redirect("/api/auth/unavailable");
+  if (authorization.status !== "active") redirect("/login");
   try {
-    return { ok: true, value: await select(services, authorization.session) };
+    return { ok: true, value: await select(services, authorization.value.session) };
   } catch (error) {
     return { ok: false, problem: toAccountProblem(error) };
   }

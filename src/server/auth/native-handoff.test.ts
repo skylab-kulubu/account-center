@@ -9,8 +9,10 @@ import {
 import type {
   ConsumeNativeHandoffInput,
   NativeHandoffRepository,
+  RedeemNativeBridgeInput,
 } from "@/server/auth/repositories";
 import type { NativeHandoffIdentity, NewNativeHandoff } from "@/server/auth/types";
+import { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
 
 const now = new Date("2026-09-20T12:00:00Z");
 const identity = {
@@ -23,16 +25,17 @@ const identity = {
 class MemoryNativeHandoffs implements NativeHandoffRepository {
   inserted?: NewNativeHandoff;
   consumed = false;
+  bridge?: NativeHandoffIdentity;
+  redeemed = false;
   consumeInput?: ConsumeNativeHandoffInput;
+  redeemInput?: RedeemNativeBridgeInput;
 
   async insert(handoff: NewNativeHandoff) {
     this.inserted = handoff;
   }
 
-  async consumeAndCreateBridge(input: ConsumeNativeHandoffInput): Promise<NativeHandoffIdentity | null> {
-    this.consumeInput = input;
-    if (this.consumed || !this.inserted?.codeHash.equals(input.publicCodeHash)) return null;
-    this.consumed = true;
+  async findActiveHandoff(codeHash: Buffer): Promise<NativeHandoffIdentity | null> {
+    if (this.consumed || !this.inserted?.codeHash.equals(codeHash)) return null;
     return {
       subject: this.inserted.subject,
       keycloakSid: this.inserted.keycloakSid,
@@ -40,12 +43,37 @@ class MemoryNativeHandoffs implements NativeHandoffRepository {
     };
   }
 
-  async redeemBridge() {
-    return null;
+  async consumeAndCreateBridge(input: ConsumeNativeHandoffInput): Promise<NativeHandoffIdentity | null> {
+    this.consumeInput = input;
+    if (this.consumed || !this.inserted?.codeHash.equals(input.publicCodeHash)) return null;
+    this.consumed = true;
+    this.bridge = {
+      subject: this.inserted.subject,
+      keycloakSid: this.inserted.keycloakSid,
+      authenticatedAt: this.inserted.authenticatedAt,
+    };
+    return this.bridge;
+  }
+
+  async redeemBridge(input: RedeemNativeBridgeInput) {
+    this.redeemInput = input;
+    if (this.redeemed || !this.bridge || !input.bridgeCodeHash.equals(sha256("b".repeat(43)))) {
+      return null;
+    }
+    this.redeemed = true;
+    return this.bridge;
+  }
+
+  async findActiveBridge(codeHash: Buffer) {
+    if (this.redeemed || !this.bridge || !codeHash.equals(sha256("b".repeat(43)))) return null;
+    return this.bridge;
   }
 }
 
-function fixture(options: { expiresAt?: Date } = {}) {
+function fixture(options: {
+  expiresAt?: Date;
+  decision?: "active" | "blocked" | "unavailable";
+} = {}) {
   const repository = new MemoryNativeHandoffs();
   const verifier = {
     verify: async (token: string) => {
@@ -64,15 +92,26 @@ function fixture(options: { expiresAt?: Date } = {}) {
     },
   };
   const randomValues = ["p".repeat(43), "b".repeat(43)];
+  let decision = options.decision ?? "active";
+  const accountAccess = new AccountAccessAuthorizer(
+    { decide: async () => decision, ready: async () => true },
+    { revokeSubject: async () => 0 },
+  );
   const service = new NativeHandoffService(
     verifier,
     repository,
     oidc,
+    accountAccess,
     new URL("https://my.yildizskylab.com"),
     () => now,
     () => randomValues.shift() ?? "z".repeat(43),
   );
-  return { service, repository, starts };
+  return {
+    service,
+    repository,
+    starts,
+    setDecision: (value: typeof decision) => { decision = value; },
+  };
 }
 
 describe("NativeHandoffService", () => {
@@ -136,4 +175,44 @@ describe("NativeHandoffService", () => {
     await expect(service.consume("short")).rejects.toBeInstanceOf(InvalidNativeHandoffError);
     expect(repository.consumeInput).toBeUndefined();
   });
+
+  it.each(["blocked", "unavailable"] as const)(
+    "creates no public handoff when verified access is %s",
+    async (decision) => {
+      const { service, repository } = fixture({ decision });
+
+      await expect(service.create("valid-native-token")).rejects.toThrow();
+      expect(repository.inserted).toBeUndefined();
+    },
+  );
+
+  it.each(["blocked", "unavailable"] as const)(
+    "does not consume a public handoff when access becomes %s",
+    async (decision) => {
+      const { service, repository, setDecision } = fixture();
+      await service.create("valid-native-token");
+      setDecision(decision);
+
+      await expect(service.consume("p".repeat(43))).rejects.toThrow();
+      expect(repository.consumeInput).toBeUndefined();
+      expect(repository.consumed).toBe(false);
+    },
+  );
+
+  it.each(["blocked", "unavailable"] as const)(
+    "does not redeem a native bridge when access becomes %s",
+    async (decision) => {
+      const { service, repository, setDecision } = fixture();
+      await service.create("valid-native-token");
+      await service.consume("p".repeat(43));
+      setDecision(decision);
+
+      await expect(service.redeem("b".repeat(43), {
+        requestNonceHash: Buffer.alloc(32, 9),
+        requestNonceExpiresAt: new Date("2026-09-20T12:01:00Z"),
+      })).rejects.toThrow();
+      expect(repository.redeemInput).toBeUndefined();
+      expect(repository.redeemed).toBe(false);
+    },
+  );
 });

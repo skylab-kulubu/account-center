@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   }
   const csrfToken = request.headers.get("x-csrf-token") ?? form.get("csrfToken") ?? undefined;
 
-  const authorization = await services.sessions.authenticateMutation(handle, csrfToken);
+  const authorization = await services.sessions.authenticateCleanupMutation(handle, csrfToken);
   if (authorization.status === "forbidden") {
     logAuthEvent({ event: "local_logout", requestId, outcome: "failure", reason: "invalid_csrf" });
     return noStore(NextResponse.json({ error: "forbidden" }, { status: 403 }));
