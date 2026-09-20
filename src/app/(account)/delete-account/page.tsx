@@ -1,13 +1,16 @@
 import { AlertTriangle, Check } from "lucide-react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { PageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/settings";
 import { AccountDeletionConfirmation } from "@/components/account-deletion-confirmation";
+import { accountRoute } from "@/config/account-routes";
 import { ACCOUNT_DELETION_PROOF_COOKIE } from "@/server/auth/http";
 import { getAuthServices } from "@/server/auth/services";
 import { currentAccountSession } from "@/server/access-gate/current-session";
 
-export const metadata = { title: "Hesabı sil" };
+const route = accountRoute("/delete-account");
+
+export const metadata = { title: route.documentTitle };
 
 const consequences = [
   "SKY LAB uygulamalarına erişimin hemen kapatılır.",
@@ -35,10 +38,7 @@ export default async function DeleteAccountPage({
   const csrfToken = services.sessions.csrfToken(authorization.value.session.id);
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Hesabı sil"
-        description="Bu işlem geri alınamaz. Devam etmeden önce hesabına ve kayıtlarına ne olacağını açıkça göreceksin."
-      />
+      <AccountPageHeader route={route} />
       <section className="danger-card" aria-labelledby="delete-title">
         <span className="danger-card__icon" aria-hidden="true">
           <AlertTriangle size={23} />

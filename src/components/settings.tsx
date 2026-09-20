@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+import type { AccountRoute } from "@/config/account-routes";
 
-export function PageHeader({ eyebrow, title, description }: { eyebrow?: string; title: string; description: string }) {
+export function AccountPageHeader({ route }: { route: AccountRoute }) {
   return (
     <header className="page-header">
-      {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
-      <h1>{title}</h1>
-      <p>{description}</p>
+      {route.eyebrow ? <p className="eyebrow">{route.eyebrow}</p> : null}
+      <h1>{route.title}</h1>
+      <p>{route.description}</p>
     </header>
   );
 }
@@ -41,20 +42,21 @@ export function SettingsRow({ title, description, icon, href, trailing, tone = "
         <strong>{title}</strong>
         <small>{description}</small>
       </span>
-      {trailing ?? (href ? <ChevronRight className="settings-row__chevron" aria-hidden="true" size={19} /> : null)}
+      {trailing ? <div className="settings-row__trailing">{trailing}</div> : null}
+      {!trailing && href ? <ChevronRight className="settings-row__chevron" aria-hidden="true" size={19} /> : null}
     </>
   );
 
   if (href) {
     return (
-      <Link className="settings-row" data-tone={tone} href={href}>
+      <Link className="settings-row" data-has-trailing={trailing ? "" : undefined} data-tone={tone} href={href}>
         {content}
       </Link>
     );
   }
 
   return (
-    <div className="settings-row" data-tone={tone}>
+    <div className="settings-row" data-has-trailing={trailing ? "" : undefined} data-tone={tone}>
       {content}
     </div>
   );

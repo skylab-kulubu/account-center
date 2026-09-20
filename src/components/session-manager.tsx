@@ -5,15 +5,14 @@ import {
   Laptop,
   LogOut,
   MonitorSmartphone,
-  RotateCcw,
   ShieldCheck,
   Smartphone,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LogoLoader } from "@/components/logo-loader";
 import { StatusBadge } from "@/components/settings";
+import { ActionProgress, EmptyState, RetryableError } from "@/components/ui-states";
 import type { ManagedAccountSession } from "@/server/keycloak-account/types";
 
 type SessionsPayload = {
@@ -197,6 +196,7 @@ function ConfirmationDialog({
     <dialog
       ref={dialogRef}
       className="confirmation-dialog"
+      aria-busy={pending}
       aria-labelledby="session-confirmation-title"
       onKeyDown={(event) => {
         if (event.key !== "Tab") return;
@@ -248,8 +248,9 @@ function ConfirmationDialog({
           Vazgeç
         </button>
         <button className="danger-button danger-button--inline" type="button" disabled={pending} onClick={onConfirm}>
-          <LogOut aria-hidden="true" size={16} />
-          {pending ? "Kapatılıyor…" : title}
+          {pending ? <ActionProgress label="Kapatılıyor" /> : (
+            <><LogOut aria-hidden="true" size={16} />{title}</>
+          )}
         </button>
       </div>
     </dialog>
@@ -384,25 +385,19 @@ export function SessionManager() {
   if (loading && !payload) {
     return (
       <section className="state-card session-state" aria-label="Oturumlar yükleniyor">
-        <LogoLoader label="Oturumlar yükleniyor" size={56} />
-        <p>Güvenli oturumların yükleniyor.</p>
+        <ActionProgress label="Güvenli oturumların yükleniyor" />
       </section>
     );
   }
 
   if (problem) {
     return (
-      <section className="state-card account-data-problem" role="status" aria-live="polite">
-        <span className="state-card__icon" aria-hidden="true">
-          <AlertCircle size={26} strokeWidth={1.6} />
-        </span>
-        <h2>{problem.title}</h2>
-        <p>{problem.detail}</p>
-        <button className="primary-button" type="button" onClick={() => void load()}>
-          <RotateCcw aria-hidden="true" size={16} />
-          Yeniden dene
-        </button>
-      </section>
+      <RetryableError
+        detail={problem.detail}
+        onRetry={() => void load()}
+        pending={loading}
+        title={problem.title}
+      />
     );
   }
 
@@ -440,13 +435,11 @@ export function SessionManager() {
           ))}
         </section>
       ) : (
-        <section className="state-card" aria-labelledby="sessions-state-title">
-          <span className="state-card__icon" aria-hidden="true">
-            <MonitorSmartphone size={26} strokeWidth={1.6} />
-          </span>
-          <h2 id="sessions-state-title">Açık oturum bulunamadı</h2>
-          <p>Kimlik hesabın için görüntülenebilir aktif bir oturum bulunmuyor.</p>
-        </section>
+        <EmptyState
+          detail="Kimlik hesabın için görüntülenebilir aktif bir oturum bulunmuyor."
+          icon={MonitorSmartphone}
+          title="Açık oturum bulunamadı"
+        />
       )}
       <section className="session-actions" aria-labelledby="session-actions-title">
         <span>

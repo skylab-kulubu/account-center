@@ -5,36 +5,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import {
   ChevronLeft,
-  CircleUserRound,
-  KeyRound,
-  LayoutDashboard,
   LogOut,
-  MonitorSmartphone,
-  Trash2,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { Background } from "@/components/background";
 import { SkyLabMark } from "@/components/skylab-mark";
-
-type NavigationItem = {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-};
-
-const navigation: NavigationItem[] = [
-  { href: "/", label: "Özet", icon: LayoutDashboard },
-  { href: "/personal-information", label: "Kişisel bilgiler", icon: CircleUserRound },
-  { href: "/security", label: "Giriş ve güvenlik", icon: KeyRound },
-  { href: "/sessions", label: "Oturumlar ve cihazlar", icon: MonitorSmartphone },
-  { href: "/delete-account", label: "Hesabı sil", icon: Trash2 },
-];
+import { accountRoutes, matchAccountRoute } from "@/config/account-routes";
+import type { AccountRoute } from "@/config/account-routes";
 
 export const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;
-
-function isActivePath(pathname: string, href: string) {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href);
-}
 
 function LogoutForm({ csrfToken, compact = false }: { csrfToken: string; compact?: boolean }) {
   return (
@@ -48,7 +26,7 @@ function LogoutForm({ csrfToken, compact = false }: { csrfToken: string; compact
   );
 }
 
-function DesktopNavigation({ pathname, csrfToken }: { pathname: string; csrfToken: string }) {
+function DesktopNavigation({ currentRoute, csrfToken }: { currentRoute: AccountRoute | null; csrfToken: string }) {
   return (
     <aside className="account-sidebar">
       <Link className="brand" href="/" aria-label="SKY LAB Hesap Merkezi ana sayfa">
@@ -60,18 +38,19 @@ function DesktopNavigation({ pathname, csrfToken }: { pathname: string; csrfToke
       </Link>
 
       <nav className="account-nav" aria-label="Hesap ayarları">
-        {navigation.map(({ href, label, icon: Icon }) => {
-          const active = isActivePath(pathname, href);
+        {accountRoutes.map(({ href, navigationLabel, icon: Icon, tone }) => {
+          const active = currentRoute?.href === href;
           return (
             <Link
               key={href}
               className="account-nav__item"
               data-active={active || undefined}
+              data-tone={tone}
               href={href}
               aria-current={active ? "page" : undefined}
             >
               <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
-              <span>{label}</span>
+              <span>{navigationLabel}</span>
             </Link>
           );
         })}
@@ -82,18 +61,17 @@ function DesktopNavigation({ pathname, csrfToken }: { pathname: string; csrfToke
   );
 }
 
-function MobileHeader({ pathname, csrfToken }: { pathname: string; csrfToken: string }) {
-  const current = navigation.find((item) => isActivePath(pathname, item.href));
+function MobileHeader({ currentRoute, csrfToken }: { currentRoute: AccountRoute | null; csrfToken: string }) {
   return (
     <header className="mobile-header">
-      {pathname === "/" ? (
+      {currentRoute?.href === "/" ? (
         <SkyLabMark animated={false} className="mobile-header__mark" size={30} />
       ) : (
         <Link className="mobile-header__back" href="/" aria-label="Hesap Merkezi özetine dön">
           <ChevronLeft aria-hidden="true" size={22} />
         </Link>
       )}
-      <span>{current?.label ?? "Hesap Merkezi"}</span>
+      <span>{currentRoute?.navigationLabel ?? "Hesap Merkezi"}</span>
       <LogoutForm csrfToken={csrfToken} compact />
     </header>
   );
@@ -105,6 +83,7 @@ export function AccountShell({
 }: Readonly<{ children: React.ReactNode; logoutCsrfToken: string }>) {
   const pathname = usePathname();
   const router = useRouter();
+  const currentRoute = matchAccountRoute(pathname);
 
   useEffect(() => {
     const refresh = () => {
@@ -134,8 +113,8 @@ export function AccountShell({
       <a className="skip-link" href="#main-content">İçeriğe geç</a>
       <Background />
       <div className="account-frame">
-        <DesktopNavigation pathname={pathname} csrfToken={logoutCsrfToken} />
-        <MobileHeader pathname={pathname} csrfToken={logoutCsrfToken} />
+        <DesktopNavigation currentRoute={currentRoute} csrfToken={logoutCsrfToken} />
+        <MobileHeader currentRoute={currentRoute} csrfToken={logoutCsrfToken} />
         <main className="account-content" id="main-content" tabIndex={-1}>
           {children}
         </main>

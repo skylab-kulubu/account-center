@@ -473,6 +473,13 @@ a.settings-row:hover {
   line-height: 1.42;
 }
 
+.settings-row__trailing {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
 .settings-row__chevron {
   flex: 0 0 auto;
   color: #5f5a64;
@@ -623,6 +630,17 @@ a.settings-row:hover .settings-row__chevron {
   line-height: 1.55;
 }
 
+.read-only-note {
+  margin: 18px 2px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(224, 200, 229, 0.1);
+  border-radius: 10px;
+  color: var(--ink-muted);
+  background: rgba(224, 200, 229, 0.035);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
 .state-card {
   display: flex;
   flex-direction: column;
@@ -652,6 +670,35 @@ a.settings-row:hover .settings-row__chevron {
 
 .account-data-problem .primary-button {
   margin-top: 20px;
+}
+
+.action-progress {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: inherit;
+  font-size: inherit;
+}
+
+.action-progress .logo-loader {
+  width: 24px;
+  height: 24px;
+}
+
+.action-progress .logo-loader__glow {
+  filter: blur(7px);
+}
+
+.session-state .action-progress {
+  flex-direction: column;
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+}
+
+.session-state .action-progress .logo-loader {
+  width: 72px;
+  height: 72px;
 }
 
 .session-list {
@@ -1165,6 +1212,82 @@ a.settings-row:hover .settings-row__chevron {
 .logo-loader__path[data-logo-group="5"] { --logo-group: 5; }
 .logo-loader__path[data-logo-group="6"] { --logo-group: 6; }
 
+.page-skeleton {
+  padding-top: 4px;
+}
+
+.skeleton {
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background:
+    linear-gradient(105deg, transparent 25%, rgba(255, 255, 255, 0.065) 42%, transparent 58%),
+    rgba(255, 255, 255, 0.045);
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+}
+
+.skeleton--eyebrow {
+  width: 76px;
+  height: 9px;
+}
+
+.skeleton--title {
+  width: min(84%, 520px);
+  height: 34px;
+  margin-top: 15px;
+}
+
+.skeleton--description {
+  width: min(72%, 450px);
+  height: 14px;
+  margin-top: 18px;
+}
+
+.skeleton-card {
+  margin-top: 42px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-card);
+}
+
+.skeleton-row {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  gap: 13px;
+  padding: 15px;
+}
+
+.skeleton-row + .skeleton-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.skeleton--icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+}
+
+.skeleton-row__copy {
+  display: flex;
+  width: min(78%, 430px);
+  flex-direction: column;
+  gap: 9px;
+}
+
+.skeleton--line {
+  width: 72%;
+  height: 11px;
+}
+
+.skeleton--line-short {
+  width: 48%;
+  height: 8px;
+}
+
 .mobile-header__mark {
   align-self: center;
   justify-self: center;
@@ -1194,6 +1317,11 @@ a.settings-row:hover .settings-row__chevron {
   0%, 12%, 100% { opacity: 0; transform: translateY(5px); }
   28%, 72% { opacity: 1; transform: translateY(0); }
   86% { opacity: 0.38; transform: translateY(-2px); }
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
 }
 
 @media (max-width: 760px) {
@@ -1348,14 +1476,39 @@ a.settings-row:hover .settings-row__chevron {
 
 @media (max-width: 420px) {
   .status-badge {
-    max-width: 108px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
   }
 
   .settings-row__icon {
     width: 32px;
     height: 32px;
+  }
+
+  .settings-row[data-has-trailing] {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .settings-row[data-has-trailing] .settings-row__copy {
+    min-width: calc(100% - 45px);
+  }
+
+  .settings-row[data-has-trailing] .settings-row__trailing {
+    width: calc(100% - 45px);
+    justify-content: flex-end;
+    margin-left: 45px;
+  }
+
+  .settings-row[data-has-trailing] .security-row-actions {
+    width: 100%;
+    flex-flow: row wrap;
+  }
+
+  .identity-card .status-badge,
+  .session-card .status-badge {
+    margin-left: 0;
   }
 }
 
