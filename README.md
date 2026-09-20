@@ -1,4 +1,24 @@
-# SKY LAB Account Center
+<div align="center">
+  <a href="https://yildizskylab.com">
+    <img src="https://raw.githubusercontent.com/skylab-kulubu/skylab-assets/main/logos/skylab/skylab-colored.svg" alt="SKY LAB Logo" width="120" />
+  </a>
+
+  <h1>SKY LAB Account Center</h1>
+
+  <p>
+    SKY LAB üyeleri için güvenli ve markalı<br />
+    hesap, oturum ve kimlik bilgisi yönetimi.
+  </p>
+
+  <p>
+    <a href="https://my.yildizskylab.com"><img src="https://img.shields.io/badge/Live-my.yildizskylab.com-003694?style=for-the-badge" alt="Live" /></a>
+    <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs" alt="Next.js 16" />
+    <img src="https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react&logoColor=61DAFB" alt="React 19" />
+    <img src="https://img.shields.io/badge/Keycloak-26.7.4-4D4D4D?style=flat-square&logo=keycloak" alt="Keycloak 26.7.4" />
+  </p>
+</div>
+
+---
 
 `my.yildizskylab.com` için bağımsız SKY LAB hesap yönetimi ürünü. Next.js App Router ve sunucu taraflı BFF mimarisi kullanır. Keycloak kimliğin kaynağıdır; tarayıcı hiçbir zaman Keycloak access veya refresh token’ı almaz.
 
