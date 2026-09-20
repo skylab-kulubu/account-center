@@ -1,9 +1,9 @@
 <div align="center">
   <a href="https://yildizskylab.com">
-    <img src="https://raw.githubusercontent.com/skylab-kulubu/skylab-assets/main/logos/skylab/skylab-colored.svg" alt="SKY LAB Logo" width="120" />
+    <img src="https://raw.githubusercontent.com/skylab-kulubu/skylab-assets/main/logos/skylab/skylab-colored.svg" alt="SKY LAB Logosu" width="120" />
   </a>
 
-  <h1>SKY LAB Account Center</h1>
+  <h1>SKY LAB Hesap Merkezi</h1>
 
   <p>
     SKY LAB üyeleri için güvenli ve markalı<br />
@@ -11,68 +11,146 @@
   </p>
 
   <p>
-    <a href="https://my.yildizskylab.com"><img src="https://img.shields.io/badge/Live-my.yildizskylab.com-003694?style=for-the-badge" alt="Live" /></a>
+    <a href="https://my.yildizskylab.com"><img src="https://img.shields.io/badge/Canlı-my.yildizskylab.com-003694?style=for-the-badge" alt="Canlı" /></a>
     <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs" alt="Next.js 16" />
     <img src="https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react&logoColor=61DAFB" alt="React 19" />
+    <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 5" />
     <img src="https://img.shields.io/badge/Keycloak-26.7.4-4D4D4D?style=flat-square&logo=keycloak" alt="Keycloak 26.7.4" />
   </p>
 </div>
 
 ---
 
-`my.yildizskylab.com` için bağımsız SKY LAB hesap yönetimi ürünü. Next.js App Router ve sunucu taraflı BFF mimarisi kullanır. Keycloak kimliğin kaynağıdır; tarayıcı hiçbir zaman Keycloak access veya refresh token’ı almaz.
+## Projenin amacı
 
-## Geliştirme
+Hesap Merkezi, bir SKY LAB üyesinin kişisel bilgilerini, parolasını, geçiş
+anahtarlarını ve açık oturumlarını tek bir arayüzden yönetmesini sağlar.
+`my.yildizskylab.com` üzerinde bağımsız bir ürün olarak çalışır; Superadmin'in
+veya Keycloak giriş temasının içine gömülmez.
+
+Keycloak kimliğin tek kaynağıdır. Bu uygulama ikinci bir kullanıcı dizini
+oluşturmaz; tarayıcıya Keycloak erişim ya da yenileme token'ı vermez. Hassas
+işlemler sunucu tarafındaki BFF üzerinden yürütülür.
+
+## Özellikler
+
+- Ad, soyad ve birincil e-posta bilgilerinin güvenli görünümü ve yönetimi.
+- Parola, TOTP ve geçiş anahtarı işlemleri için yeniden doğrulamalı Keycloak
+  AIA akışları.
+- Açık cihaz ve tarayıcı oturumlarını görüntüleme, tek tek kapatma veya mevcut
+  cihaz dışındaki tüm oturumları sonlandırma.
+- Yerel uygulamalar için tek kullanımlık, mTLS ve HMAC korumalı native SSO
+  köprüsü.
+- Dayanıklı, izlenebilir ve yeniden denenebilir hesap silme/anonimleştirme
+  süreci.
+- SKY LAB tasarım dili, erişilebilir klavye kullanımı ve mobil uyumlu arayüz.
+
+## Mimari
+
+| Katman | Sorumluluk |
+| --- | --- |
+| Next.js App Router | Sayfalar, sunucu bileşenleri ve HTTP uçları |
+| BFF | OIDC/PAR/PKCE, token saklama, CSRF ve oturum işlemleri |
+| Keycloak | Kullanıcı, credential, grup ve kimlik oturumlarının kaynağı |
+| PostgreSQL | Şifreli token setleri, opaque oturumlar ve tek kullanımlık işlemler |
+| Redis | Platform çapındaki hesap erişim engeli için salt okunur güven sınırı |
+| Core API | Kulüp alanındaki silme/anonimleştirme iş akışının koordinasyonu |
+
+Tarayıcı yalnız `Secure`, `HttpOnly`, `SameSite` ve `__Host-` kurallarına uyan
+opaque bir oturum çerezi taşır. Keycloak token setleri PostgreSQL'de
+AES-256-GCM ile şifrelenir.
+
+## Güvenlik ilkeleri
+
+- Authorization Code + S256 PKCE + PAR zorunludur.
+- Gizli anahtarlar `NEXT_PUBLIC_` değişkenlerine konamaz ve istemci paketine
+  giremez.
+- Parola, geçiş anahtarı ve TOTP değişiklikleri uygulama tarafından taklit
+  edilmez; Keycloak'ın yeniden doğrulamalı akışları kullanılır.
+- Oturum kapatma işlemlerinde ham Keycloak oturum kimliği tarayıcıya verilmez.
+- Hesap erişim engeli doğrulanamazsa kimlik doğrulanmış işler güvenli biçimde
+  `503` ile kapanır; çıkış ve temizlik yolları çalışmaya devam eder.
+- Hesap silme özelliği, bütün platform okuyucuları aynı engelleme sözleşmesini
+  uygulamadan üretimde etkinleştirilmez.
+
+## Hızlı başlangıç
+
+Gereksinimler: Node.js 22+, pnpm ve PostgreSQL.
 
 ```bash
 pnpm install
+pnpm db:migrate
 pnpm dev
 ```
 
-Doğrulama:
+Tam doğrulama:
 
 ```bash
 pnpm check
 docker build -t account-center:local .
 ```
 
-Playwright browser testi auth bypass kullanmaz. Loopback `_test` PostgreSQL’e migration uygulandıktan sonra her test ve retry kendine yeni, şifreli bir opaque session kaydı üretir. Test server’ı git tarafından yok sayılan `.e2e-certificates` dizininde geçici self-signed HTTPS sertifikası üretir; Chromium’un host-only `Secure __Host-` cookie’yi kabul ettiğini, shell refresh çağrısının handle’ı döndürdüğünü ve gerçek logout formunun session’ı hard-delete ettiğini doğrular. CI browser job’ı PostgreSQL service, migration ve gerekli test environment’ını otomatik hazırlar.
+`pnpm check`; lint, tip kontrolü, birim testleri, betik testleri ve üretim
+derlemesini birlikte çalıştırır. Uçtan uca tarayıcı testleri gerçek HTTPS,
+PostgreSQL migration'ı ve gerçek opaque oturum kaydı kullanır; kimlik
+doğrulamasını atlayan özel bir test yolu yoktur.
 
-İlk açılıştan önce BFF oturum tablolarını production image içinden oluştur:
+## Üretim işletimi
+
+İlk açılıştan önce veritabanı migration'larını üretim imajı içinden çalıştırın:
 
 ```bash
-node scripts/migrate.mjs
+pnpm db:migrate
 ```
 
-Auth materyali retention işi uygulama timer’ı değildir. Deployment scheduler’ında tekil bir job olarak saatte bir `node scripts/prune-auth.mjs` çalıştırılır; advisory lock aynı anda yalnız bir job’ın silme yapmasını sağlar. Tüketilmiş/süresi dolmuş OIDC transaction’ları 1 saat, revoke olmuş veya mutlak/idle süresi dolmuş session kayıtları 24 saatlik operasyonel grace sonrasında token ciphertext’iyle birlikte hard-delete edilir. Süresi dolmuş logout replay, rate-limit bucket ve tek kullanımlık action-result kayıtları da aynı job’da temizlenir. Job sonucu yalnız silinen kayıt sayılarını loglar. Kurulum, alarm ve hata kurtarma adımları [auth retention runbook'unda](docs/auth-retention-runbook.md) tanımlıdır.
+Süresi dolmuş veya iptal edilmiş kimlik materyalini temizleyen işi dağıtım
+zamanlayıcısında saatte bir, tekil görev olarak çalıştırın:
 
-Hesap silme varsayılan olarak `ACCOUNT_ERASURE_MODE=off` ile inerttir. `enforce` modu yalnız global access gate de enforce iken canonical `CORE_API_URL` kabul eder. Korumalı `/delete-account` recent reauthentication ve birebir onay alır; public/sessionless `/account-deletion` ise HttpOnly receipt üzerinden durum ve kontrollü retry gösterir. Receipt hiçbir public JSON/URL/storage alanına girmez. Core sözleşmesi, retention ve açılış kapıları [hesap silme belgesinde](docs/account-deletion.md) tanımlıdır; kapılar tamamlanmadan flag açılmaz.
+```bash
+pnpm db:prune-auth
+```
 
-Production başlangıcında `.env.example` içindeki sunucu değişkenleri doğrulanır. Secret’lar `NEXT_PUBLIC_` önekiyle tanımlanamaz ve client bundle’a taşınmaz. Dosyadaki köşeli parantezli değerler bilerek geçersizdir; doğrudan kullanılırsa servis başlamaz. `SESSION_SECRET` için `openssl rand -base64 48`, `TOKEN_ENCRYPTION_KEY` için `openssl rand -base64 32` kullanılabilir. Keycloak client secret en az 32 karakterli gerçek confidential-client secret’ı olmalıdır.
+`/api/health` yalnız proses canlılığını; `/api/ready` ise ortam sözleşmesini,
+PostgreSQL bağlantısını, migration sürümünü ve gerekli erişim engeli sınırını
+doğrular. Trafik yalnız readiness başarılı olduğunda yönlendirilmelidir.
 
-Ortak hesap engelleme sözleşmesi `ACCOUNT_ACCESS_GATE_MODE=off|enforce` ile açıkça seçilir. `enforce`, yalnız `https://e.yildizskylab.com/realms/e-skylab` issuer’ını ve `.env.example` içindeki ayrı Redis host/port/kullanıcı/şifre/DB/TLS/deadline değerlerinin tamamını kabul eder; production’da TLS kapatılamaz. Redis sunucusunun özel CA dosyası ile Account Center istemci sertifikası/anahtarı salt okunur secret mount’larından yüklenir; özel anahtar environment değerine konmaz. Bu Redis uygulama cache’i değildir: ayrı `noeviction` keyspace, kalıcı AOF ve read-only Account Center ACL’i kullanır. Readiness tam v1 contract sentinel’ını okur; liveness Redis’e dokunmaz. Contract/Redis doğrulanamazsa kimlik doğrulanmış iş 503 ile kapanır ve session idle/rotation süresi uzatılmaz.
+Ortam değişkenlerinin tam listesi ve güvenli örnek değerleri
+[`.env.example`](.env.example) dosyasındadır. Gerçek gizli bilgiler repoya
+eklenmez.
 
-Engelli bir subject mevcut opaque cookie ile geldiğinde bütün yerel Account Center session’ları revoke edilir ve cookie temizlik rotasında silinir. Callback ile native handoff create/consume/redeem akışları da session veya tek-kullanımlık durum oluşturmadan önce aynı gate kararını uygular. Local logout ile imzalı Keycloak backchannel logout, gate erişilemese bile yalnız temizlik yapabildiği için kullanılabilir kalır. Platformdaki bütün reader servisler aynı sözleşmeyi `enforce` etmeden hesap silme intake/worker açılmamalıdır.
+## Ayrıntılı belgeler
 
-Native SSO köprüsü için `NATIVE_BRIDGE_HMAC_SECRET`, `SESSION_SECRET` ve `TOKEN_ENCRYPTION_KEY` değerlerinden farklı ayrı bir 32-byte secret; `NATIVE_BRIDGE_MTLS_CLIENT_SHA256` ise internal ingress’in doğruladığı Keycloak client certificate’ın lowercase SHA-256 fingerprint’idir. Public native kod, PAR bridge ve Keycloak authenticator sözleşmesi [native handoff belgesinde](docs/native-handoff-keycloak-contract.md) tanımlıdır. SPI ve gerçek WebView/AIA production-clone testi tamamlanmadan bu akış production’a açılmaz.
+- [Mimari ve güven sınırları](docs/architecture.md)
+- [Keycloak 26.7.4 sözleşmesi](docs/keycloak-26.7.4-contract.md)
+- [Parola, TOTP ve geçiş anahtarı işlemleri](docs/account-actions.md)
+- [Native SSO köprüsü](docs/native-handoff-keycloak-contract.md)
+- [Kenar güveni ve mTLS](docs/auth-edge-trust.md)
+- [Kimlik materyali saklama ve temizlik kılavuzu](docs/auth-retention-runbook.md)
+- [Hesap silme ve anonimleştirme](docs/account-deletion.md)
 
-`APP_URL` credentials, path, query, fragment, trailing slash veya normalize edilen port içermeyen canonical HTTPS origin olmalıdır. `OIDC_ISSUER` aynı kurallara ek olarak tam `https://<host>/realms/<realm>` biçimini taşır. Startup doğrulaması ile runtime/readiness aynı fixture tabanlı kabul-red sözleşmesine karşı test edilir.
+## Ürün sınırları
 
-`/api/health` yalnız proses liveness’ını, `/api/ready` ise production environment sözleşmesini, PostgreSQL erişimini ve beklenen migration sürümlerini doğrular. Trafik yalnız readiness 200 döndüğünde yönlendirilmelidir.
+- Telefon, öğrenci kartı, kulüp rolleri, SkyPass ve etkinlik verileri Core'un
+  alanıdır.
+- Hesap Merkezi Keycloak'ın yerine geçmez ve kullanıcı parolası saklamaz.
+- Superadmin kulüp operasyon panelidir; kişisel hesap güvenliği burada
+  yönetilmez.
+- Mobil uygulama entegrasyonu ayrı, sürümlü bir sözleşmeyle yapılır.
 
-Browser login katmanı Authorization Code + S256 PKCE + PAR kullanır. OIDC transaction ve opaque session kayıtları PostgreSQL’dedir; Keycloak token setleri AES-256-GCM ile şifrelenir. 26.7.4 realm/client configuration-as-code ve production-clone doğrulaması tamamlanmadan canlı Keycloak entegrasyonu açılmamalıdır. Ayrıntılı blok listesi [Keycloak sözleşme notunda](docs/keycloak-26.7.4-contract.md) yer alır.
+## Katkıda bulunanlar
 
-Şifre, passkey ve TOTP değişiklikleri aynı callback URI’sini kullanan server-side PAR/AIA akışlarıdır. Allowlist, sahiplik referansı, fresh-auth ve başarı sonrası credential envanteri doğrulaması [hesap aksiyonları sözleşmesinde](docs/account-actions.md) tanımlıdır. AIA için ayrı URL/env yoktur; `OIDC_CLIENT_ID` tam olarak `account-center` olmalıdır.
+Projeye katkı veren kişiler GitHub commit geçmişinden otomatik olarak
+listelenir.
 
-Oturum yönetimi yalnız kullanıcının sunucu tarafında tutulan Account REST token’ıyla çalışır. `/api/account/sessions` güvenli cihaz/tarayıcı/zaman görünümünü ve session-bound CSRF proof’unu döndürür; Keycloak session ID’si tarayıcıya verilmez. Boş olmayan upstream listede tam bir `current=true` kaydı yoksa liste salt-okunur hata durumuna geçer, opaque referans üretilmez ve hiçbir revoke çağrısı yapılmaz; gerçek boş liste ayrı bir boş durumdur. Tekil kapatma `DELETE /api/account/sessions/{opaque-reference}`, diğer tüm cihazları kapatma `DELETE /api/account/sessions` üzerinden raw `Origin` değerinin yapılandırılmış scheme+host(+port) ile birebir eşleşmesi ve CSRF denetiminden sonra yapılır. Her iki işlem de Keycloak’ın mevcut oturumunu korur. Keycloak yeniden doğrulama istediğinde yerel opaque session revoke edilir ve cookie temizlenir; yerel revoke geçici olarak hata verse de tarayıcı cookie’si kesin olarak sonlandırılır.
+<a href="https://github.com/skylab-kulubu/account-center/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=skylab-kulubu/account-center" alt="Katkıda bulunanlar" />
+</a>
 
-## Sınırlar
+## Geliştiren ekip
 
-- Kişisel bilgiler yalnız Keycloak’taki ad, soyad ve birincil e-postadır.
-- Şifre, OTP ve passkey mutasyonları Keycloak AIA ile yapılır.
-- Telefon, öğrenci kartı, kulüp rolleri, SkyPass ve uygulama verileri bu ürünün kapsamında değildir.
-- Mobile repository değiştirilmez; WebView entegrasyonu ayrı, sürümlü bir sözleşmeyle teslim edilir.
-- Oturum kapatma için browser veya BFF tarafında Keycloak Admin API, service account ya da kullanıcı/subject parametresi kullanılmaz.
-- Hesap silme mevcut fiziksel kullanıcı silme endpoint’ini çağırmaz; dayanıklı silme/anonimleştirme akışı kullanır.
-
-Ayrıntılar için [mimari notlara](docs/architecture.md) bakın.
+<div align="center">
+  <p>SKY LAB Hesap Merkezi, kulüp ekiplerinin ürün geri bildirimleriyle <strong>WebLab</strong> tarafından geliştirilmektedir.</p>
+  <a href="https://github.com/skylab-kulubu">
+    <img src="https://raw.githubusercontent.com/skylab-kulubu/skylab-assets/main/logos/arge/weblab/weblab-colored.svg" alt="SKY LAB WebLab" width="150" />
+  </a>
+</div>
