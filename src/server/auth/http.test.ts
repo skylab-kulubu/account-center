@@ -24,6 +24,17 @@ describe("mutation request protection", () => {
       method: "POST",
       headers: { origin: "https://attacker.invalid" },
     }), config)).toBe(false);
+    for (const origin of [
+      "https://my.yildizskylab.com/",
+      "https://my.yildizskylab.com/path",
+      "https://user@my.yildizskylab.com",
+      "https://MY.YILDIZSKYLAB.COM",
+    ]) {
+      expect(mutationHasExactOrigin(new NextRequest("https://my.yildizskylab.com/api", {
+        method: "POST",
+        headers: { origin, "sec-fetch-site": "same-origin" },
+      }), config)).toBe(false);
+    }
     expect(mutationHasExactOrigin(new NextRequest("https://my.yildizskylab.com/api", { method: "POST" }), config)).toBe(false);
   });
 

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { constantTimeEqual, randomOpaqueValue, sessionCsrfToken, sha256 } from "@/server/auth/crypto";
+import { constantTimeEqual, hmacSha256, randomOpaqueValue, sessionCsrfToken, sha256 } from "@/server/auth/crypto";
 import type { SecretCipher } from "@/server/auth/crypto";
 import type { SessionRepository } from "@/server/auth/repositories";
 import type { BrowserSession, OidcTokenSet } from "@/server/auth/types";
@@ -144,6 +144,14 @@ export class SessionManager {
     return constantTimeEqual(this.csrfToken(sessionId), candidate);
   }
 
+  credentialReference(sessionId: string, credentialId: string) {
+    return hmacSha256(
+      this.csrfSecret,
+      "owned-credential-reference",
+      `${sessionId}\0${credentialId}`,
+    ).toString("base64url");
+  }
+
   async revokeHandle(handle: string | undefined) {
     if (!handle || !/^[A-Za-z0-9_-]{43}$/.test(handle)) return false;
     return this.repository.revokeByHandle(sha256(handle), this.clock());
@@ -181,12 +189,18 @@ export class SessionManager {
     }
   }
 
-  async replaceTokens(id: string, expectedVersion: string, tokens: OidcTokenSet) {
+  async replaceTokens(
+    id: string,
+    expectedVersion: string,
+    tokens: OidcTokenSet,
+    keycloakSid?: string,
+  ) {
     const replacement = this.cipher.encrypt(tokens, `session:${id}`);
     return this.repository.replaceTokenCiphertext(
       id,
       expectedVersion,
       replacement,
+      keycloakSid,
       this.clock(),
     );
   }

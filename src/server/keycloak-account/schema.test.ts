@@ -8,6 +8,7 @@ import sessionsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-ses
 import {
   KeycloakAccountContractError,
   parseAuthenticationSummary,
+  parseCredentialInventory,
   parseDeviceHints,
   parseProfile,
   parseSessions,
@@ -35,6 +36,21 @@ describe("Keycloak 26.7.4 Account REST contract", () => {
     });
     expect(JSON.stringify(summary)).not.toContain("credential-");
     expect(JSON.stringify(summary)).not.toContain("credentialData");
+  });
+
+  it("keeps the owned credential inventory server-side for AIA verification", () => {
+    const inventory = parseCredentialInventory(credentialsFixture);
+    expect(inventory.summary.passkeyCount).toBe(1);
+    expect(inventory.credentials).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "credential-passkey-one",
+        type: "webauthn-passwordless",
+        label: "MacBook Touch ID",
+        removeable: true,
+      }),
+    ]));
+    expect(JSON.stringify(inventory)).not.toContain("credentialData");
+    expect(JSON.stringify(inventory)).not.toContain("private");
   });
 
   it("uses canonical sessions and attaches optional device hints by session ID", () => {

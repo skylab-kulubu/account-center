@@ -43,12 +43,7 @@ export function clearOidcTransactionCookie(response: NextResponse) {
 
 export function mutationHasExactOrigin(request: NextRequest, config: AuthConfig) {
   const origin = request.headers.get("origin");
-  if (!origin) return false;
-  try {
-    if (new URL(origin).origin !== config.appUrl.origin) return false;
-  } catch {
-    return false;
-  }
+  if (origin !== config.appUrl.origin) return false;
   const fetchSite = request.headers.get("sec-fetch-site");
   return !fetchSite || fetchSite === "same-origin";
 }

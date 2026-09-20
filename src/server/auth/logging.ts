@@ -29,7 +29,9 @@ type AuthLog = {
     | "backchannel_logout"
     | "native_handoff_created"
     | "native_handoff_consumed"
-    | "native_bridge_redeemed";
+    | "native_bridge_redeemed"
+    | "account_action_started"
+    | "account_action_completed";
   requestId: string;
   outcome: "success" | "failure";
   reason?:
@@ -45,6 +47,8 @@ type AuthLog = {
     | "invalid_token"
     | "invalid_handoff"
     | "invalid_bridge_request"
+    | "invalid_account_action"
+    | "account_action_unverified"
     | "rate_limited";
 };
 

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
 import {
   seedAuthenticatedSession,
+  seedAccountActionResult,
   sessionExists,
   sessionState,
   setSubjectGateMarker,
@@ -104,6 +105,46 @@ test("mobile protected pages preserve the safe return path without a session", a
     "href",
     "/api/auth/login?returnTo=%2Fsessions",
   );
+});
+
+test("account action initiation is not an anonymous redirector", async ({ playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one server-side assertion is sufficient");
+  const request = await playwright.request.newContext({
+    baseURL: baseUrl,
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: {
+      origin: baseUrl,
+      "sec-fetch-site": "same-origin",
+    },
+  });
+  try {
+    const response = await request.post("/api/auth/action", {
+      form: { csrfToken: "forged", action: "password" },
+      maxRedirects: 0,
+    });
+    expect(response.status()).toBe(401);
+    expect(response.headers()["cache-control"]).toContain("no-store");
+    expect(response.headers()["location"]).toBeUndefined();
+  } finally {
+    await request.dispose();
+  }
+});
+
+test("security feedback ignores forged query state and consumes its session result once", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one browser-backed assertion is sufficient");
+  const fixture = await installAuthenticatedSession(context, `action-result-${testInfo.retry}`);
+
+  await page.goto("/security?action=otp&status=success");
+  await expect(page.getByRole("heading", { name: "Giriş ve güvenlik" })).toBeVisible();
+  await expect(page.getByText("İşlem tamamlandı")).toHaveCount(0);
+
+  const reference = await seedAccountActionResult(fixture.sessionId);
+  await page.goto(`/security?result=${reference}`);
+  await expect(page.getByText("İşlem tamamlandı")).toBeVisible();
+  await expect(page.getByText(/Keycloak’taki güncel durumla doğrulandı/)).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByText("İşlem tamamlandı")).toHaveCount(0);
 });
 
 test("handoff responses keep the final assembled no-referrer policy", async ({ playwright }, testInfo) => {

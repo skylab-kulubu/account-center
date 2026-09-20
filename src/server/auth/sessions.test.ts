@@ -98,6 +98,7 @@ class MemorySessions implements SessionRepository {
     id: string,
     expectedCiphertext: string,
     replacementCiphertext: string,
+    keycloakSid: string | undefined,
     now: Date,
   ) {
     if (
@@ -109,6 +110,7 @@ class MemorySessions implements SessionRepository {
       this.record.absoluteExpiresAt <= now
     ) return false;
     this.record.tokenCiphertext = replacementCiphertext;
+    if (keycloakSid) this.record.keycloakSid = keycloakSid;
     return true;
   }
 
@@ -310,10 +312,11 @@ describe("SessionManager", () => {
     await expect(manager.replaceTokens(sessionId, snapshot!.version, {
       ...tokens,
       accessToken: "replacement-access",
-    })).resolves.toBe(true);
+    }, "fresh-keycloak-sid")).resolves.toBe(true);
     await expect(manager.readTokens(sessionId)).resolves.toMatchObject({
       tokens: { accessToken: "replacement-access" },
     });
+    expect(repository.record?.keycloakSid).toBe("fresh-keycloak-sid");
     expect(repository.record?.tokenCiphertext).not.toContain("replacement-access");
   });
 

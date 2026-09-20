@@ -1,6 +1,7 @@
 import "server-only";
 
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
+import { AccountActionResultStore } from "@/server/auth/account-action-results";
 import {
   BackchannelLogoutService,
   KeycloakBackchannelLogoutVerifier,
@@ -11,6 +12,7 @@ import { OAuth4WebApiProtocol } from "@/server/auth/oidc-protocol";
 import { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import {
   PostgresOidcTransactionRepository,
+  PostgresAccountActionResultRepository,
   PostgresBackchannelLogoutRepository,
   PostgresRateLimitRepository,
   PostgresSessionRepository,
@@ -54,12 +56,29 @@ function createAuthServices() {
     sessions,
   );
   const sessionAccess = new AccountSessionAccess(sessions, accountAccess);
+  const credentialAdapter = new Keycloak26AccountReadAdapter(config.issuer);
+  const account = new AccountReadService(
+    credentialAdapter,
+    sessions,
+    protocol,
+    { issuer: config.issuer, clientId: config.clientId },
+  );
   const transactions = new OidcTransactionStore(
     new PostgresOidcTransactionRepository(pool),
     cipher,
     config.oidcTransactionTtlSeconds,
   );
-  const oidc = new OidcFlowService(protocol, transactions, sessions, accountAccess);
+  const actionResults = new AccountActionResultStore(
+    new PostgresAccountActionResultRepository(pool),
+  );
+  const oidc = new OidcFlowService(
+    protocol,
+    transactions,
+    sessions,
+    accountAccess,
+    account,
+    credentialAdapter,
+  );
   const nativeHandoff = new NativeHandoffService(
     createNativeAccessTokenVerifier(config.issuer),
     new PostgresNativeHandoffRepository(pool),
@@ -73,12 +92,8 @@ function createAuthServices() {
     sessionAccess,
     accountAccess,
     oidc,
-    account: new AccountReadService(
-      new Keycloak26AccountReadAdapter(config.issuer),
-      sessions,
-      protocol,
-      { issuer: config.issuer, clientId: config.clientId },
-    ),
+    account,
+    actionResults,
     nativeHandoff,
     nativeBridgeRequest: new NativeBridgeRequestVerifier(
       config.nativeBridgeHmacSecret,

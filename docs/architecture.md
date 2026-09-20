@@ -11,6 +11,7 @@ Account Center, `my.yildizskylab.com` üzerinde çalışan ayrı bir Next.js ür
 - Keycloak token’ları şifreli sunucu oturum kaydında kalır.
 - Mutation endpoint’leri exact origin ve session-bound CSRF token doğrular.
 - Password, OTP ve passkey değişiklikleri sabit allowlist içindeki AIA işlemleridir.
+- AIA başlangıcı exact origin, session-bound CSRF ve account-access gate sonrasında server-side PAR ile yapılır. Tarayıcı Keycloak action adı veya credential ID seçemez; removable credential için yalnız session-bound HMAC referansı görür. Callback aynı opaque session, subject, state, nonce, PKCE ve fresh `auth_time` ile bağlıdır. Keycloak başarı durumu ancak taze credential envanterindeki beklenen değişiklikle doğrulanır; token ciphertext ve güncel Keycloak `sid` atomik değiştirilir. UI sonucu hash'lenmiş, session-bound ve tek kullanımlık bir kayıtla taşınır; query parametresi sonuç seçemez.
 - Native handoff kodu kısa ömürlü, hash’lenmiş ve tek kullanımlıdır; browser’a native token aktarılmaz.
 - Public native kod ile Keycloak’a giden internal bridge kodu ayrıdır. Bridge yalnız PAR gövdesinde taşınır; callback beklenen `sub` ve özgün `auth_time` ile bağlanır. Internal redemption sözleşmesi [ayrı belgede](native-handoff-keycloak-contract.md) tanımlıdır.
 - Account/auth cevapları ve loglar token, cookie, PII, handoff code ve credential id içermez.

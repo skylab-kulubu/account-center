@@ -42,10 +42,15 @@ function fixture(initial = tokenSet()) {
       stored = { tokens, version: "encrypted-v2" };
       return true;
     }),
+    credentialReference: vi.fn(() => "r".repeat(43)),
   };
   const adapter = {
     profile: vi.fn().mockResolvedValue({ firstName: "Ada", lastName: "Lovelace", email: "a@example.invalid", emailVerified: true }),
     authentication: vi.fn().mockResolvedValue({ passwordConfigured: true, otpConfigured: false, passkeyCount: 1 }),
+    credentialInventory: vi.fn().mockResolvedValue({
+      summary: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
+      credentials: [],
+    }),
     sessions: vi.fn().mockResolvedValue([]),
     snapshot: vi.fn().mockResolvedValue({
       profile: { firstName: "Ada", lastName: "Lovelace", email: "a@example.invalid", emailVerified: true },
@@ -100,5 +105,42 @@ describe("AccountReadService", () => {
     expect(vault.replaceTokens).not.toHaveBeenCalled();
     expect(oidc.revokeRefreshToken).toHaveBeenCalledWith("server-only-refresh-token");
     expect(adapter.profile).not.toHaveBeenCalled();
+  });
+
+  it("maps removable credentials to session-bound opaque references", async () => {
+    const { service, adapter, vault } = fixture();
+    adapter.credentialInventory.mockResolvedValue({
+      summary: { passwordConfigured: true, otpConfigured: true, passkeyCount: 1 },
+      credentials: [
+        {
+          id: "credential-passkey-one",
+          type: "webauthn-passwordless",
+          label: "MacBook Touch ID",
+          createdAt: "2026-09-20T09:00:00.000Z",
+          removeable: true,
+        },
+        {
+          id: "credential-password-id",
+          type: "password",
+          label: null,
+          createdAt: null,
+          removeable: false,
+        },
+      ],
+    });
+
+    const security = await service.security(session);
+
+    expect(security.credentials).toEqual([expect.objectContaining({
+      kind: "passkey",
+      label: "MacBook Touch ID",
+      deletionReference: "r".repeat(43),
+    })]);
+    expect(vault.credentialReference).toHaveBeenCalledWith(
+      session.id,
+      "credential-passkey-one",
+    );
+    expect(JSON.stringify(security)).not.toContain("credential-passkey-one");
+    expect(JSON.stringify(security)).not.toContain("credential-password-id");
   });
 });

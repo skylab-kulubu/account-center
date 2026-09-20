@@ -29,3 +29,7 @@ Sürüm sabitlemesi şu fixture’larda tutulur:
 - `tests/fixtures/keycloak-26.7.4-account-devices.json`
 
 Fixture’lar tagged `26.7.4` Java representation ve resource kodundaki alan sözleşmesini test eder. Foundation entegrasyonu şu anda yalnız canlı `/account/` profil okumasını kanıtlar. Credentials, canonical sessions ve optional devices payload’larının gerçek production-clone capture’ı release gate olarak açıktır; bu kanıt gelmeden Account REST adaptörü production-ready sayılmaz.
+
+## Application-initiated actions
+
+Uygulama yalnız `UPDATE_PASSWORD`, `CONFIGURE_TOTP`, `webauthn-register-passwordless` ve sahipliği taze Account REST envanterinden doğrulanan `delete_credential:{credentialId}` değerlerini PAR içine koyar. `prompt=login` ve `max_age=0` ile fresh auth istenir; Keycloak credential action LoA kontrolü production clone’da kanıtlanmalıdır. `DELETE_ACCOUNT` ve Account Console hedef olarak kullanılmaz. Callback `kc_action_status` değerini tek başına kabul etmez; ayrıntılı delil ve release kapıları [AIA sözleşmesindedir](account-actions.md).

@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Pool, PoolClient } from "pg";
 import type {
+  AccountActionResultRepository,
   BackchannelLogoutInput,
   BackchannelLogoutRepository,
   ConsumeNativeHandoffInput,
@@ -14,7 +15,15 @@ import type {
   SessionUseOutcome,
   UseSessionInput,
 } from "@/server/auth/repositories";
-import type { ActiveSession, NewNativeHandoff, NewSessionRecord, StoredOidcTransaction } from "@/server/auth/types";
+import type {
+  AccountActionKind,
+  AccountActionOutcome,
+  ActiveSession,
+  NewNativeHandoff,
+  NewSessionRecord,
+  StoredAccountActionResult,
+  StoredOidcTransaction,
+} from "@/server/auth/types";
 
 type SessionRow = {
   id: string;
@@ -83,6 +92,43 @@ export class PostgresOidcTransactionRepository implements OidcTransactionReposit
     );
     const row = result.rows[0];
     return row ? { id: row.id, payloadCiphertext: row.payload_ciphertext } : null;
+  }
+}
+
+export class PostgresAccountActionResultRepository implements AccountActionResultRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async insert(value: StoredAccountActionResult) {
+    await this.pool.query(
+      `INSERT INTO account_action_results
+        (result_hash, session_id, action, outcome, created_at, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        value.resultHash,
+        value.sessionId,
+        value.action,
+        value.outcome,
+        value.createdAt,
+        value.expiresAt,
+      ],
+    );
+  }
+
+  async consume(resultHash: Buffer, sessionId: string, now: Date) {
+    const result = await this.pool.query<{
+      action: AccountActionKind;
+      outcome: AccountActionOutcome;
+    }>(
+      `UPDATE account_action_results
+          SET consumed_at = $3
+        WHERE result_hash = $1
+          AND session_id = $2
+          AND consumed_at IS NULL
+          AND expires_at > $3
+      RETURNING action, outcome`,
+      [resultHash, sessionId, now],
+    );
+    return result.rows[0] ?? null;
   }
 }
 
@@ -251,17 +297,19 @@ export class PostgresSessionRepository implements SessionRepository {
     id: string,
     expectedCiphertext: string,
     replacementCiphertext: string,
+    keycloakSid: string | undefined,
     now: Date,
   ) {
     const result = await this.pool.query(
       `UPDATE account_sessions
-          SET token_ciphertext = $3
+          SET token_ciphertext = $3,
+              keycloak_sid = COALESCE($4, keycloak_sid)
         WHERE id = $1
           AND token_ciphertext = $2
           AND revoked_at IS NULL
-          AND idle_expires_at > $4
-          AND absolute_expires_at > $4`,
-      [id, expectedCiphertext, replacementCiphertext, now],
+          AND idle_expires_at > $5
+          AND absolute_expires_at > $5`,
+      [id, expectedCiphertext, replacementCiphertext, keycloakSid ?? null, now],
     );
     return result.rowCount === 1;
   }

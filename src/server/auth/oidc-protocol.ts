@@ -11,6 +11,8 @@ export type BeginAuthorizationInput = {
   nonce: string;
   codeVerifier: string;
   nativeBridgeCode?: string;
+  accountAction?: string;
+  forceReauthentication?: boolean;
 };
 
 export type ExchangeAuthorizationInput = BeginAuthorizationInput & {
@@ -130,6 +132,18 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
   }
 
   async begin(input: BeginAuthorizationInput) {
+    const allowedAccountAction = input.accountAction === undefined ||
+      input.accountAction === "UPDATE_PASSWORD" ||
+      input.accountAction === "CONFIGURE_TOTP" ||
+      input.accountAction === "webauthn-register-passwordless" ||
+      /^delete_credential:[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(input.accountAction);
+    if (
+      !allowedAccountAction ||
+      (input.accountAction !== undefined && input.nativeBridgeCode !== undefined) ||
+      (input.accountAction !== undefined) !== (input.forceReauthentication === true)
+    ) {
+      throw new OidcContractError("OIDC account action is outside the fixed AIA contract.");
+    }
     const authorizationServer = await this.#authorizationServer();
     const codeChallenge = await oauth.calculatePKCECodeChallenge(input.codeVerifier);
     const parameters = new URLSearchParams({
@@ -143,6 +157,11 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
       code_challenge_method: "S256",
     });
     if (input.nativeBridgeCode) parameters.set("sky_native_handoff", input.nativeBridgeCode);
+    if (input.accountAction) parameters.set("kc_action", input.accountAction);
+    if (input.forceReauthentication) {
+      parameters.set("max_age", "0");
+      parameters.set("prompt", "login");
+    }
     const response = await oauth.pushedAuthorizationRequest(
       authorizationServer,
       this.#client,

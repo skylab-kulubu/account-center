@@ -21,6 +21,7 @@ Komut PostgreSQL transaction-scoped advisory lock alır. Önceki job hâlâ çal
 - Aktif kayıtlar ve grace aralığındaki kayıtlar korunur.
 - Süresi dolmuş backchannel logout JTI replay kayıtları ve anonymous auth rate-limit bucket’ları silinir.
 - Tüketilmiş veya süresi dolmuş public native handoff ve internal bridge kayıtları bir saatlik grace sonrasında; süresi dolmuş internal HMAC nonce kayıtları hemen hard-delete edilir.
+- Süresi dolmuş tek kullanımlık account-action UI sonuçları ve bir saatten eski tüketilmiş sonuçlar hard-delete edilir; session silindiğinde bağlı sonuçlar cascade ile kalkar.
 
 `maintenance/prune-auth.sql` yalnız auth-owned tablolara ve açık tarih koşullarına göre silme yapar. Kullanıcı, etkinlik veya başka ürün verilerine dokunmaz.
 
@@ -29,7 +30,7 @@ Komut PostgreSQL transaction-scoped advisory lock alır. Önceki job hâlâ çal
 Başarılı çalışmada yalnız aşağıdaki alanlar loglanır:
 
 ```json
-{"event":"auth_prune_completed","deletedTransactions":0,"deletedSessions":0,"deletedLogoutReplays":0,"deletedRateLimits":0,"deletedNativeHandoffs":0,"deletedNativeBridges":0,"deletedNativeBridgeNonces":0}
+{"event":"auth_prune_completed","deletedTransactions":0,"deletedSessions":0,"deletedLogoutReplays":0,"deletedRateLimits":0,"deletedNativeHandoffs":0,"deletedNativeBridges":0,"deletedNativeBridgeNonces":0,"deletedActionResults":0}
 ```
 
 Loglarda token, cookie, state, subject veya PII bulunmaz. `auth_prune_failed` için alert oluşturulmalı; tek bir saatlik hata veri erişimini etkilemez fakat sonraki başarılı koşuya kadar retention uzar. 24 saat boyunca başarılı koşu görülmezse nöbetçiye bildirilmelidir.

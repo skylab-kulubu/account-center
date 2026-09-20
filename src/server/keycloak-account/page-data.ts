@@ -8,13 +8,29 @@ import { toAccountProblem } from "@/server/keycloak-account/problem";
 import type {
   AccountOverview,
   AccountProfile,
+  AccountSecurity,
   AccountSession,
   AuthenticationSummary,
 } from "@/server/keycloak-account/types";
+import type { AccountActionResult } from "@/server/auth/types";
 
 export type AccountPageData<T> =
   | { ok: true; value: T }
   | { ok: false; problem: AccountProblem };
+
+type SecurityPageData =
+  | {
+      ok: true;
+      value: AccountSecurity & {
+        actionCsrfToken: string;
+        actionResult: AccountActionResult | null;
+      };
+    }
+  | {
+      ok: false;
+      problem: AccountProblem;
+      actionResult: AccountActionResult | null;
+    };
 
 async function load<T>(
   select: (
@@ -44,6 +60,35 @@ export function loadProfile(): Promise<AccountPageData<AccountProfile>> {
 
 export function loadAuthentication(): Promise<AccountPageData<AuthenticationSummary>> {
   return load((services, session) => services.account.authentication(session));
+}
+
+export function loadSecurity(
+  resultReference?: string,
+): Promise<SecurityPageData> {
+  return (async () => {
+    const services = getAuthServices();
+    const authorization = await currentAccountSession();
+    if (authorization.status === "blocked") redirect("/api/auth/session/end");
+    if (authorization.status === "unavailable") redirect("/api/auth/unavailable");
+    if (authorization.status !== "active") redirect("/login");
+    const session = authorization.value.session;
+    const actionResult = await services.actionResults
+      .consume(resultReference, session.id)
+      .catch(() => null);
+    try {
+      const security = await services.account.security(session);
+      return {
+        ok: true as const,
+        value: {
+          ...security,
+          actionCsrfToken: services.sessions.csrfToken(session.id),
+          actionResult,
+        },
+      };
+    } catch (error) {
+      return { ok: false as const, problem: toAccountProblem(error), actionResult };
+    }
+  })();
 }
 
 export function loadSessions(): Promise<AccountPageData<AccountSession[]>> {

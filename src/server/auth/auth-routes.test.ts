@@ -14,6 +14,7 @@ const authMocks = vi.hoisted(() => ({
   callback: vi.fn(),
   revokeHandle: vi.fn(),
   rateLimitConsume: vi.fn(),
+  createActionResult: vi.fn(),
 }));
 
 vi.mock("@/server/auth/logging", () => ({
@@ -26,6 +27,7 @@ vi.mock("@/server/auth/services", () => ({
     config: { appUrl: new URL("https://my.yildizskylab.com") },
     oidc: { begin: authMocks.begin, callback: authMocks.callback },
     sessions: { revokeHandle: authMocks.revokeHandle },
+    actionResults: { create: authMocks.createActionResult },
     anonymousRateLimit: { consume: authMocks.rateLimitConsume },
   }),
 }));
@@ -38,6 +40,7 @@ describe("authentication routes", () => {
       count: 1,
       retryAfterSeconds: 60,
     });
+    authMocks.createActionResult.mockResolvedValue("r".repeat(43));
   });
 
   it("returns a retryable 429 before anonymous login or callback work", async () => {
@@ -133,6 +136,67 @@ describe("authentication routes", () => {
     expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));
     expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+  });
+
+  it("returns an account action to the fixed security page without replacing the BFF session", async () => {
+    authMocks.callback.mockResolvedValue({
+      actionOutcome: "success",
+      action: "passkey",
+      returnTo: "/security",
+      sessionId: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
+    });
+    const oldHandle = "h".repeat(43);
+    const response = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}&kc_action=webauthn-register-passwordless&kc_action_status=success`,
+      {
+        headers: {
+          cookie: `${SESSION_COOKIE}=${oldHandle}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}`,
+        },
+      },
+    ));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      `https://my.yildizskylab.com/security?result=${"r".repeat(43)}`,
+    );
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
+    expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+    expect(authMocks.revokeHandle).not.toHaveBeenCalled();
+    expect(authMocks.callback).toHaveBeenCalledWith(
+      expect.anything(),
+      "b".repeat(43),
+      oldHandle,
+    );
+    expect(authMocks.createActionResult).toHaveBeenCalledWith(
+      "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
+      { action: "passkey", outcome: "success" },
+    );
+  });
+
+  it("keeps the BFF session when one-time action feedback cannot be persisted", async () => {
+    authMocks.callback.mockResolvedValue({
+      actionOutcome: "success",
+      action: "otp",
+      returnTo: "/security",
+      sessionId: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
+    });
+    authMocks.createActionResult.mockRejectedValue(new Error("database unavailable"));
+    const oldHandle = "h".repeat(43);
+
+    const response = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+      {
+        headers: {
+          cookie: `${SESSION_COOKIE}=${oldHandle}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}`,
+        },
+      },
+    ));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
+    expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
+    expect(authMocks.revokeHandle).not.toHaveBeenCalled();
   });
 
   it("clears stale cookies without disclosing why a verified subject is denied", async () => {
