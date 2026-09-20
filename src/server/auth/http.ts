@@ -53,6 +53,18 @@ export function mutationHasExactOrigin(request: NextRequest, config: AuthConfig)
   return !fetchSite || fetchSite === "same-origin";
 }
 
+/**
+ * Session revocation requires the browser's serialized Origin to be byte-for-byte
+ * identical to the configured origin. Do not URL-normalize this boundary: values
+ * containing credentials, paths, a trailing slash, or alternate port/case
+ * serialization are not valid browser Origin header values for this contract.
+ */
+export function sessionMutationHasExactOrigin(request: NextRequest, config: AuthConfig) {
+  if (request.headers.get("origin") !== config.appUrl.origin) return false;
+  const fetchSite = request.headers.get("sec-fetch-site");
+  return !fetchSite || fetchSite === "same-origin";
+}
+
 export function nativeRequestHasSafeOrigin(request: NextRequest, config: AuthConfig) {
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");

@@ -65,5 +65,15 @@ describe("Keycloak 26.7.4 Account REST contract", () => {
     expect(() => parseAuthenticationSummary(credentials)).toThrow(KeycloakAccountContractError);
     const duplicateDevices = [devicesFixture[0], devicesFixture[0]];
     expect(() => parseDeviceHints(duplicateDevices)).toThrow(KeycloakAccountContractError);
+    const duplicateCurrent = structuredClone(sessionsFixture);
+    duplicateCurrent[1]!.current = true;
+    expect(() => parseSessions(duplicateCurrent)).toThrow(KeycloakAccountContractError);
+    const missingCurrent = structuredClone(sessionsFixture);
+    missingCurrent[0]!.current = false;
+    expect(() => parseSessions(missingCurrent)).toThrow(KeycloakAccountContractError);
+  });
+
+  it("keeps the explicit empty-session state separate from current-session drift", () => {
+    expect(parseSessions([])).toEqual([]);
   });
 });

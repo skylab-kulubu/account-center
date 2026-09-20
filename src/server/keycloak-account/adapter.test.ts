@@ -8,6 +8,7 @@ import sessionsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-ses
 import {
   Keycloak26AccountReadAdapter,
   KeycloakAccountForbiddenError,
+  KeycloakAccountUnavailableError,
   KeycloakAccountUnauthorizedError,
 } from "@/server/keycloak-account/adapter";
 import { KeycloakAccountContractError } from "@/server/keycloak-account/schema";
@@ -98,5 +99,60 @@ describe("Keycloak26AccountReadAdapter", () => {
       })),
     );
     await expect(adapter.profile("token")).rejects.toBeInstanceOf(KeycloakAccountContractError);
+  });
+
+  it("revokes one user-owned session and all other sessions through Account REST", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const adapter = new Keycloak26AccountReadAdapter(issuer, request);
+
+    await expect(adapter.revokeSession("user-token", "session/with spaces")).resolves.toBeUndefined();
+    await expect(adapter.revokeOtherSessions("user-token")).resolves.toBeUndefined();
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      new URL(
+        "https://e.yildizskylab.com/realms/e-skylab/account/sessions/session%2Fwith%20spaces",
+      ),
+      expect.objectContaining({
+        method: "DELETE",
+        credentials: "omit",
+        redirect: "error",
+        headers: {
+          accept: "application/json",
+          authorization: "Bearer user-token",
+        },
+      }),
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      new URL("https://e.yildizskylab.com/realms/e-skylab/account/sessions"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("fails closed when an Account REST revoke does not match the pinned 204 contract", async () => {
+    const unauthorized = new Keycloak26AccountReadAdapter(
+      issuer,
+      vi.fn().mockResolvedValue(new Response(null, { status: 401 })),
+    );
+    await expect(unauthorized.revokeOtherSessions("token")).rejects.toBeInstanceOf(
+      KeycloakAccountUnauthorizedError,
+    );
+
+    const forbidden = new Keycloak26AccountReadAdapter(
+      issuer,
+      vi.fn().mockResolvedValue(new Response(null, { status: 403 })),
+    );
+    await expect(forbidden.revokeSession("token", "session")).rejects.toBeInstanceOf(
+      KeycloakAccountForbiddenError,
+    );
+
+    const drifted = new Keycloak26AccountReadAdapter(
+      issuer,
+      vi.fn().mockResolvedValue(Response.json({ status: "removed" })),
+    );
+    await expect(drifted.revokeSession("token", "session")).rejects.toBeInstanceOf(
+      KeycloakAccountUnavailableError,
+    );
   });
 });

@@ -9,7 +9,11 @@ import {
   validateAccountAccessToken,
 } from "@/server/keycloak-account/access-token";
 import { KeycloakAccountUnauthorizedError } from "@/server/keycloak-account/adapter";
-import type { KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
+import { KeycloakAccountContractError } from "@/server/keycloak-account/schema";
+import type {
+  AccountSession,
+  KeycloakAccountReadAdapter,
+} from "@/server/keycloak-account/types";
 
 export class AccountReauthenticationRequiredError extends Error {
   constructor() {
@@ -18,7 +22,13 @@ export class AccountReauthenticationRequiredError extends Error {
   }
 }
 
-type SessionTokenVault = Pick<SessionManager, "readTokens" | "replaceTokens">;
+type SessionTokenVault = Pick<
+  SessionManager,
+  | "readTokens"
+  | "replaceTokens"
+  | "upstreamSessionReference"
+  | "verifyUpstreamSessionReference"
+>;
 type RefreshProtocol = Pick<OidcProtocol, "refresh" | "revokeRefreshToken">;
 type SessionIdentity = Pick<ActiveSession, "id" | "subject">;
 
@@ -37,6 +47,22 @@ export class AccountReadService {
       { ...this.tokenContract, subject: session.subject },
       this.clock(),
     );
+  }
+
+  #managedSessions(session: SessionIdentity, sessions: AccountSession[]) {
+    return this.#validatedSessions(sessions).map(({ id, ...candidate }) => ({
+      ...candidate,
+      reference: candidate.current
+        ? null
+        : this.sessions.upstreamSessionReference(session.id, id),
+    }));
+  }
+
+  #validatedSessions(sessions: AccountSession[]) {
+    if (sessions.length > 0 && sessions.filter((candidate) => candidate.current).length !== 1) {
+      throw new KeycloakAccountContractError("sessions");
+    }
+    return sessions;
   }
 
   async #refresh(
@@ -111,7 +137,36 @@ export class AccountReadService {
   }
 
   sessionsList(session: SessionIdentity) {
-    return this.#read(session, (accessToken) => this.adapter.sessions(accessToken));
+    return this.#read(session, async (accessToken) =>
+      this.#validatedSessions(await this.adapter.sessions(accessToken)));
+  }
+
+  managedSessions(session: SessionIdentity) {
+    return this.#read(session, async (accessToken) => {
+      const sessions = this.#validatedSessions(await this.adapter.sessions(accessToken));
+      return this.#managedSessions(session, sessions);
+    });
+  }
+
+  async revokeOtherSession(session: SessionIdentity, reference: string) {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(reference)) return;
+    return this.#read(session, async (accessToken) => {
+      const sessions = this.#validatedSessions(await this.adapter.sessions(accessToken));
+      const selected = sessions.find((candidate) =>
+        !candidate.current &&
+        this.sessions.verifyUpstreamSessionReference(session.id, candidate.id, reference),
+      );
+      if (!selected) return;
+      await this.adapter.revokeSession(accessToken, selected.id);
+    });
+  }
+
+  revokeOtherSessions(session: SessionIdentity) {
+    return this.#read(session, async (accessToken) => {
+      const sessions = this.#validatedSessions(await this.adapter.sessions(accessToken));
+      if (sessions.length === 0 || sessions.every((candidate) => candidate.current)) return;
+      await this.adapter.revokeOtherSessions(accessToken);
+    });
   }
 
   overview(session: SessionIdentity) {
@@ -125,6 +180,12 @@ export class AccountReadService {
   }
 
   snapshot(session: SessionIdentity) {
-    return this.#read(session, (accessToken) => this.adapter.snapshot(accessToken));
+    return this.#read(session, async (accessToken) => {
+      const snapshot = await this.adapter.snapshot(accessToken);
+      return {
+        ...snapshot,
+        sessions: this.#managedSessions(session, snapshot.sessions),
+      };
+    });
   }
 }
