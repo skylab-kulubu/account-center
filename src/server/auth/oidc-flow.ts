@@ -1,0 +1,432 @@
+import "server-only";
+
+import * as oauth from "oauth4webapi";
+import { constantTimeEqual, randomOpaqueValue } from "@/server/auth/crypto";
+import { OidcContractError, type OidcProtocol } from "@/server/auth/oidc-protocol";
+import type { OidcTransactionStore } from "@/server/auth/oidc-transactions";
+import type { SessionManager } from "@/server/auth/sessions";
+import type {
+  AccountActionKind,
+  AccountActionTransactionPayload,
+  AccountDeletionReauthenticationTransactionPayload,
+  ActiveSession,
+  NativeHandoffIdentity,
+} from "@/server/auth/types";
+import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
+import type { AccountReadService } from "@/server/keycloak-account/service";
+import type { KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
+
+const allowedReturnPaths = new Set([
+  "/",
+  "/personal-information",
+  "/security",
+  "/sessions",
+  "/delete-account",
+]);
+
+export class InvalidOidcTransactionError extends Error {
+  constructor() {
+    super("The OIDC transaction is invalid, expired, or already used.");
+    this.name = "InvalidOidcTransactionError";
+  }
+}
+
+export class InvalidAccountActionError extends Error {
+  constructor() {
+    super("The requested account action is not allowed.");
+    this.name = "InvalidAccountActionError";
+  }
+}
+
+export type BeginAccountActionInput = {
+  kind: AccountActionKind;
+  deletionReference?: string;
+};
+
+export function normalizeReturnTo(value: string | null | undefined) {
+  if (!value) return "/";
+  try {
+    const url = new URL(value, "https://account-center.invalid");
+    if (url.origin !== "https://account-center.invalid" || !allowedReturnPaths.has(url.pathname)) return "/";
+    return url.pathname;
+  } catch {
+    return "/";
+  }
+}
+
+export class OidcFlowService {
+  constructor(
+    private readonly protocol: OidcProtocol,
+    private readonly transactions: OidcTransactionStore,
+    private readonly sessions: Pick<
+      SessionManager,
+      "authenticate" | "candidate" | "create" | "credentialReference" | "readTokens" | "replaceTokens"
+    >,
+    private readonly accountAccess: Pick<AccountAccessAuthorizer, "requireActive">,
+    private readonly account: Pick<AccountReadService, "credentialInventory">,
+    private readonly credentialAdapter: Pick<KeycloakAccountReadAdapter, "credentialInventory">,
+    private readonly clock: () => Date = () => new Date(),
+  ) {}
+
+  async begin(returnTo?: string | null) {
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    await this.transactions.create(
+      { ...proof, purpose: "login", returnTo: normalizeReturnTo(returnTo) },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
+  async beginNative(identity: NativeHandoffIdentity, bridgeCode: string) {
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+      nativeBridgeCode: bridgeCode,
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    await this.transactions.create(
+      {
+        state: proof.state,
+        nonce: proof.nonce,
+        codeVerifier: proof.codeVerifier,
+        purpose: "login",
+        returnTo: "/",
+        expectedSubject: identity.subject,
+        expectedAuthenticatedAt: identity.authenticatedAt.toISOString(),
+      },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
+  async beginAccountAction(input: BeginAccountActionInput, session: ActiveSession) {
+    const inventory = await this.account.credentialInventory(session);
+    let credentialType: AccountActionTransactionPayload["action"]["credentialType"];
+    let keycloakAction: string;
+    let credentialId: string | undefined;
+
+    if (input.kind === "password") {
+      credentialType = "password";
+      keycloakAction = "UPDATE_PASSWORD";
+    } else if (input.kind === "otp") {
+      credentialType = "otp";
+      keycloakAction = "CONFIGURE_TOTP";
+    } else if (input.kind === "passkey") {
+      credentialType = "webauthn-passwordless";
+      keycloakAction = "webauthn-register-passwordless";
+    } else {
+      if (!input.deletionReference || !/^[A-Za-z0-9_-]{43}$/.test(input.deletionReference)) {
+        throw new InvalidAccountActionError();
+      }
+      const owned = inventory.credentials.find((credential) =>
+        credential.removeable &&
+        ["otp", "totp", "webauthn-passwordless"].includes(credential.type) &&
+        /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(credential.id) &&
+        constantTimeEqual(
+          this.sessions.credentialReference(session.id, credential.id),
+          input.deletionReference!,
+        ),
+      );
+      if (!owned) throw new InvalidAccountActionError();
+      credentialId = owned.id;
+      credentialType = owned.type === "webauthn-passwordless" ? "webauthn-passwordless" : "otp";
+      keycloakAction = `delete_credential:${owned.id}`;
+    }
+
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+      accountAction: keycloakAction,
+      forceReauthentication: true,
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    const initiatedAt = this.clock();
+    await this.transactions.create(
+      {
+        state: proof.state,
+        nonce: proof.nonce,
+        codeVerifier: proof.codeVerifier,
+        purpose: "account-action",
+        returnTo: "/security",
+        expectedSubject: session.subject,
+        expectedSessionId: session.id,
+        initiatedAt: initiatedAt.toISOString(),
+        action: {
+          kind: input.kind,
+          keycloakAction,
+          credentialType,
+          ...(credentialId ? { credentialId } : {}),
+          beforeCredentials: inventory.credentials.map(({ id, type, createdAt }) => ({
+            id,
+            type,
+            createdAt,
+          })),
+        },
+      },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
+  async beginAccountDeletionReauthentication(session: ActiveSession) {
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+      forceReauthentication: true,
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    const initiatedAt = this.clock();
+    await this.transactions.create(
+      {
+        state: proof.state,
+        nonce: proof.nonce,
+        codeVerifier: proof.codeVerifier,
+        purpose: "account-deletion-reauthentication",
+        returnTo: "/delete-account",
+        expectedSubject: session.subject,
+        expectedSessionId: session.id,
+        initiatedAt: initiatedAt.toISOString(),
+      },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
+  async #boundActionSession(
+    transaction: AccountActionTransactionPayload | AccountDeletionReauthenticationTransactionPayload,
+    sessionHandle: string | undefined,
+  ) {
+    const candidate = await this.sessions.candidate(sessionHandle);
+    if (
+      !candidate ||
+      candidate.id !== transaction.expectedSessionId ||
+      candidate.subject !== transaction.expectedSubject
+    ) throw new InvalidOidcTransactionError();
+    await this.accountAccess.requireActive(candidate.subject);
+    const active = await this.sessions.authenticate(sessionHandle);
+    if (
+      !active ||
+      active.session.id !== transaction.expectedSessionId ||
+      active.session.subject !== transaction.expectedSubject
+    ) throw new InvalidOidcTransactionError();
+    return active.session;
+  }
+
+  #accountActionChanged(
+    transaction: AccountActionTransactionPayload,
+    after: Awaited<ReturnType<KeycloakAccountReadAdapter["credentialInventory"]>>,
+  ) {
+    const before = transaction.action.beforeCredentials;
+    if (transaction.action.kind === "delete-credential") {
+      return !after.credentials.some(({ id }) => id === transaction.action.credentialId);
+    }
+    const relevantBefore = before.filter(({ type }) => {
+      if (transaction.action.credentialType === "otp") return type === "otp" || type === "totp";
+      return type === transaction.action.credentialType;
+    });
+    const relevantAfter = after.credentials.filter(({ type }) => {
+      if (transaction.action.credentialType === "otp") return type === "otp" || type === "totp";
+      return type === transaction.action.credentialType;
+    });
+    if (transaction.action.kind === "password") {
+      return relevantAfter.some((credential) => {
+        const previous = relevantBefore.find(({ id }) => id === credential.id);
+        return !previous || previous.createdAt !== credential.createdAt;
+      });
+    }
+    const beforeIds = new Set(relevantBefore.map(({ id }) => id));
+    return relevantAfter.some(({ id }) => !beforeIds.has(id));
+  }
+
+  async #accountActionCallback(
+    callbackUrl: URL,
+    transaction: AccountActionTransactionPayload,
+    sessionHandle: string | undefined,
+  ) {
+    const session = await this.#boundActionSession(transaction, sessionHandle);
+    const result = (actionOutcome: "success" | "cancelled" | "error" | "unverified") => ({
+      actionOutcome,
+      action: transaction.action.kind,
+      returnTo: transaction.returnTo,
+      sessionId: session.id,
+    });
+    if (callbackUrl.searchParams.has("error")) {
+      return result("error");
+    }
+    const returnedAction = callbackUrl.searchParams.get("kc_action");
+    const expectedAction = transaction.action.keycloakAction.split(":", 1)[0]!;
+    const status = callbackUrl.searchParams.get("kc_action_status");
+    if (returnedAction !== expectedAction || (status !== "success" && status !== "cancelled")) {
+      return result("error");
+    }
+
+    let authorization;
+    try {
+      authorization = await this.protocol.exchange({
+        callbackUrl,
+        state: transaction.state,
+        nonce: transaction.nonce,
+        codeVerifier: transaction.codeVerifier,
+      });
+    } catch {
+      return result("error");
+    }
+    if (
+      authorization.subject !== transaction.expectedSubject ||
+      !authorization.keycloakSid
+    ) {
+      return result("error");
+    }
+    const initiatedAt = new Date(transaction.initiatedAt);
+    if (authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000) {
+      return result("error");
+    }
+    await this.accountAccess.requireActive(authorization.subject);
+    // Keycloak can rotate refresh tokens during the fresh-auth code exchange,
+    // including when the user cancels the requested action. Keep the existing
+    // BFF session usable without extending its absolute lifetime.
+    const currentTokens = await this.sessions.readTokens(session.id);
+    if (currentTokens) {
+      await this.sessions.replaceTokens(
+        session.id,
+        currentTokens.version,
+        authorization.tokens,
+        authorization.keycloakSid,
+      );
+    }
+    if (status === "cancelled") {
+      return result("cancelled");
+    }
+
+    let after;
+    try {
+      after = await this.credentialAdapter.credentialInventory(authorization.tokens.accessToken);
+    } catch {
+      return result("unverified");
+    }
+    if (!this.#accountActionChanged(transaction, after)) {
+      return result("unverified");
+    }
+
+    return result("success");
+  }
+
+  async #accountDeletionReauthenticationCallback(
+    callbackUrl: URL,
+    transaction: AccountDeletionReauthenticationTransactionPayload,
+    sessionHandle: string | undefined,
+  ) {
+    const session = await this.#boundActionSession(transaction, sessionHandle);
+    if (callbackUrl.searchParams.has("error")) {
+      return {
+        deletionReauthentication: "cancelled" as const,
+        returnTo: transaction.returnTo,
+      };
+    }
+    let authorization;
+    try {
+      authorization = await this.protocol.exchange({
+        callbackUrl,
+        state: transaction.state,
+        nonce: transaction.nonce,
+        codeVerifier: transaction.codeVerifier,
+        forceReauthentication: true,
+      });
+    } catch {
+      throw new InvalidOidcTransactionError();
+    }
+    const initiatedAt = new Date(transaction.initiatedAt);
+    if (
+      authorization.subject !== transaction.expectedSubject ||
+      !authorization.keycloakSid ||
+      authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000
+    ) {
+      throw new InvalidOidcTransactionError();
+    }
+    await this.accountAccess.requireActive(authorization.subject);
+    const currentTokens = await this.sessions.readTokens(session.id);
+    if (!currentTokens) throw new InvalidOidcTransactionError();
+    await this.sessions.replaceTokens(
+      session.id,
+      currentTokens.version,
+      authorization.tokens,
+      authorization.keycloakSid,
+    );
+    return {
+      deletionReauthentication: "success" as const,
+      session,
+      authenticatedAt: authorization.authenticatedAt,
+      freshAccessToken: authorization.tokens.accessToken,
+      freshIdToken: authorization.tokens.idToken,
+      returnTo: transaction.returnTo,
+    };
+  }
+
+  async callback(
+    callbackUrl: URL,
+    browserBinding: string | undefined,
+    sessionHandle?: string,
+  ) {
+    const state = callbackUrl.searchParams.get("state");
+    if (!state) throw new InvalidOidcTransactionError();
+    const transaction = await this.transactions.consume(state, browserBinding);
+    if (!transaction) throw new InvalidOidcTransactionError();
+
+    if (transaction.purpose === "account-action") {
+      return this.#accountActionCallback(callbackUrl, transaction, sessionHandle);
+    }
+    if (transaction.purpose === "account-deletion-reauthentication") {
+      return this.#accountDeletionReauthenticationCallback(callbackUrl, transaction, sessionHandle);
+    }
+
+    const authorization = await this.protocol.exchange({
+      callbackUrl,
+      state: transaction.state,
+      nonce: transaction.nonce,
+      codeVerifier: transaction.codeVerifier,
+    });
+    if (
+      transaction.expectedSubject !== undefined &&
+      authorization.subject !== transaction.expectedSubject
+    ) {
+      throw new OidcContractError("OIDC callback does not match the expected native identity.");
+    }
+    if (transaction.expectedAuthenticatedAt !== undefined) {
+      const expected = new Date(transaction.expectedAuthenticatedAt);
+      if (
+        !Number.isFinite(expected.getTime()) ||
+        authorization.authenticatedAt.getTime() !== expected.getTime()
+      ) {
+        throw new OidcContractError("OIDC callback changed the native authentication time.");
+      }
+    }
+    await this.accountAccess.requireActive(authorization.subject);
+    const session = await this.sessions.create({
+      subject: authorization.subject,
+      keycloakSid: authorization.keycloakSid,
+      authenticatedAt: authorization.authenticatedAt,
+      tokens: authorization.tokens,
+    });
+    return { ...session, returnTo: transaction.returnTo };
+  }
+
+  revokeRefreshToken(refreshToken: string) {
+    return this.protocol.revokeRefreshToken(refreshToken);
+  }
+}

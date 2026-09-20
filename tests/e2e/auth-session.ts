@@ -1,0 +1,204 @@
+import {
+  createCipheriv,
+  createHash,
+  randomBytes,
+  randomUUID,
+} from "node:crypto";
+import pg from "pg";
+import Redis from "ioredis";
+
+const accountAccessIssuer = "https://e.yildizskylab.com/realms/e-skylab";
+const accountAccessContractKey = "skylab:account-access:v1:contract";
+const accountAccessContractValue = "sha256(iss\\0sub);marker=1;ttl=none";
+
+function accountAccessMarkerKey(subject: string) {
+  const digest = createHash("sha256")
+    .update(`${accountAccessIssuer}\0${subject}`, "utf8")
+    .digest("hex");
+  return `skylab:account-access:v1:blocked:${digest}`;
+}
+
+function testDatabaseUrl() {
+  const value = process.env.DATABASE_URL;
+  if (!value) throw new Error("DATABASE_URL is required for authenticated E2E tests.");
+  const url = new URL(value);
+  if (
+    !["127.0.0.1", "localhost", "::1"].includes(url.hostname) ||
+    !url.pathname.endsWith("_test")
+  ) {
+    throw new Error("Authenticated E2E sessions are restricted to a loopback _test database.");
+  }
+  return value;
+}
+
+function encryptionKey() {
+  const value = process.env.TOKEN_ENCRYPTION_KEY;
+  if (!value) throw new Error("TOKEN_ENCRYPTION_KEY is required for authenticated E2E tests.");
+  const key = Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  if (key.length !== 32) throw new Error("TOKEN_ENCRYPTION_KEY must decode to 32 bytes.");
+  return key;
+}
+
+function accessRedis() {
+  const host = process.env.ACCOUNT_ACCESS_REDIS_HOST;
+  const port = Number(process.env.ACCOUNT_ACCESS_REDIS_PORT);
+  const username = process.env.ACCOUNT_ACCESS_REDIS_USERNAME;
+  const password = process.env.ACCOUNT_ACCESS_REDIS_PASSWORD;
+  const database = Number(process.env.ACCOUNT_ACCESS_REDIS_DATABASE);
+  if (
+    process.env.ACCOUNT_ACCESS_GATE_MODE !== "enforce" ||
+    !host || !["127.0.0.1", "localhost", "::1"].includes(host) ||
+    !Number.isSafeInteger(port) || !username || !password || database !== 15
+  ) {
+    throw new Error("Authenticated E2E gate writes are restricted to loopback database 15.");
+  }
+  return new Redis({
+    host,
+    port,
+    username,
+    password,
+    db: database,
+    lazyConnect: true,
+    maxRetriesPerRequest: 0,
+    retryStrategy: () => null,
+  });
+}
+
+async function writeGate(operation: (redis: Redis) => Promise<void>) {
+  const redis = accessRedis();
+  try {
+    await redis.connect();
+    await operation(redis);
+  } finally {
+    redis.disconnect();
+  }
+}
+
+export async function ensureAccessGateContract() {
+  await writeGate(async (redis) => {
+    await redis.set(accountAccessContractKey, accountAccessContractValue);
+  });
+}
+
+export async function setSubjectGateMarker(subject: string, value: string) {
+  await writeGate(async (redis) => {
+    await redis.set(accountAccessMarkerKey(subject), value);
+  });
+}
+
+function encryptedTokenFixture(
+  sessionId: string,
+  tokenCanaries: { accessToken: string; refreshToken?: string; idToken: string },
+) {
+  const key = encryptionKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(`session:${sessionId}`, "utf8"));
+  const ciphertext = Buffer.concat([
+    cipher.update(
+      JSON.stringify({
+        ...tokenCanaries,
+        tokenType: "bearer",
+      }),
+      "utf8",
+    ),
+    cipher.final(),
+  ]);
+  return JSON.stringify({
+    v: 1,
+    kid: createHash("sha256").update(key).digest("base64url").slice(0, 12),
+    iv: iv.toString("base64url"),
+    ciphertext: ciphertext.toString("base64url"),
+    tag: cipher.getAuthTag().toString("base64url"),
+  });
+}
+
+export async function seedAuthenticatedSession(
+  label: string,
+  options: { includeRefreshToken?: boolean } = {},
+) {
+  await ensureAccessGateContract();
+  const sessionId = randomUUID();
+  const subject = `e2e-${label}-${sessionId}`;
+  const handle = randomBytes(32).toString("base64url");
+  const generatedCanaries = {
+    accessToken: `e2e-access-${randomBytes(16).toString("base64url")}`,
+    refreshToken: `e2e-refresh-${randomBytes(16).toString("base64url")}`,
+    idToken: `e2e-id-${randomBytes(16).toString("base64url")}`,
+  };
+  const tokenCanaries = {
+    accessToken: generatedCanaries.accessToken,
+    idToken: generatedCanaries.idToken,
+    ...(options.includeRefreshToken
+      ? { refreshToken: generatedCanaries.refreshToken }
+      : {}),
+  };
+  const client = new pg.Client({ connectionString: testDatabaseUrl() });
+  await client.connect();
+  try {
+    await client.query(
+      `INSERT INTO account_sessions
+        (id, subject, keycloak_sid, handle_hash, token_ciphertext, created_at, rotated_at,
+         last_seen_at, idle_expires_at, absolute_expires_at)
+       VALUES
+        ($1, $2, $3, $4, $5, now(), now() - interval '20 minutes', now(),
+         now() + interval '30 minutes', now() + interval '8 hours')`,
+      [
+        sessionId,
+        subject,
+        `e2e-sid-${sessionId}`,
+        createHash("sha256").update(handle, "utf8").digest(),
+        encryptedTokenFixture(sessionId, tokenCanaries),
+      ],
+    );
+  } finally {
+    await client.end();
+  }
+  return { sessionId, subject, handle, tokenCanaries: Object.values(tokenCanaries) };
+}
+
+export async function sessionExists(sessionId: string) {
+  const client = new pg.Client({ connectionString: testDatabaseUrl() });
+  await client.connect();
+  try {
+    const result = await client.query("SELECT 1 FROM account_sessions WHERE id = $1", [sessionId]);
+    return result.rowCount === 1;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function seedAccountActionResult(sessionId: string) {
+  const reference = randomBytes(32).toString("base64url");
+  const client = new pg.Client({ connectionString: testDatabaseUrl() });
+  await client.connect();
+  try {
+    await client.query(
+      `INSERT INTO account_action_results
+        (result_hash, session_id, action, outcome, created_at, expires_at)
+       VALUES ($1, $2, 'otp', 'success', now(), now() + interval '5 minutes')`,
+      [createHash("sha256").update(reference, "utf8").digest(), sessionId],
+    );
+  } finally {
+    await client.end();
+  }
+  return reference;
+}
+
+export async function sessionState(sessionId: string) {
+  const client = new pg.Client({ connectionString: testDatabaseUrl() });
+  await client.connect();
+  try {
+    const result = await client.query<{
+      last_seen_at: Date;
+      idle_expires_at: Date;
+      revoked_at: Date | null;
+    }>(
+      "SELECT last_seen_at, idle_expires_at, revoked_at FROM account_sessions WHERE id = $1",
+      [sessionId],
+    );
+    return result.rows[0] ?? null;
+  } finally {
+    await client.end();
+  }
+}

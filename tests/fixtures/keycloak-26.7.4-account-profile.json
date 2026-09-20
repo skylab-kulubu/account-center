@@ -1,0 +1,12 @@
+{
+  "username": "account-fixture",
+  "firstName": "Ada",
+  "lastName": "Lovelace",
+  "email": "account-fixture@example.invalid",
+  "emailVerified": true,
+  "attributes": {
+    "school_email": ["private-school-address@example.invalid"],
+    "sky_number": ["SKY-0000042"]
+  },
+  "enabled": true
+}

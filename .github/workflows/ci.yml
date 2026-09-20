@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, production]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: account_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d account_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/setup@v2
+        with:
+          version: 12.3.4
+          runtime: node@22
+          cache: true
+          require-lockfile: true
+      - name: Start isolated access-gate Redis
+        run: |
+          docker run --detach --name account-access-redis --publish 6389:6379 \
+            redis:7.4.2-alpine redis-server \
+            --requirepass access-gate-test-secret \
+            --appendonly yes --appendfsync always --maxmemory-policy noeviction
+          for attempt in $(seq 1 20); do
+            docker exec account-access-redis redis-cli -a access-gate-test-secret ping | grep -q PONG && exit 0
+            sleep 1
+          done
+          exit 1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
+          TEST_ACCOUNT_ACCESS_REDIS_URL: redis://default:access-gate-test-secret@127.0.0.1:6389/15
+      - run: pnpm build
+      - name: Verify optimized handoff response policy
+        env:
+          HOSTNAME: 127.0.0.1
+          PORT: "33100"
+          APP_URL: https://my.yildizskylab.com
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
+          SESSION_SECRET: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          OIDC_ISSUER: https://e.yildizskylab.com/realms/e-skylab
+          OIDC_CLIENT_ID: account-center
+          OIDC_CLIENT_SECRET: optimized-test-client-secret-000000
+          OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
+          AUTH_TRUSTED_PROXY: cloudflare
+          NATIVE_BRIDGE_HMAC_SECRET: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+          NATIVE_BRIDGE_MTLS_CLIENT_SHA256: abababababababababababababababababababababababababababababababab
+          ACCOUNT_ACCESS_GATE_MODE: "off"
+          HANDOFF_TEST_ORIGIN: http://127.0.0.1:33100
+        run: |
+          pnpm db:migrate
+          node .next/standalone/server.js &
+          server_pid=$!
+          trap 'kill "$server_pid" >/dev/null 2>&1 || true' EXIT
+          pnpm test:handoff-response
+
+  browser:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: account_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d account_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/setup@v2
+        with:
+          version: 12.3.4
+          runtime: node@22
+          cache: true
+          require-lockfile: true
+      - name: Start isolated access-gate Redis
+        run: |
+          docker run --detach --name account-access-redis --publish 6389:6379 \
+            redis:7.4.2-alpine redis-server \
+            --requirepass access-gate-test-secret \
+            --appendonly yes --appendfsync always --maxmemory-policy noeviction
+          for attempt in $(seq 1 20); do
+            docker exec account-access-redis redis-cli -a access-gate-test-secret ping | grep -q PONG && exit 0
+            sleep 1
+          done
+          exit 1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
+      - run: pnpm test:e2e
+        env:
+          APP_URL: https://127.0.0.1:3100
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
+          SESSION_SECRET: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          OIDC_ISSUER: https://e.yildizskylab.com/realms/e-skylab
+          OIDC_CLIENT_ID: account-center
+          OIDC_CLIENT_SECRET: e2e-client-secret-00000000000000
+          OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
+          AUTH_TRUSTED_PROXY: cloudflare
+          NATIVE_BRIDGE_HMAC_SECRET: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+          NATIVE_BRIDGE_MTLS_CLIENT_SHA256: abababababababababababababababababababababababababababababababab
+          ACCOUNT_ACCESS_GATE_MODE: enforce
+          ACCOUNT_ACCESS_REDIS_HOST: 127.0.0.1
+          ACCOUNT_ACCESS_REDIS_PORT: "6389"
+          ACCOUNT_ACCESS_REDIS_USERNAME: default
+          ACCOUNT_ACCESS_REDIS_PASSWORD: access-gate-test-secret
+          ACCOUNT_ACCESS_REDIS_DATABASE: "15"
+          ACCOUNT_ACCESS_REDIS_TLS: "false"
+          ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS: "200"
+
+  container:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
