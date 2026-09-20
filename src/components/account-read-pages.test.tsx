@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import OverviewPage from "@/app/(account)/page";
 import PersonalInformationPage from "@/app/(account)/personal-information/page";
 import SecurityPage from "@/app/(account)/security/page";
@@ -58,6 +58,11 @@ vi.mock("@/server/keycloak-account/page-data", () => ({
 }));
 
 describe("Account REST-backed pages", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("renders the normalized overview and personal profile", async () => {
     const { unmount } = render(await OverviewPage());
     expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
@@ -82,7 +87,7 @@ describe("Account REST-backed pages", () => {
     expect(document.body.textContent).not.toContain("credential-passkey-one");
   });
 
-  it("renders only a server-consumed one-time action result", async () => {
+  it("renders only a server-read one-time action result", async () => {
     const reference = "r".repeat(43);
     const noResult = render(await SecurityPage({
       searchParams: Promise.resolve({ result: reference }),
@@ -91,10 +96,24 @@ describe("Account REST-backed pages", () => {
     expect(screen.queryByText("İşlem tamamlandı")).not.toBeInTheDocument();
     noResult.unmount();
 
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
     pageData.security.value.actionResult = { action: "otp", outcome: "success" };
     render(await SecurityPage({ searchParams: Promise.resolve({ result: reference }) }));
     expect(screen.getByText("İşlem tamamlandı")).toBeInTheDocument();
     expect(screen.getByText(/Keycloak’taki güncel durumla doğrulandı/)).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/auth/action-result/${reference}`,
+      expect.objectContaining({
+        method: "POST",
+        headers: { "x-csrf-token": "csrf-token" },
+      }),
+    );
     pageData.security.value.actionResult = null;
   });
 });

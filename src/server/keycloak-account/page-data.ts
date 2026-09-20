@@ -29,6 +29,7 @@ type SecurityPageData =
   | {
       ok: false;
       problem: AccountProblem;
+      actionCsrfToken: string;
       actionResult: AccountActionResult | null;
     };
 
@@ -73,20 +74,21 @@ export function loadSecurity(
     if (authorization.status !== "active") redirect("/login");
     const session = authorization.value.session;
     const actionResult = await services.actionResults
-      .consume(resultReference, session.id)
+      .read(resultReference, session.id)
       .catch(() => null);
+    const actionCsrfToken = services.sessions.csrfToken(session.id);
     try {
       const security = await services.account.security(session);
       return {
         ok: true as const,
         value: {
           ...security,
-          actionCsrfToken: services.sessions.csrfToken(session.id),
+          actionCsrfToken,
           actionResult,
         },
       };
     } catch (error) {
-      return { ok: false as const, problem: toAccountProblem(error), actionResult };
+      return { ok: false as const, problem: toAccountProblem(error), actionCsrfToken, actionResult };
     }
   })();
 }

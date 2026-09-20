@@ -67,7 +67,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     });
   });
 
-  it("atomically consumes an action result once for its bound session", async () => {
+  it("reads an action result without loss, then atomically acknowledges it once", async () => {
     const sessionRepository = new PostgresSessionRepository(pool);
     const sessionId = "89898989-8989-4989-8989-898989898989";
     await sessionRepository.insert({
@@ -93,17 +93,32 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       expiresAt: new Date("2026-09-20T00:05:00Z"),
     });
 
-    await expect(repository.consume(
+    await expect(repository.read(
       resultHash,
       "79797979-7979-4979-8979-797979797979",
       new Date("2026-09-20T00:01:00Z"),
     )).resolves.toBeNull();
+    await expect(repository.read(
+      resultHash,
+      sessionId,
+      new Date("2026-09-20T00:01:00Z"),
+    )).resolves.toEqual({ action: "otp", outcome: "success" });
+    await expect(repository.read(
+      resultHash,
+      sessionId,
+      new Date("2026-09-20T00:01:00Z"),
+    )).resolves.toEqual({ action: "otp", outcome: "success" });
     const outcomes = await Promise.all([
       repository.consume(resultHash, sessionId, new Date("2026-09-20T00:01:00Z")),
       repository.consume(resultHash, sessionId, new Date("2026-09-20T00:01:00Z")),
     ]);
     expect(outcomes.filter(Boolean)).toHaveLength(1);
     expect(outcomes.find(Boolean)).toEqual({ action: "otp", outcome: "success" });
+    await expect(repository.read(
+      resultHash,
+      sessionId,
+      new Date("2026-09-20T00:01:00Z"),
+    )).resolves.toBeNull();
   });
 
   it("rotates a still-valid previous handle so a lost Set-Cookie response can recover", async () => {

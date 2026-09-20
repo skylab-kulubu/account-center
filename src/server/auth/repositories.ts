@@ -20,6 +20,11 @@ export interface OidcTransactionRepository {
 
 export interface AccountActionResultRepository {
   insert(result: StoredAccountActionResult): Promise<void>;
+  read(
+    resultHash: Buffer,
+    sessionId: string,
+    now: Date,
+  ): Promise<Pick<StoredAccountActionResult, "action" | "outcome"> | null>;
   consume(
     resultHash: Buffer,
     sessionId: string,

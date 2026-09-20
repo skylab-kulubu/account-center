@@ -1,36 +1,11 @@
 import { Fingerprint, KeyRound, ShieldCheck, Smartphone } from "lucide-react";
+import { AccountActionNotice } from "@/components/account-action-notice";
 import { AccountDataProblem } from "@/components/account-data-problem";
 import { SecurityActionForm } from "@/components/security-action-form";
 import { PageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
 import { loadSecurity } from "@/server/keycloak-account/page-data";
-import type { AccountActionResult } from "@/server/auth/types";
 
 export const metadata = { title: "Giriş ve güvenlik" };
-
-const actionLabels = {
-  password: "Şifre",
-  otp: "İki adımlı doğrulama",
-  passkey: "Passkey",
-  "delete-credential": "Giriş yöntemi",
-} as const;
-
-function ActionNotice({ result }: { result: AccountActionResult | null }) {
-  if (!result) return null;
-  const label = actionLabels[result.action];
-  const copy = result.outcome === "success"
-    ? `${label} işlemi tamamlandı ve Keycloak’taki güncel durumla doğrulandı.`
-    : result.outcome === "cancelled"
-      ? `${label} işlemi iptal edildi; hesabında değişiklik yapılmadı.`
-      : result.outcome === "unverified"
-        ? `${label} işlemi Keycloak tarafından başarılı bildirildi ancak güncel hesap durumunda doğrulanamadı.`
-        : `${label} işlemi tamamlanamadı. Tekrar deneyebilirsin.`;
-  return (
-    <div className="action-notice" data-tone={result.outcome === "success" ? "positive" : result.outcome === "cancelled" ? "neutral" : "warning"} role="status">
-      <strong>{result.outcome === "success" ? "İşlem tamamlandı" : result.outcome === "cancelled" ? "İşlem iptal edildi" : "İşlem doğrulanamadı"}</strong>
-      <span>{copy}</span>
-    </div>
-  );
-}
 
 function formattedDate(value: string | null) {
   if (!value) return "Eklenme tarihi bilinmiyor";
@@ -48,13 +23,19 @@ export default async function SecurityPage({
 }) {
   const feedback = await (searchParams ?? Promise.resolve({ result: undefined }));
   const data = await loadSecurity(feedback.result);
+  const actionResult = data.ok ? data.value.actionResult : data.actionResult;
+  const actionCsrfToken = data.ok ? data.value.actionCsrfToken : data.actionCsrfToken;
   return (
     <div className="page-stack">
       <PageHeader
         title="Giriş ve güvenlik"
         description="Şifreni, passkey’lerini ve iki adımlı doğrulamayı tek yerden yönet. Her değişiklik SKY LAB giriş ekranında yeniden doğrulama ister."
       />
-      <ActionNotice result={data.ok ? data.value.actionResult : data.actionResult} />
+      <AccountActionNotice
+        result={actionResult}
+        reference={actionResult ? feedback.result : undefined}
+        csrfToken={actionCsrfToken}
+      />
       {data.ok ? (
         <>
           <SettingsGroup title="Giriş yöntemleri" description="Yeni yöntem ekleme ve şifre değişikliği güvenli Keycloak akışında tamamlanır.">

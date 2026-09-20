@@ -20,6 +20,15 @@ function failOnPageErrors(page: Page) {
   return errors;
 }
 
+async function gotoAuthenticatedPage(page: Page, url: string) {
+  const refreshResponsePromise = page.waitForResponse((response) =>
+    response.url().endsWith("/api/auth/session/refresh"),
+  );
+  await page.goto(url);
+  const refreshResponse = await refreshResponsePromise;
+  expect(refreshResponse.status()).toBe(204);
+}
+
 function monitorTokenCanaries(page: Page, canaries: string[]) {
   const responseBodies: Array<Promise<string>> = [];
   const coveredResourceTypes = new Set<string>();
@@ -32,15 +41,33 @@ function monitorTokenCanaries(page: Page, canaries: string[]) {
   });
 
   return async () => {
-    await page.waitForLoadState("networkidle");
-    const browserStorage = await page.evaluate(() => ({
-      local: Object.entries(localStorage),
-      session: Object.entries(sessionStorage),
-    }));
+    let browserSnapshot: {
+      html: string;
+      local: Array<[string, string]>;
+      session: Array<[string, string]>;
+      pathname: string;
+      heading: string | null;
+    } | undefined;
+    await expect(async () => {
+      const candidate = await page.evaluate(() => ({
+        html: document.documentElement.outerHTML,
+        local: Object.entries(localStorage),
+        session: Object.entries(sessionStorage),
+        pathname: window.location.pathname,
+        heading: document.querySelector("h1")?.textContent?.trim() ?? null,
+      }));
+      expect(candidate.pathname).toBe("/security");
+      expect(candidate.heading).toBe("Giriş ve güvenlik");
+      browserSnapshot = candidate;
+    }).toPass({ timeout: 10_000 });
+    expect(browserSnapshot).toBeDefined();
     const exposed = [
-      await page.content(),
+      browserSnapshot!.html,
       ...(await Promise.all(responseBodies)),
-      JSON.stringify(browserStorage),
+      JSON.stringify({
+        local: browserSnapshot!.local,
+        session: browserSnapshot!.session,
+      }),
     ].join("\n");
     for (const canary of canaries) expect(exposed).not.toContain(canary);
     expect([...coveredResourceTypes]).toEqual(
@@ -130,20 +157,41 @@ test("account action initiation is not an anonymous redirector", async ({ playwr
   }
 });
 
-test("security feedback ignores forged query state and consumes its session result once", async ({ context, page }, testInfo) => {
+test("security feedback survives failed delivery and disappears only after acknowledgement", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "one browser-backed assertion is sufficient");
   const fixture = await installAuthenticatedSession(context, `action-result-${testInfo.retry}`);
 
-  await page.goto("/security?action=otp&status=success");
+  await gotoAuthenticatedPage(page, "/security?action=otp&status=success");
   await expect(page.getByRole("heading", { name: "Giriş ve güvenlik" })).toBeVisible();
   await expect(page.getByText("İşlem tamamlandı")).toHaveCount(0);
 
   const reference = await seedAccountActionResult(fixture.sessionId);
-  await page.goto(`/security?result=${reference}`);
+  const acknowledgementPath = `/api/auth/action-result/${reference}`;
+  let abortAcknowledgement = true;
+  await page.route(`**${acknowledgementPath}`, async (route) => {
+    if (abortAcknowledgement) {
+      abortAcknowledgement = false;
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+  const failedAcknowledgement = page.waitForEvent("requestfailed", {
+    predicate: (request) => request.url().endsWith(acknowledgementPath),
+  });
+  await gotoAuthenticatedPage(page, `/security?result=${reference}`);
   await expect(page.getByText("İşlem tamamlandı")).toBeVisible();
   await expect(page.getByText(/Keycloak’taki güncel durumla doğrulandı/)).toBeVisible();
+  await failedAcknowledgement;
 
-  await page.reload();
+  const successfulAcknowledgement = page.waitForResponse((response) =>
+    response.url().endsWith(acknowledgementPath) && response.request().method() === "POST",
+  );
+  await gotoAuthenticatedPage(page, page.url());
+  await expect(page.getByText("İşlem tamamlandı")).toBeVisible();
+  expect((await successfulAcknowledgement).status()).toBe(204);
+
+  await gotoAuthenticatedPage(page, page.url());
   await expect(page.getByText("İşlem tamamlandı")).toHaveCount(0);
 });
 
@@ -179,11 +227,15 @@ test("desktop account shell keeps navigation, skip link, and rotates its secure 
   const assertTokensStayedServerSide = monitorTokenCanaries(page, tokenCanaries);
   const errors = failOnPageErrors(page);
   let refreshRequests = 0;
+  let refreshResponses = 0;
   page.on("request", (request) => {
     if (request.url().endsWith("/api/auth/session/refresh")) refreshRequests += 1;
   });
+  page.on("response", (response) => {
+    if (response.url().endsWith("/api/auth/session/refresh")) refreshResponses += 1;
+  });
   await page.clock.install();
-  await page.goto("/");
+  await gotoAuthenticatedPage(page, "/");
 
   await expect(page.getByRole("heading", { name: "Hesabın, tek ve güvenli bir merkezde." })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Hesap ayarları" })).toBeVisible();
@@ -212,12 +264,15 @@ test("desktop account shell keeps navigation, skip link, and rotates its secure 
 
   await expect.poll(() => refreshRequests).toBeGreaterThanOrEqual(1);
   const requestsBeforeInterval = refreshRequests;
+  const responsesBeforeInterval = refreshResponses;
   await page.clock.fastForward(5 * 60 * 1_000);
   await expect.poll(() => refreshRequests).toBeGreaterThan(requestsBeforeInterval);
+  await expect.poll(() => refreshResponses).toBeGreaterThan(responsesBeforeInterval);
 
   await page.getByRole("navigation", { name: "Hesap ayarları" })
     .getByRole("link", { name: "Giriş ve güvenlik" })
     .click();
+  await expect(page).toHaveURL(/\/security$/);
   await expect(page.getByRole("heading", { name: "Giriş ve güvenlik" })).toBeVisible();
   await assertTokensStayedServerSide();
   expect(errors).toEqual([]);
@@ -376,7 +431,7 @@ test("browser logout validates the form proof, clears the cookie, and hard-delet
     context,
     `logout-${testInfo.retry}`,
   );
-  await page.goto("/");
+  await gotoAuthenticatedPage(page, "/");
   await expect(page.getByRole("heading", { name: "Hesabın, tek ve güvenli bir merkezde." })).toBeVisible();
 
   const logoutRequestPromise = page.waitForRequest((request) =>

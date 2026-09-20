@@ -26,6 +26,11 @@ export class AccountActionResultStore {
     return reference;
   }
 
+  read(reference: string | null | undefined, sessionId: string) {
+    if (!reference || !RESULT_REFERENCE_PATTERN.test(reference)) return Promise.resolve(null);
+    return this.repository.read(sha256(reference), sessionId, this.clock());
+  }
+
   consume(reference: string | null | undefined, sessionId: string) {
     if (!reference || !RESULT_REFERENCE_PATTERN.test(reference)) return Promise.resolve(null);
     return this.repository.consume(sha256(reference), sessionId, this.clock());

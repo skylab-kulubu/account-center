@@ -114,6 +114,22 @@ export class PostgresAccountActionResultRepository implements AccountActionResul
     );
   }
 
+  async read(resultHash: Buffer, sessionId: string, now: Date) {
+    const result = await this.pool.query<{
+      action: AccountActionKind;
+      outcome: AccountActionOutcome;
+    }>(
+      `SELECT action, outcome
+         FROM account_action_results
+        WHERE result_hash = $1
+          AND session_id = $2
+          AND consumed_at IS NULL
+          AND expires_at > $3`,
+      [resultHash, sessionId, now],
+    );
+    return result.rows[0] ?? null;
+  }
+
   async consume(resultHash: Buffer, sessionId: string, now: Date) {
     const result = await this.pool.query<{
       action: AccountActionKind;
