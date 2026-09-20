@@ -11,7 +11,9 @@ import {
 import { KeycloakAccountUnauthorizedError } from "@/server/keycloak-account/adapter";
 import { KeycloakAccountContractError } from "@/server/keycloak-account/schema";
 import type {
+  AccountSecurity,
   AccountSession,
+  CredentialInventory,
   KeycloakAccountReadAdapter,
 } from "@/server/keycloak-account/types";
 
@@ -26,6 +28,7 @@ type SessionTokenVault = Pick<
   SessionManager,
   | "readTokens"
   | "replaceTokens"
+  | "credentialReference"
   | "upstreamSessionReference"
   | "verifyUpstreamSessionReference"
 >;
@@ -134,6 +137,32 @@ export class AccountReadService {
 
   authentication(session: SessionIdentity) {
     return this.#read(session, (accessToken) => this.adapter.authentication(accessToken));
+  }
+
+  credentialInventory(session: SessionIdentity): Promise<CredentialInventory> {
+    return this.#read(session, (accessToken) => this.adapter.credentialInventory(accessToken));
+  }
+
+  async security(session: SessionIdentity): Promise<AccountSecurity> {
+    const inventory = await this.credentialInventory(session);
+    const credentials = inventory.credentials.flatMap((credential) => {
+      if (!credential.removeable || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(credential.id)) {
+        return [];
+      }
+      const kind: "otp" | "passkey" | null = credential.type === "otp" || credential.type === "totp"
+        ? "otp"
+        : credential.type === "webauthn-passwordless"
+          ? "passkey"
+          : null;
+      if (!kind) return [];
+      return [{
+        kind,
+        label: credential.label ?? (kind === "passkey" ? "Passkey" : "Doğrulama uygulaması"),
+        createdAt: credential.createdAt,
+        deletionReference: this.sessions.credentialReference(session.id, credential.id),
+      }];
+    });
+    return { ...inventory.summary, credentials };
   }
 
   sessionsList(session: SessionIdentity) {

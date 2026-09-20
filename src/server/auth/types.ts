@@ -7,14 +7,55 @@ export type OidcTokenSet = {
   expiresAt?: number;
 };
 
-export type OidcTransactionPayload = {
+type OidcTransactionBase = {
   state: string;
   nonce: string;
   codeVerifier: string;
   returnTo: string;
+};
+
+export type LoginOidcTransactionPayload = OidcTransactionBase & {
+  purpose?: "login";
   expectedSubject?: string;
   expectedAuthenticatedAt?: string;
 };
+
+export type AccountActionKind = "password" | "otp" | "passkey" | "delete-credential";
+export type AccountActionOutcome = "success" | "cancelled" | "error" | "unverified";
+
+export type AccountActionResult = {
+  action: AccountActionKind;
+  outcome: AccountActionOutcome;
+};
+
+export type StoredAccountActionResult = AccountActionResult & {
+  resultHash: Buffer;
+  sessionId: string;
+  createdAt: Date;
+  expiresAt: Date;
+};
+
+export type AccountActionTransactionPayload = OidcTransactionBase & {
+  purpose: "account-action";
+  expectedSubject: string;
+  expectedSessionId: string;
+  initiatedAt: string;
+  action: {
+    kind: AccountActionKind;
+    keycloakAction: string;
+    credentialType: "password" | "otp" | "webauthn-passwordless";
+    credentialId?: string;
+    beforeCredentials: Array<{
+      id: string;
+      type: string;
+      createdAt: string | null;
+    }>;
+  };
+};
+
+export type OidcTransactionPayload =
+  | LoginOidcTransactionPayload
+  | AccountActionTransactionPayload;
 
 export type StoredOidcTransaction = {
   id: string;

@@ -11,6 +11,30 @@ export type AuthenticationSummary = {
   passkeyCount: number;
 };
 
+export type OwnedCredential = {
+  id: string;
+  type: string;
+  label: string | null;
+  createdAt: string | null;
+  removeable: boolean;
+};
+
+export type CredentialInventory = {
+  summary: AuthenticationSummary;
+  credentials: OwnedCredential[];
+};
+
+export type SecurityCredential = {
+  kind: "otp" | "passkey";
+  label: string;
+  createdAt: string | null;
+  deletionReference: string;
+};
+
+export type AccountSecurity = AuthenticationSummary & {
+  credentials: SecurityCredential[];
+};
+
 export type AccountSession = {
   id: string;
   startedAt: string;
@@ -46,6 +70,7 @@ export type AccountSnapshot = AccountOverview & {
 export interface KeycloakAccountReadAdapter {
   profile(accessToken: string): Promise<AccountProfile>;
   authentication(accessToken: string): Promise<AuthenticationSummary>;
+  credentialInventory(accessToken: string): Promise<CredentialInventory>;
   sessions(accessToken: string): Promise<AccountSession[]>;
   snapshot(accessToken: string): Promise<KeycloakAccountSnapshot>;
   revokeSession(accessToken: string, sessionId: string): Promise<void>;

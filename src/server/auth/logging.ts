@@ -30,6 +30,8 @@ type AuthLog = {
     | "native_handoff_created"
     | "native_handoff_consumed"
     | "native_bridge_redeemed"
+    | "account_action_started"
+    | "account_action_completed"
     | "account_session_cleanup";
   requestId: string;
   outcome: "success" | "failure";
@@ -46,6 +48,8 @@ type AuthLog = {
     | "invalid_token"
     | "invalid_handoff"
     | "invalid_bridge_request"
+    | "invalid_account_action"
+    | "account_action_unverified"
     | "rate_limited"
     | "local_session_revocation_failed";
 };

@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import {
   constantTimeEqual,
+  hmacSha256,
   randomOpaqueValue,
   sessionCsrfToken,
   sha256,
@@ -150,6 +151,14 @@ export class SessionManager {
     return constantTimeEqual(this.csrfToken(sessionId), candidate);
   }
 
+  credentialReference(sessionId: string, credentialId: string) {
+    return hmacSha256(
+      this.csrfSecret,
+      "owned-credential-reference",
+      `${sessionId}\0${credentialId}`,
+    ).toString("base64url");
+  }
+
   upstreamSessionReference(sessionId: string, upstreamSessionId: string) {
     return upstreamSessionReference(this.csrfSecret, sessionId, upstreamSessionId);
   }
@@ -202,12 +211,18 @@ export class SessionManager {
     }
   }
 
-  async replaceTokens(id: string, expectedVersion: string, tokens: OidcTokenSet) {
+  async replaceTokens(
+    id: string,
+    expectedVersion: string,
+    tokens: OidcTokenSet,
+    keycloakSid?: string,
+  ) {
     const replacement = this.cipher.encrypt(tokens, `session:${id}`);
     return this.repository.replaceTokenCiphertext(
       id,
       expectedVersion,
       replacement,
+      keycloakSid,
       this.clock(),
     );
   }

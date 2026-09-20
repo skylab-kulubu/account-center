@@ -5,6 +5,7 @@ import type {
   NewNativeHandoff,
   NewSessionRecord,
   SessionUseResult,
+  StoredAccountActionResult,
   StoredOidcTransaction,
 } from "@/server/auth/types";
 
@@ -15,6 +16,20 @@ export interface OidcTransactionRepository {
     browserBindingHash: Buffer,
     now: Date,
   ): Promise<{ id: string; payloadCiphertext: string } | null>;
+}
+
+export interface AccountActionResultRepository {
+  insert(result: StoredAccountActionResult): Promise<void>;
+  read(
+    resultHash: Buffer,
+    sessionId: string,
+    now: Date,
+  ): Promise<Pick<StoredAccountActionResult, "action" | "outcome"> | null>;
+  consume(
+    resultHash: Buffer,
+    sessionId: string,
+    now: Date,
+  ): Promise<Pick<StoredAccountActionResult, "action" | "outcome"> | null>;
 }
 
 export type UseSessionInput = {
@@ -39,6 +54,7 @@ export interface SessionRepository {
     id: string,
     expectedCiphertext: string,
     replacementCiphertext: string,
+    keycloakSid: string | undefined,
     now: Date,
   ): Promise<boolean>;
   revokeByHandle(handleHash: Buffer, revokedAt: Date): Promise<boolean>;

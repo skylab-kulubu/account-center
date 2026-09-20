@@ -4,6 +4,8 @@ import type {
   AccountProfile,
   AccountSession,
   AuthenticationSummary,
+  CredentialInventory,
+  OwnedCredential,
 } from "@/server/keycloak-account/types";
 
 export class KeycloakAccountContractError extends Error {
@@ -172,9 +174,11 @@ function validCredentialMetadata(value: unknown) {
   return optionalString(value.iconLight) && optionalString(value.iconDark);
 }
 
-export function parseAuthenticationSummary(value: unknown): AuthenticationSummary {
-  if (!Array.isArray(value)) throw new KeycloakAccountContractError("credentials");
+export function parseCredentialInventory(value: unknown): CredentialInventory {
+  if (!Array.isArray(value) || value.length > 32) throw new KeycloakAccountContractError("credentials");
   const counts = new Map<string, number>();
+  const credentials: OwnedCredential[] = [];
+  const seenCredentialIds = new Set<string>();
   for (const container of value) {
     if (
       !isObject(container) ||
@@ -193,13 +197,47 @@ export function parseAuthenticationSummary(value: unknown): AuthenticationSummar
     ) {
       throw new KeycloakAccountContractError("credentials");
     }
-    counts.set(container.type, container.userCredentialMetadatas?.length ?? 0);
+    const metadatas = container.userCredentialMetadatas ?? [];
+    if (credentials.length + metadatas.length > 64) {
+      throw new KeycloakAccountContractError("credentials");
+    }
+    counts.set(container.type, (counts.get(container.type) ?? 0) + metadatas.length);
+    for (const metadata of metadatas) {
+      const credential = metadata.credential;
+      if (!credential.id) continue;
+      if (seenCredentialIds.has(credential.id)) {
+        throw new KeycloakAccountContractError("credentials");
+      }
+      seenCredentialIds.add(credential.id);
+      let createdAt: string | null = null;
+      if (credential.createdDate !== undefined && credential.createdDate !== null) {
+        const parsed = new Date(credential.createdDate);
+        if (!Number.isFinite(parsed.getTime())) {
+          throw new KeycloakAccountContractError("credentials");
+        }
+        createdAt = parsed.toISOString();
+      }
+      credentials.push({
+        id: credential.id,
+        type: credential.type,
+        label: credential.userLabel?.trim() || null,
+        createdAt,
+        removeable: container.removeable,
+      });
+    }
   }
   return {
-    passwordConfigured: (counts.get("password") ?? 0) > 0,
-    otpConfigured: (counts.get("otp") ?? 0) + (counts.get("totp") ?? 0) > 0,
-    passkeyCount: (counts.get("webauthn") ?? 0) + (counts.get("webauthn-passwordless") ?? 0),
+    summary: {
+      passwordConfigured: (counts.get("password") ?? 0) > 0,
+      otpConfigured: (counts.get("otp") ?? 0) + (counts.get("totp") ?? 0) > 0,
+      passkeyCount: (counts.get("webauthn") ?? 0) + (counts.get("webauthn-passwordless") ?? 0),
+    },
+    credentials,
   };
+}
+
+export function parseAuthenticationSummary(value: unknown): AuthenticationSummary {
+  return parseCredentialInventory(value).summary;
 }
 
 const sessionKeys = new Set([

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  PostgresAccountActionResultRepository,
   PostgresBackchannelLogoutRepository,
   PostgresNativeHandoffRepository,
   PostgresOidcTransactionRepository,
@@ -21,6 +22,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "0001_bff_web_sessions.sql",
       "0002_auth_security_controls.sql",
       "0003_native_handoff.sql",
+      "0004_account_action_results.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);
@@ -29,7 +31,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
 
   beforeEach(async () => {
     await pool.query(
-      "TRUNCATE account_oidc_transactions, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_native_handoffs, account_native_bridges, account_native_bridge_request_nonces",
+      "TRUNCATE account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_native_handoffs, account_native_bridges, account_native_bridge_request_nonces",
     );
   });
 
@@ -63,6 +65,60 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       id: "11111111-1111-4111-8111-111111111111",
       payloadCiphertext: "encrypted",
     });
+  });
+
+  it("reads an action result without loss, then atomically acknowledges it once", async () => {
+    const sessionRepository = new PostgresSessionRepository(pool);
+    const sessionId = "89898989-8989-4989-8989-898989898989";
+    await sessionRepository.insert({
+      id: sessionId,
+      subject: "action-result-user",
+      keycloakSid: "action-result-sid",
+      handleHash: Buffer.alloc(32, 70),
+      tokenCiphertext: "encrypted",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      rotatedAt: new Date("2026-09-20T00:00:00Z"),
+      lastSeenAt: new Date("2026-09-20T00:00:00Z"),
+      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
+    });
+    const repository = new PostgresAccountActionResultRepository(pool);
+    const resultHash = Buffer.alloc(32, 71);
+    await repository.insert({
+      resultHash,
+      sessionId,
+      action: "otp",
+      outcome: "success",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      expiresAt: new Date("2026-09-20T00:05:00Z"),
+    });
+
+    await expect(repository.read(
+      resultHash,
+      "79797979-7979-4979-8979-797979797979",
+      new Date("2026-09-20T00:01:00Z"),
+    )).resolves.toBeNull();
+    await expect(repository.read(
+      resultHash,
+      sessionId,
+      new Date("2026-09-20T00:01:00Z"),
+    )).resolves.toEqual({ action: "otp", outcome: "success" });
+    await expect(repository.read(
+      resultHash,
+      sessionId,
+      new Date("2026-09-20T00:01:00Z"),
+    )).resolves.toEqual({ action: "otp", outcome: "success" });
+    const outcomes = await Promise.all([
+      repository.consume(resultHash, sessionId, new Date("2026-09-20T00:01:00Z")),
+      repository.consume(resultHash, sessionId, new Date("2026-09-20T00:01:00Z")),
+    ]);
+    expect(outcomes.filter(Boolean)).toHaveLength(1);
+    expect(outcomes.find(Boolean)).toEqual({ action: "otp", outcome: "success" });
+    await expect(repository.read(
+      resultHash,
+      sessionId,
+      new Date("2026-09-20T00:01:00Z"),
+    )).resolves.toBeNull();
   });
 
   it("rotates a still-valid previous handle so a lost Set-Cookie response can recover", async () => {
@@ -200,12 +256,14 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "99999999-9999-4999-8999-999999999999",
       "stale",
       "encrypted-v2",
+      undefined,
       now,
     )).resolves.toBe(false);
     await expect(repository.replaceTokenCiphertext(
       "99999999-9999-4999-8999-999999999999",
       "encrypted-v1",
       "encrypted-v2",
+      undefined,
       now,
     )).resolves.toBe(true);
     await repository.revokeById("99999999-9999-4999-8999-999999999999", now);
@@ -213,6 +271,46 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "99999999-9999-4999-8999-999999999999",
       now,
     )).resolves.toBeNull();
+  });
+
+  it("atomically updates the token set and Keycloak sid for sid-only logout", async () => {
+    const sessions = new PostgresSessionRepository(pool);
+    const now = new Date("2026-09-20T00:20:00Z");
+    const sessionId = "98989898-9898-4989-8989-989898989898";
+    await sessions.insert({
+      id: sessionId,
+      subject: "sid-rotation-user",
+      keycloakSid: "old-upstream-sid",
+      handleHash: Buffer.alloc(32, 72),
+      tokenCiphertext: "encrypted-v1",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      rotatedAt: new Date("2026-09-20T00:00:00Z"),
+      lastSeenAt: now,
+      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
+    });
+
+    await expect(sessions.replaceTokenCiphertext(
+      sessionId,
+      "encrypted-v1",
+      "encrypted-v2",
+      "new-upstream-sid",
+      now,
+    )).resolves.toBe(true);
+    await expect(pool.query(
+      "SELECT keycloak_sid, token_ciphertext FROM account_sessions WHERE id = $1",
+      [sessionId],
+    )).resolves.toMatchObject({
+      rows: [{ keycloak_sid: "new-upstream-sid", token_ciphertext: "encrypted-v2" }],
+    });
+
+    const logout = new PostgresBackchannelLogoutRepository(pool);
+    await expect(logout.consumeAndDeleteSessions({
+      jtiHash: Buffer.alloc(32, 73),
+      seenAt: now,
+      replayExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      keycloakSid: "new-upstream-sid",
+    })).resolves.toEqual({ accepted: true, deletedSessions: 1 });
   });
 
   it("hard-deletes only authentication material beyond the retention grace", async () => {
@@ -278,6 +376,14 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
          now() + interval '30 minutes', now() + interval '7 hours', NULL)`,
       [Buffer.alloc(32, 8), Buffer.alloc(32, 9), Buffer.alloc(32, 10), Buffer.alloc(32, 11)],
     );
+    await pool.query(
+      `INSERT INTO account_action_results
+        (result_hash, session_id, action, outcome, created_at, expires_at, consumed_at)
+       VALUES
+        ($1, '77777777-7777-4777-8777-777777777777', 'otp', 'success', now() - interval '2 hours', now() - interval '1 hour', now() - interval '1 hour'),
+        ($2, '77777777-7777-4777-8777-777777777777', 'passkey', 'cancelled', now(), now() + interval '5 minutes', NULL)`,
+      [Buffer.alloc(32, 74), Buffer.alloc(32, 75)],
+    );
     const maintenance = await readFile(resolve(process.cwd(), "maintenance/prune-auth.sql"), "utf8");
     const result = await pool.query(maintenance);
     expect(result.rows[0]?.deleted_transactions).toBe(1);
@@ -287,6 +393,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     expect(result.rows[0]?.deleted_native_handoffs).toBe(1);
     expect(result.rows[0]?.deleted_native_bridges).toBe(1);
     expect(result.rows[0]?.deleted_native_bridge_nonces).toBe(1);
+    expect(result.rows[0]?.deleted_action_results).toBe(1);
     const remainingTransactions = await pool.query(
       "SELECT payload_ciphertext FROM account_oidc_transactions",
     );
@@ -298,6 +405,10 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       { token_ciphertext: "active-token" },
       { token_ciphertext: "grace-token" },
     ]);
+    const remainingActionResults = await pool.query(
+      "SELECT action, outcome FROM account_action_results",
+    );
+    expect(remainingActionResults.rows).toEqual([{ action: "passkey", outcome: "cancelled" }]);
   });
 
   it("atomically consumes logout jti and hard-deletes matching sid sessions", async () => {

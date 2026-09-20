@@ -36,6 +36,7 @@ try {
         deletedNativeHandoffs: result.rows[0]?.deleted_native_handoffs ?? 0,
         deletedNativeBridges: result.rows[0]?.deleted_native_bridges ?? 0,
         deletedNativeBridgeNonces: result.rows[0]?.deleted_native_bridge_nonces ?? 0,
+        deletedActionResults: result.rows[0]?.deleted_action_results ?? 0,
       }));
     }
   } catch (error) {

@@ -190,6 +190,9 @@ export function validateEnvironment(env) {
   if (values.OIDC_CLIENT_SECRET.length < 32) {
     throw new Error("OIDC_CLIENT_SECRET must contain at least 32 characters.");
   }
+  if (values.OIDC_CLIENT_ID !== "account-center") {
+    throw new Error("OIDC_CLIENT_ID must be the dedicated account-center client.");
+  }
 
   if (!/^\d+$/.test(values.OIDC_UPSTREAM_SESSION_MAX_SECONDS)) {
     throw new Error("OIDC_UPSTREAM_SESSION_MAX_SECONDS must be an integer.");

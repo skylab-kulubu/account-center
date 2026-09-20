@@ -108,11 +108,15 @@ export function getAuthConfig(): AuthConfig {
   ) {
     throw new Error("NATIVE_BRIDGE_HMAC_SECRET must differ from other server keys.");
   }
+  const clientId = required("OIDC_CLIENT_ID");
+  if (clientId !== "account-center") {
+    throw new Error("OIDC_CLIENT_ID must be the dedicated account-center client.");
+  }
 
   return {
     appUrl,
     issuer: oidcIssuer(),
-    clientId: required("OIDC_CLIENT_ID"),
+    clientId,
     clientSecret: required("OIDC_CLIENT_SECRET"),
     upstreamSessionMaxSeconds,
     trustedProxy,

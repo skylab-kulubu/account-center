@@ -75,6 +75,13 @@ test("requires HTTPS for public and issuer URLs", () => {
   );
 });
 
+test("requires the dedicated Account Center OIDC client", () => {
+  assert.throws(
+    () => validateEnvironment({ ...valid, OIDC_CLIENT_ID: "account-console" }),
+    /dedicated account-center client/,
+  );
+});
+
 test("uses the same canonical Keycloak realm issuer contract as runtime", () => {
   for (const issuer of issuerContract.valid) {
     assert.doesNotThrow(() => validateEnvironment({ ...valid, OIDC_ISSUER: issuer }));

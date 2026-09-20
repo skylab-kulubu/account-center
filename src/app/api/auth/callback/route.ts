@@ -33,12 +33,39 @@ export async function GET(request: NextRequest) {
     const result = await services.oidc.callback(
       request.nextUrl,
       request.cookies.get(OIDC_TRANSACTION_COOKIE)?.value,
+      request.cookies.get(SESSION_COOKIE)?.value,
     );
+    if ("actionOutcome" in result) {
+      const resultReference = await services.actionResults.create(result.sessionId, {
+        action: result.action,
+        outcome: result.actionOutcome,
+      }).catch(() => null);
+      const destination = new URL(result.returnTo, services.config.appUrl);
+      if (resultReference) destination.searchParams.set("result", resultReference);
+      const response = NextResponse.redirect(destination, 303);
+      clearOidcTransactionCookie(response);
+      response.headers.set("Referrer-Policy", "no-referrer");
+      response.headers.set("x-request-id", requestId);
+      logAuthEvent({
+        event: "account_action_completed",
+        requestId,
+        outcome: resultReference && (result.actionOutcome === "success" || result.actionOutcome === "cancelled")
+          ? "success"
+          : "failure",
+        ...(!resultReference
+          ? { reason: "provider_unavailable" as const }
+          : result.actionOutcome === "unverified"
+            ? { reason: "account_action_unverified" as const }
+            : {}),
+      });
+      return noStore(response);
+    }
     await services.sessions.revokeHandle(request.cookies.get(SESSION_COOKIE)?.value);
     const response = NextResponse.redirect(new URL(result.returnTo, services.config.appUrl), 303);
     setSessionCookie(response, result.handle, result.absoluteExpiresAt);
     clearOidcTransactionCookie(response);
     response.headers.set("x-request-id", requestId);
+    response.headers.set("Referrer-Policy", "no-referrer");
     logAuthEvent({ event: "oidc_login_completed", requestId, outcome: "success" });
     return noStore(response);
   } catch (error) {
@@ -59,6 +86,7 @@ export async function GET(request: NextRequest) {
       const response = accountAccessUnavailableResponse();
       clearOidcTransactionCookie(response);
       response.headers.set("x-request-id", requestId);
+      response.headers.set("Referrer-Policy", "no-referrer");
       return response;
     }
     if (blocked) {
@@ -69,6 +97,7 @@ export async function GET(request: NextRequest) {
       clearSessionCookie(response);
       clearOidcTransactionCookie(response);
       response.headers.set("x-request-id", requestId);
+      response.headers.set("Referrer-Policy", "no-referrer");
       return noStore(response);
     }
     const destination = new URL("/login", services.config.appUrl);
@@ -76,6 +105,7 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(destination, 303);
     clearOidcTransactionCookie(response);
     response.headers.set("x-request-id", requestId);
+    response.headers.set("Referrer-Policy", "no-referrer");
     return noStore(response);
   }
 }

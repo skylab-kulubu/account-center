@@ -3,6 +3,7 @@ import "server-only";
 import {
   KeycloakAccountContractError,
   parseAuthenticationSummary,
+  parseCredentialInventory,
   parseDeviceHints,
   parseProfile,
   parseSessions,
@@ -144,6 +145,10 @@ export class Keycloak26AccountReadAdapter implements KeycloakAccountReadAdapter 
 
   async authentication(accessToken: string): Promise<AuthenticationSummary> {
     return parseAuthenticationSummary(await this.#read("credentials", "credentials", accessToken));
+  }
+
+  async credentialInventory(accessToken: string) {
+    return parseCredentialInventory(await this.#read("credentials", "credentials", accessToken));
   }
 
   async sessions(accessToken: string): Promise<AccountSession[]> {
