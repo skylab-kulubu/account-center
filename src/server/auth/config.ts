@@ -17,6 +17,9 @@ export type AuthConfig = {
   sessionIdleTtlSeconds: number;
   sessionRotationSeconds: number;
   previousHandleGraceSeconds: number;
+  accountErasure:
+    | { mode: "off" }
+    | { mode: "enforce"; coreApiUrl: URL };
 };
 
 function required(name: string) {
@@ -70,6 +73,28 @@ function integer(name: string, minimum: number, maximum: number) {
     throw new Error(`${name} is outside the safe range.`);
   }
   return parsed;
+}
+
+function accountErasureConfig(): AuthConfig["accountErasure"] {
+  const mode = process.env.ACCOUNT_ERASURE_MODE?.trim() || "off";
+  if (mode === "off") return { mode };
+  if (mode !== "enforce") throw new Error("ACCOUNT_ERASURE_MODE must be off or enforce.");
+  if (process.env.ACCOUNT_ACCESS_GATE_MODE?.trim() !== "enforce") {
+    throw new Error("Account erasure requires the account access gate in enforce mode.");
+  }
+  const value = required("CORE_API_URL");
+  const coreApiUrl = httpsUrl("CORE_API_URL");
+  if (
+    coreApiUrl.username ||
+    coreApiUrl.password ||
+    coreApiUrl.pathname !== "/" ||
+    coreApiUrl.search ||
+    coreApiUrl.hash ||
+    value !== coreApiUrl.origin
+  ) {
+    throw new Error("CORE_API_URL must be a canonical credential-free HTTPS origin.");
+  }
+  return { mode, coreApiUrl };
 }
 
 export function getAuthConfig(): AuthConfig {
@@ -130,6 +155,7 @@ export function getAuthConfig(): AuthConfig {
     sessionIdleTtlSeconds: 30 * 60,
     sessionRotationSeconds: 15 * 60,
     previousHandleGraceSeconds: 30,
+    accountErasure: accountErasureConfig(),
   };
 }
 

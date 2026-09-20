@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 const sessionCookie = "__Host-sky-account";
 const publicPages = new Set([
   "/login",
+  "/account-deletion",
   "/handoff",
   "/v1/native-handoff",
   "/internal/v1/native-handoff/redeem",

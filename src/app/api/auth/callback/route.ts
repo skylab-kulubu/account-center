@@ -7,6 +7,8 @@ import {
   OIDC_TRANSACTION_COOKIE,
   SESSION_COOKIE,
   setSessionCookie,
+  setAccountDeletionProofCookie,
+  setAccountDeletionReceiptCookie,
 } from "@/server/auth/http";
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import { InvalidOidcTransactionError } from "@/server/auth/oidc-flow";
@@ -58,6 +60,32 @@ export async function GET(request: NextRequest) {
             ? { reason: "account_action_unverified" as const }
             : {}),
       });
+      return noStore(response);
+    }
+    if ("deletionReauthentication" in result) {
+      const destination = new URL(result.returnTo, services.config.appUrl);
+      if (result.deletionReauthentication === "cancelled") {
+        destination.searchParams.set("reauth", "cancelled");
+        const response = NextResponse.redirect(destination, 303);
+        clearOidcTransactionCookie(response);
+        response.headers.set("Referrer-Policy", "no-referrer");
+        response.headers.set("x-request-id", requestId);
+        return noStore(response);
+      }
+      if (!services.accountDeletion) throw new Error("account erasure disabled");
+      const deletion = await services.accountDeletion.createReauthenticatedIntent({
+        session: result.session,
+        authenticatedAt: result.authenticatedAt,
+        freshAccessToken: result.freshAccessToken,
+        freshIdToken: result.freshIdToken,
+      });
+      destination.searchParams.set("reauth", "confirmed");
+      const response = NextResponse.redirect(destination, 303);
+      setAccountDeletionProofCookie(response, deletion.proofReference, deletion.freshUntil);
+      setAccountDeletionReceiptCookie(response, deletion.localReceipt, deletion.freshUntil);
+      clearOidcTransactionCookie(response);
+      response.headers.set("Referrer-Policy", "no-referrer");
+      response.headers.set("x-request-id", requestId);
       return noStore(response);
     }
     await services.sessions.revokeHandle(request.cookies.get(SESSION_COOKIE)?.value);

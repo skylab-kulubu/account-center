@@ -8,6 +8,7 @@ import type { SessionManager } from "@/server/auth/sessions";
 import type {
   AccountActionKind,
   AccountActionTransactionPayload,
+  AccountDeletionReauthenticationTransactionPayload,
   ActiveSession,
   NativeHandoffIdentity,
 } from "@/server/auth/types";
@@ -180,8 +181,35 @@ export class OidcFlowService {
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
 
+  async beginAccountDeletionReauthentication(session: ActiveSession) {
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+      forceReauthentication: true,
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    const initiatedAt = this.clock();
+    await this.transactions.create(
+      {
+        state: proof.state,
+        nonce: proof.nonce,
+        codeVerifier: proof.codeVerifier,
+        purpose: "account-deletion-reauthentication",
+        returnTo: "/delete-account",
+        expectedSubject: session.subject,
+        expectedSessionId: session.id,
+        initiatedAt: initiatedAt.toISOString(),
+      },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
   async #boundActionSession(
-    transaction: AccountActionTransactionPayload,
+    transaction: AccountActionTransactionPayload | AccountDeletionReauthenticationTransactionPayload,
     sessionHandle: string | undefined,
   ) {
     const candidate = await this.sessions.candidate(sessionHandle);
@@ -299,6 +327,57 @@ export class OidcFlowService {
     return result("success");
   }
 
+  async #accountDeletionReauthenticationCallback(
+    callbackUrl: URL,
+    transaction: AccountDeletionReauthenticationTransactionPayload,
+    sessionHandle: string | undefined,
+  ) {
+    const session = await this.#boundActionSession(transaction, sessionHandle);
+    if (callbackUrl.searchParams.has("error")) {
+      return {
+        deletionReauthentication: "cancelled" as const,
+        returnTo: transaction.returnTo,
+      };
+    }
+    let authorization;
+    try {
+      authorization = await this.protocol.exchange({
+        callbackUrl,
+        state: transaction.state,
+        nonce: transaction.nonce,
+        codeVerifier: transaction.codeVerifier,
+        forceReauthentication: true,
+      });
+    } catch {
+      throw new InvalidOidcTransactionError();
+    }
+    const initiatedAt = new Date(transaction.initiatedAt);
+    if (
+      authorization.subject !== transaction.expectedSubject ||
+      !authorization.keycloakSid ||
+      authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000
+    ) {
+      throw new InvalidOidcTransactionError();
+    }
+    await this.accountAccess.requireActive(authorization.subject);
+    const currentTokens = await this.sessions.readTokens(session.id);
+    if (!currentTokens) throw new InvalidOidcTransactionError();
+    await this.sessions.replaceTokens(
+      session.id,
+      currentTokens.version,
+      authorization.tokens,
+      authorization.keycloakSid,
+    );
+    return {
+      deletionReauthentication: "success" as const,
+      session,
+      authenticatedAt: authorization.authenticatedAt,
+      freshAccessToken: authorization.tokens.accessToken,
+      freshIdToken: authorization.tokens.idToken,
+      returnTo: transaction.returnTo,
+    };
+  }
+
   async callback(
     callbackUrl: URL,
     browserBinding: string | undefined,
@@ -311,6 +390,9 @@ export class OidcFlowService {
 
     if (transaction.purpose === "account-action") {
       return this.#accountActionCallback(callbackUrl, transaction, sessionHandle);
+    }
+    if (transaction.purpose === "account-deletion-reauthentication") {
+      return this.#accountDeletionReauthenticationCallback(callbackUrl, transaction, sessionHandle);
     }
 
     const authorization = await this.protocol.exchange({

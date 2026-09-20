@@ -66,6 +66,16 @@ function validTransactionPayload(payload: OidcTransactionPayload) {
       );
     });
   }
+  if (payload.purpose === "account-deletion-reauthentication") {
+    return (
+      typeof payload.expectedSubject === "string" &&
+      payload.expectedSubject.length > 0 &&
+      payload.expectedSubject.length <= 255 &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        .test(payload.expectedSessionId) &&
+      validIsoDate(payload.initiatedAt)
+    );
+  }
   if (payload.purpose !== undefined && payload.purpose !== "login") return false;
   const hasExpectedSubject = payload.expectedSubject !== undefined;
   const hasExpectedAuthenticationTime = payload.expectedAuthenticatedAt !== undefined;

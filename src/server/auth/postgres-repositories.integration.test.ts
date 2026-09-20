@@ -23,6 +23,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "0002_auth_security_controls.sql",
       "0003_native_handoff.sql",
       "0004_account_action_results.sql",
+      "0005_account_deletion_intents.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);
@@ -31,7 +32,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
 
   beforeEach(async () => {
     await pool.query(
-      "TRUNCATE account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_native_handoffs, account_native_bridges, account_native_bridge_request_nonces",
+      "TRUNCATE account_deletion_intents, account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_native_handoffs, account_native_bridges, account_native_bridge_request_nonces",
     );
   });
 
@@ -182,7 +183,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     })).resolves.not.toBeNull();
   });
 
-  it("resolves a candidate without touching it and revokes every session for a blocked subject", async () => {
+  it("resolves a candidate without touching it and revokes every subject session from a trusted session id", async () => {
     const repository = new PostgresSessionRepository(pool);
     const handle = Buffer.alloc(32, 61);
     const originalLastSeen = new Date("2026-09-20T00:05:00Z");
@@ -222,8 +223,8 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     expect(before.rows[0]?.last_seen_at).toEqual(originalLastSeen);
     expect(before.rows[0]?.idle_expires_at).toEqual(new Date("2026-09-20T00:30:00Z"));
 
-    await expect(repository.revokeBySubject(
-      "blocked-subject",
+    await expect(repository.revokeSubjectBySessionId(
+      "61616161-6161-4616-8616-616161616161",
       new Date("2026-09-20T00:10:01Z"),
     )).resolves.toBe(2);
     const revoked = await pool.query(
@@ -384,6 +385,30 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
         ($2, '77777777-7777-4777-8777-777777777777', 'passkey', 'cancelled', now(), now() + interval '5 minutes', NULL)`,
       [Buffer.alloc(32, 74), Buffer.alloc(32, 75)],
     );
+    await pool.query(
+      `INSERT INTO account_deletion_intents
+        (id, subject_digest, session_id, proof_hash, local_receipt_hash, core_receipt_hash,
+         recovery_kind, recovery_ciphertext, status, partial, requested_at, receipt_expires_at,
+         fresh_until, created_at, updated_at)
+       VALUES
+        ('a1111111-1111-4111-8111-111111111111', $1, 'a1111111-1111-4111-8111-111111111112', $2, $3, NULL,
+         'identity_tokens', 'stale-identity-tokens', 'awaiting_confirmation', false, NULL, NULL,
+         now() - interval '1 minute', now() - interval '6 minutes', now() - interval '6 minutes'),
+        ('a2222222-2222-4222-8222-222222222222', NULL, NULL, NULL, $4, $5,
+         'core_receipt', 'accepted-core-receipt', 'processing', true, now() - interval '2 minutes', now() + interval '1 hour',
+         now() - interval '1 minute', now() - interval '6 minutes', now() - interval '1 minute'),
+        ('a3333333-3333-4333-8333-333333333333', NULL, NULL, NULL, $6, $7,
+         'core_receipt', 'expired-core-receipt', 'processing', true, now() - interval '2 hours', now() - interval '1 minute',
+         now() - interval '2 hours', now() - interval '3 hours', now() - interval '2 hours'),
+        ('a4444444-4444-4444-8444-444444444444', NULL, NULL, NULL, $8, $9,
+         'core_receipt', 'active-core-receipt', 'processing', true, now() - interval '1 minute', now() + interval '1 hour',
+         now() + interval '1 minute', now() - interval '1 minute', now())`,
+      [
+        Buffer.alloc(32, 76), Buffer.alloc(32, 77), Buffer.alloc(32, 78),
+        Buffer.alloc(32, 79), Buffer.alloc(32, 80), Buffer.alloc(32, 81),
+        Buffer.alloc(32, 82), Buffer.alloc(32, 83), Buffer.alloc(32, 84),
+      ],
+    );
     const maintenance = await readFile(resolve(process.cwd(), "maintenance/prune-auth.sql"), "utf8");
     const result = await pool.query(maintenance);
     expect(result.rows[0]?.deleted_transactions).toBe(1);
@@ -394,6 +419,8 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     expect(result.rows[0]?.deleted_native_bridges).toBe(1);
     expect(result.rows[0]?.deleted_native_bridge_nonces).toBe(1);
     expect(result.rows[0]?.deleted_action_results).toBe(1);
+    expect(result.rows[0]?.deleted_deletion_intents).toBe(2);
+    expect(result.rows[0]?.scrubbed_deletion_recovery).toBe(1);
     const remainingTransactions = await pool.query(
       "SELECT payload_ciphertext FROM account_oidc_transactions",
     );
@@ -409,6 +436,25 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "SELECT action, outcome FROM account_action_results",
     );
     expect(remainingActionResults.rows).toEqual([{ action: "passkey", outcome: "cancelled" }]);
+    const remainingDeletionIntents = await pool.query(
+      `SELECT id, local_receipt_hash, recovery_kind, recovery_ciphertext
+         FROM account_deletion_intents
+        ORDER BY id`,
+    );
+    expect(remainingDeletionIntents.rows).toEqual([
+      {
+        id: "a2222222-2222-4222-8222-222222222222",
+        local_receipt_hash: null,
+        recovery_kind: null,
+        recovery_ciphertext: null,
+      },
+      {
+        id: "a4444444-4444-4444-8444-444444444444",
+        local_receipt_hash: Buffer.alloc(32, 83),
+        recovery_kind: "core_receipt",
+        recovery_ciphertext: "active-core-receipt",
+      },
+    ]);
   });
 
   it("atomically consumes logout jti and hard-deletes matching sid sessions", async () => {

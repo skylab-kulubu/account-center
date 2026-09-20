@@ -1,5 +1,11 @@
-import { AlertTriangle, Check, Trash2 } from "lucide-react";
+import { AlertTriangle, Check } from "lucide-react";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/settings";
+import { AccountDeletionConfirmation } from "@/components/account-deletion-confirmation";
+import { ACCOUNT_DELETION_PROOF_COOKIE } from "@/server/auth/http";
+import { getAuthServices } from "@/server/auth/services";
+import { currentAccountSession } from "@/server/access-gate/current-session";
 
 export const metadata = { title: "Hesabı sil" };
 
@@ -10,7 +16,23 @@ const consequences = [
   "Bilet, katılım ve verilmiş sertifika gibi zorunlu operasyon kayıtları kimliğinden ayrılarak korunabilir.",
 ];
 
-export default function DeleteAccountPage() {
+export default async function DeleteAccountPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const services = getAuthServices();
+  const authorization = await currentAccountSession();
+  if (authorization.status !== "active") redirect("/login");
+  const parameters = await searchParams;
+  const deletionError = parameters.deletionError === "proof_expired" ||
+    parameters.deletionError === "reauth_unavailable" ||
+    parameters.deletionError === "deletion_unavailable"
+    ? parameters.deletionError
+    : undefined;
+  const proof = (await cookies()).get(ACCOUNT_DELETION_PROOF_COOKIE)?.value;
+  const reauthenticated = typeof proof === "string" && /^[A-Za-z0-9_-]{43}$/.test(proof);
+  const csrfToken = services.sessions.csrfToken(authorization.value.session.id);
   return (
     <div className="page-stack">
       <PageHeader
@@ -33,11 +55,14 @@ export default function DeleteAccountPage() {
           </ul>
         </div>
       </section>
-      <button className="danger-button" type="button" disabled>
-        <Trash2 aria-hidden="true" size={17} />
-        Silme akışını başlat
-      </button>
-      <p className="page-hint">Silme akışı kimlik entegrasyonu ve yeniden doğrulama tamamlandıktan sonra etkinleşecek.</p>
+      <AccountDeletionConfirmation
+        csrfToken={csrfToken}
+        deletionError={deletionError}
+        enabled={services.accountDeletion !== null}
+        reauthenticated={reauthenticated}
+        reauthenticationCancelled={parameters.reauth === "cancelled"}
+      />
+      <p className="page-hint">Silme isteğin kabul edildiğinde tüm Hesap Merkezi oturumların kapatılır ve durum takibi bu tarayıcıda güvenli bir yetkiyle devam eder.</p>
     </div>
   );
 }

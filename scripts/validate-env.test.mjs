@@ -162,3 +162,34 @@ test("permits an explicit off mode without Redis credentials", () => {
   );
   assert.doesNotThrow(() => validateEnvironment(environment));
 });
+
+test("keeps account erasure default-off and requires the exact Core origin when enabled", () => {
+  assert.doesNotThrow(() => validateEnvironment(valid));
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, ACCOUNT_ERASURE_MODE: "off" }));
+  assert.throws(
+    () => validateEnvironment({ ...valid, ACCOUNT_ERASURE_MODE: "enforce" }),
+    /CORE_API_URL/,
+  );
+  assert.throws(
+    () => validateEnvironment({
+      ...valid,
+      ACCOUNT_ERASURE_MODE: "enforce",
+      CORE_API_URL: "https://api.yildizskylab.com/v1",
+    }),
+    /CORE_API_URL/,
+  );
+  assert.doesNotThrow(() => validateEnvironment({
+    ...valid,
+    ACCOUNT_ERASURE_MODE: "enforce",
+    CORE_API_URL: "https://api.yildizskylab.com",
+  }));
+  assert.throws(
+    () => validateEnvironment({
+      ...valid,
+      ACCOUNT_ACCESS_GATE_MODE: "off",
+      ACCOUNT_ERASURE_MODE: "enforce",
+      CORE_API_URL: "https://api.yildizskylab.com",
+    }),
+    /access gate/i,
+  );
+});

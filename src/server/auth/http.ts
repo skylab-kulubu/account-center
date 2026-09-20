@@ -5,6 +5,8 @@ import type { AuthConfig } from "@/server/auth/config";
 
 export const SESSION_COOKIE = "__Host-sky-account";
 export const OIDC_TRANSACTION_COOKIE = "__Host-sky-account-txn";
+export const ACCOUNT_DELETION_PROOF_COOKIE = "__Host-sky-account-delete-proof";
+export const ACCOUNT_DELETION_RECEIPT_COOKIE = "__Host-sky-account-delete-receipt";
 
 const baseCookie = {
   httpOnly: true,
@@ -41,11 +43,61 @@ export function clearOidcTransactionCookie(response: NextResponse) {
   response.cookies.set(OIDC_TRANSACTION_COOKIE, "", { ...baseCookie, expires: new Date(0), maxAge: 0 });
 }
 
+export function setAccountDeletionProofCookie(
+  response: NextResponse,
+  proof: string,
+  expiresAt: Date,
+) {
+  response.cookies.set(ACCOUNT_DELETION_PROOF_COOKIE, proof, {
+    ...baseCookie,
+    expires: expiresAt,
+    maxAge: Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1_000)),
+  });
+}
+
+export function clearAccountDeletionProofCookie(response: NextResponse) {
+  response.cookies.set(
+    ACCOUNT_DELETION_PROOF_COOKIE,
+    "",
+    { ...baseCookie, expires: new Date(0), maxAge: 0 },
+  );
+}
+
+export function setAccountDeletionReceiptCookie(
+  response: NextResponse,
+  receipt: string,
+  expiresAt: Date,
+) {
+  response.cookies.set(ACCOUNT_DELETION_RECEIPT_COOKIE, receipt, {
+    ...baseCookie,
+    expires: expiresAt,
+    maxAge: Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1_000)),
+  });
+}
+
+export function clearAccountDeletionReceiptCookie(response: NextResponse) {
+  response.cookies.set(
+    ACCOUNT_DELETION_RECEIPT_COOKIE,
+    "",
+    { ...baseCookie, expires: new Date(0), maxAge: 0 },
+  );
+}
+
 export function mutationHasExactOrigin(request: NextRequest, config: AuthConfig) {
   const origin = request.headers.get("origin");
   if (origin !== config.appUrl.origin) return false;
   const fetchSite = request.headers.get("sec-fetch-site");
   return !fetchSite || fetchSite === "same-origin";
+}
+
+export function requestWantsHtmlNavigation(request: NextRequest) {
+  if (
+    request.headers.get("sec-fetch-mode") !== "navigate" ||
+    request.headers.get("sec-fetch-dest") !== "document"
+  ) return false;
+  return (request.headers.get("accept") ?? "")
+    .split(",")
+    .some((value) => value.split(";", 1)[0]?.trim().toLowerCase() === "text/html");
 }
 
 /**

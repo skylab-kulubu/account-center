@@ -43,6 +43,27 @@ deleted_action_results AS (
    WHERE expires_at < now()
       OR consumed_at < now() - interval '1 hour'
   RETURNING 1
+),
+deleted_deletion_intents AS (
+  DELETE FROM account_deletion_intents
+   WHERE (status = 'awaiting_confirmation' AND fresh_until <= now())
+      OR (core_receipt_hash IS NOT NULL AND receipt_expires_at <= now())
+  RETURNING 1
+),
+scrubbed_deletion_recovery AS (
+  UPDATE account_deletion_intents
+     SET local_receipt_hash = NULL,
+         recovery_kind = NULL,
+         recovery_ciphertext = NULL
+   WHERE status <> 'awaiting_confirmation'
+     AND fresh_until <= now()
+     AND receipt_expires_at > now()
+     AND (
+       local_receipt_hash IS NOT NULL
+       OR recovery_kind IS NOT NULL
+       OR recovery_ciphertext IS NOT NULL
+     )
+  RETURNING 1
 )
 SELECT
   (SELECT count(*)::integer FROM deleted_transactions) AS deleted_transactions,
@@ -52,4 +73,6 @@ SELECT
   (SELECT count(*)::integer FROM deleted_native_handoffs) AS deleted_native_handoffs,
   (SELECT count(*)::integer FROM deleted_native_bridges) AS deleted_native_bridges,
   (SELECT count(*)::integer FROM deleted_native_bridge_nonces) AS deleted_native_bridge_nonces,
-  (SELECT count(*)::integer FROM deleted_action_results) AS deleted_action_results;
+  (SELECT count(*)::integer FROM deleted_action_results) AS deleted_action_results,
+  (SELECT count(*)::integer FROM deleted_deletion_intents) AS deleted_deletion_intents,
+  (SELECT count(*)::integer FROM scrubbed_deletion_recovery) AS scrubbed_deletion_recovery;

@@ -296,6 +296,17 @@ export class PostgresSessionRepository implements SessionRepository {
     return result.rowCount ?? 0;
   }
 
+  async revokeSubjectBySessionId(sessionId: string, revokedAt: Date) {
+    const result = await this.pool.query(
+      `UPDATE account_sessions
+          SET revoked_at = COALESCE(revoked_at, $2)
+        WHERE subject = (SELECT subject FROM account_sessions WHERE id = $1)
+      RETURNING id`,
+      [sessionId, revokedAt],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async getTokenCiphertext(id: string, now: Date) {
     const result = await this.pool.query<{ token_ciphertext: string }>(
       `SELECT token_ciphertext

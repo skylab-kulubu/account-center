@@ -30,6 +30,9 @@ import { getAccountAccessGateConfig } from "@/server/access-gate/config";
 import { createAccountAccessGate } from "@/server/access-gate/gate";
 import { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
 import { AccountSessionAccess } from "@/server/access-gate/session-access";
+import { AccountDeletionOrchestrator } from "@/server/account-deletion/orchestrator";
+import { CoreAccountDeletionHttpGateway } from "@/server/account-deletion/core-gateway";
+import { PostgresAccountDeletionRepository } from "@/server/account-deletion/postgres-repository";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
 const globalServices = globalThis as typeof globalThis & { accountCenterAuthServices?: AuthServices };
@@ -86,6 +89,15 @@ function createAuthServices() {
     accountAccess,
     config.appUrl,
   );
+  const accountDeletion = config.accountErasure.mode === "enforce"
+    ? new AccountDeletionOrchestrator(
+        new PostgresAccountDeletionRepository(pool),
+        new CoreAccountDeletionHttpGateway(config.accountErasure.coreApiUrl),
+        sessions,
+        cipher,
+        config.sessionHmacKey,
+      )
+    : null;
   return {
     config,
     sessions,
@@ -95,6 +107,7 @@ function createAuthServices() {
     account,
     actionResults,
     nativeHandoff,
+    accountDeletion,
     nativeBridgeRequest: new NativeBridgeRequestVerifier(
       config.nativeBridgeHmacSecret,
       config.nativeBridgeMtlsClientSha256,

@@ -39,6 +39,7 @@ class CapturingSessions implements SessionRepository {
   async useHandle(): Promise<SessionUseResult | null> { return null; }
   async revokeByHandle() { return false; }
   async revokeBySubject() { return 0; }
+  async revokeSubjectBySessionId() { return 0; }
   async getTokenCiphertext() { return null; }
   async replaceTokenCiphertext() { return false; }
   async revokeById() { return false; }

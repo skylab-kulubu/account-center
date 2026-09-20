@@ -4,6 +4,7 @@ import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import type { AuthConfig } from "@/server/auth/config";
 import {
   mutationHasExactOrigin,
+  requestWantsHtmlNavigation,
   sessionMutationHasExactOrigin,
 } from "@/server/auth/http";
 import type { SessionRepository } from "@/server/auth/repositories";
@@ -72,5 +73,29 @@ describe("mutation request protection", () => {
     const csrfToken = sessions.csrfToken("session-one");
     expect(sessions.verifyCsrf("session-one", csrfToken)).toBe(true);
     expect(sessions.verifyCsrf("session-two", csrfToken)).toBe(false);
+  });
+
+  it("recognizes only an explicit browser document navigation as HTML", () => {
+    const request = new NextRequest("https://my.yildizskylab.com/api/account/deletion", {
+      method: "POST",
+      headers: {
+        accept: "text/html,application/xhtml+xml,application/json;q=0.9",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-dest": "document",
+      },
+    });
+    expect(requestWantsHtmlNavigation(request)).toBe(true);
+    const invalidHeaders: Array<Record<string, string>> = [
+      { accept: "application/json", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" },
+      { accept: "text/html", "sec-fetch-mode": "cors", "sec-fetch-dest": "document" },
+      { accept: "text/html", "sec-fetch-mode": "navigate", "sec-fetch-dest": "empty" },
+      { accept: "text/html" },
+    ];
+    for (const headers of invalidHeaders) {
+      expect(requestWantsHtmlNavigation(new NextRequest(request.url, {
+        method: "POST",
+        headers,
+      }))).toBe(false);
+    }
   });
 });

@@ -167,6 +167,59 @@ function callbackUrl(protocol: FakeProtocol, status: "success" | "cancelled", ac
 }
 
 describe("Account Center application-initiated actions", () => {
+  it("reauthenticates account deletion without an AIA action and returns only fresh server material", async () => {
+    const { flow, protocol, sessions } = fixture();
+    const started = await flow.beginAccountDeletionReauthentication(activeSession);
+    expect(protocol.proof).toMatchObject({ forceReauthentication: true });
+    expect(protocol.proof?.accountAction).toBeUndefined();
+
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("code", "authorization-code");
+    callback.searchParams.set("state", protocol.proof!.state);
+    const result = await flow.callback(callback, started.browserBinding, handle);
+
+    expect(result).toMatchObject({
+      deletionReauthentication: "success",
+      session: activeSession,
+      authenticatedAt: now,
+      freshAccessToken: "fresh-server-access-token",
+      freshIdToken: "fresh-server-id-token",
+      returnTo: "/delete-account",
+    });
+    expect(sessions.replaceTokens).toHaveBeenCalledWith(
+      activeSession.id,
+      "encrypted-v1",
+      protocol.authorization.tokens,
+      protocol.authorization.keycloakSid,
+    );
+  });
+
+  it("rejects deletion reauthentication bound to another session, subject, or stale auth_time", async () => {
+    const missing = fixture();
+    const missingStarted = await missing.flow.beginAccountDeletionReauthentication(activeSession);
+    const missingCallback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    missingCallback.searchParams.set("code", "authorization-code");
+    missingCallback.searchParams.set("state", missing.protocol.proof!.state);
+    await expect(missing.flow.callback(missingCallback, missingStarted.browserBinding, "x".repeat(43)))
+      .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+    expect(missing.protocol.exchanged).toBeUndefined();
+
+    for (const mutate of [
+      (protocol: FakeProtocol) => { protocol.authorization.subject = "different-user"; },
+      (protocol: FakeProtocol) => { protocol.authorization.authenticatedAt = new Date("2026-09-20T11:50:00Z"); },
+    ]) {
+      const current = fixture();
+      const started = await current.flow.beginAccountDeletionReauthentication(activeSession);
+      mutate(current.protocol);
+      const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+      callback.searchParams.set("code", "authorization-code");
+      callback.searchParams.set("state", current.protocol.proof!.state);
+      await expect(current.flow.callback(callback, started.browserBinding, handle))
+        .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+      expect(current.sessions.replaceTokens).not.toHaveBeenCalled();
+    }
+  });
+
   it.each([
     ["password", "UPDATE_PASSWORD"],
     ["otp", "CONFIGURE_TOTP"],
