@@ -30,6 +30,11 @@ describe("security proxy", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
+  it("keeps the receipt-backed deletion status page public after the account is blocked", () => {
+    const response = proxy(new NextRequest("https://my.yildizskylab.com/account-deletion"));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("keeps only the fixed handoff consumption route public", () => {
     const response = proxy(new NextRequest(
       `https://my.yildizskylab.com/handoff?code=${"p".repeat(43)}`,

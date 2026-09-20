@@ -53,9 +53,17 @@ export type AccountActionTransactionPayload = OidcTransactionBase & {
   };
 };
 
+export type AccountDeletionReauthenticationTransactionPayload = OidcTransactionBase & {
+  purpose: "account-deletion-reauthentication";
+  expectedSubject: string;
+  expectedSessionId: string;
+  initiatedAt: string;
+};
+
 export type OidcTransactionPayload =
   | LoginOidcTransactionPayload
-  | AccountActionTransactionPayload;
+  | AccountActionTransactionPayload
+  | AccountDeletionReauthenticationTransactionPayload;
 
 export type StoredOidcTransaction = {
   id: string;

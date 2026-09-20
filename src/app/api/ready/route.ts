@@ -12,6 +12,7 @@ export async function GET() {
       controls_ready: boolean;
       native_ready: boolean;
       actions_ready: boolean;
+      deletion_ready: boolean;
       migrations_ready: boolean;
     }>(
       `SELECT
@@ -22,7 +23,8 @@ export async function GET() {
            AND to_regclass('public.account_native_bridges') IS NOT NULL
            AND to_regclass('public.account_native_bridge_request_nonces') IS NOT NULL AS native_ready,
          to_regclass('public.account_action_results') IS NOT NULL AS actions_ready,
-         (SELECT count(*) = 4
+         to_regclass('public.account_deletion_intents') IS NOT NULL AS deletion_ready,
+         (SELECT count(*) = 5
             FROM account_center_schema_migrations
            WHERE name = ANY($1::text[])) AS migrations_ready`,
       [[
@@ -30,6 +32,7 @@ export async function GET() {
         "0002_auth_security_controls.sql",
         "0003_native_handoff.sql",
         "0004_account_action_results.sql",
+        "0005_account_deletion_intents.sql",
       ]],
     );
     if (
@@ -37,6 +40,7 @@ export async function GET() {
       !result.rows[0]?.controls_ready ||
       !result.rows[0]?.native_ready ||
       !result.rows[0]?.actions_ready ||
+      !result.rows[0]?.deletion_ready ||
       !result.rows[0]?.migrations_ready ||
       !await services.accountAccess.ready()
     ) {

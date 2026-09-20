@@ -139,8 +139,9 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
       /^delete_credential:[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(input.accountAction);
     if (
       !allowedAccountAction ||
-      (input.accountAction !== undefined && input.nativeBridgeCode !== undefined) ||
-      (input.accountAction !== undefined) !== (input.forceReauthentication === true)
+      (input.nativeBridgeCode !== undefined &&
+        (input.accountAction !== undefined || input.forceReauthentication === true)) ||
+      (input.accountAction !== undefined && input.forceReauthentication !== true)
     ) {
       throw new OidcContractError("OIDC account action is outside the fixed AIA contract.");
     }

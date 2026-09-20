@@ -2,7 +2,12 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as callbackRoute } from "@/app/api/auth/callback/route";
 import { GET as loginRoute } from "@/app/api/auth/login/route";
-import { SESSION_COOKIE, OIDC_TRANSACTION_COOKIE } from "@/server/auth/http";
+import {
+  ACCOUNT_DELETION_PROOF_COOKIE,
+  ACCOUNT_DELETION_RECEIPT_COOKIE,
+  SESSION_COOKIE,
+  OIDC_TRANSACTION_COOKIE,
+} from "@/server/auth/http";
 import { InvalidOidcTransactionError } from "@/server/auth/oidc-flow";
 import {
   AccountAccessBlockedError,
@@ -15,6 +20,7 @@ const authMocks = vi.hoisted(() => ({
   revokeHandle: vi.fn(),
   rateLimitConsume: vi.fn(),
   createActionResult: vi.fn(),
+  createDeletionIntent: vi.fn(),
 }));
 
 vi.mock("@/server/auth/logging", () => ({
@@ -28,6 +34,7 @@ vi.mock("@/server/auth/services", () => ({
     oidc: { begin: authMocks.begin, callback: authMocks.callback },
     sessions: { revokeHandle: authMocks.revokeHandle },
     actionResults: { create: authMocks.createActionResult },
+    accountDeletion: { createReauthenticatedIntent: authMocks.createDeletionIntent },
     anonymousRateLimit: { consume: authMocks.rateLimitConsume },
   }),
 }));
@@ -41,6 +48,11 @@ describe("authentication routes", () => {
       retryAfterSeconds: 60,
     });
     authMocks.createActionResult.mockResolvedValue("r".repeat(43));
+    authMocks.createDeletionIntent.mockResolvedValue({
+      proofReference: "p".repeat(43),
+      localReceipt: "d".repeat(43),
+      freshUntil: new Date("2026-09-20T12:05:00Z"),
+    });
   });
 
   it("returns a retryable 429 before anonymous login or callback work", async () => {
@@ -197,6 +209,61 @@ describe("authentication routes", () => {
     expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
     expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
     expect(authMocks.revokeHandle).not.toHaveBeenCalled();
+  });
+
+  it("keeps deletion proof and receipt in secure host-only cookies after fresh reauthentication", async () => {
+    const activeSession = {
+      id: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
+      subject: "fresh-user",
+      keycloakSid: "fresh-sid",
+      createdAt: new Date("2026-09-20T10:00:00Z"),
+      lastSeenAt: new Date("2026-09-20T12:00:00Z"),
+      idleExpiresAt: new Date("2026-09-20T12:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T18:00:00Z"),
+    };
+    authMocks.callback.mockResolvedValue({
+      deletionReauthentication: "success",
+      session: activeSession,
+      authenticatedAt: new Date("2026-09-20T12:00:00Z"),
+      freshAccessToken: "fresh-server-token",
+      freshIdToken: "fresh-server-id-token",
+      returnTo: "/delete-account",
+    });
+    const response = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${SESSION_COOKIE}=${"h".repeat(43)}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    ));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/delete-account?reauth=confirmed",
+    );
+    expect(response.cookies.get(ACCOUNT_DELETION_PROOF_COOKIE)?.value).toBe("p".repeat(43));
+    expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)?.value).toBe("d".repeat(43));
+    expect(response.headers.get("set-cookie")).not.toContain("Domain=");
+    expect(response.headers.get("set-cookie")).not.toContain("fresh-server-token");
+    expect(authMocks.createDeletionIntent).toHaveBeenCalledWith({
+      session: activeSession,
+      authenticatedAt: new Date("2026-09-20T12:00:00Z"),
+      freshAccessToken: "fresh-server-token",
+      freshIdToken: "fresh-server-id-token",
+    });
+  });
+
+  it("returns deletion cancellation to the page without creating a receipt", async () => {
+    authMocks.callback.mockResolvedValue({
+      deletionReauthentication: "cancelled",
+      returnTo: "/delete-account",
+    });
+    const response = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?error=access_denied&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${SESSION_COOKIE}=${"h".repeat(43)}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    ));
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/delete-account?reauth=cancelled",
+    );
+    expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)).toBeUndefined();
+    expect(authMocks.createDeletionIntent).not.toHaveBeenCalled();
   });
 
   it("clears stale cookies without disclosing why a verified subject is denied", async () => {

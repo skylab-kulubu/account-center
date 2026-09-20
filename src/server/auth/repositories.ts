@@ -59,6 +59,7 @@ export interface SessionRepository {
   ): Promise<boolean>;
   revokeByHandle(handleHash: Buffer, revokedAt: Date): Promise<boolean>;
   revokeBySubject(subject: string, revokedAt: Date): Promise<number>;
+  revokeSubjectBySessionId(sessionId: string, revokedAt: Date): Promise<number>;
   revokeById(id: string, revokedAt: Date): Promise<boolean>;
   deleteByIdReturningToken(id: string): Promise<string | null>;
 }

@@ -183,6 +183,10 @@ export class SessionManager {
     return this.repository.revokeBySubject(subject, this.clock());
   }
 
+  revokeSubjectSessionsBySessionId(sessionId: string) {
+    return this.repository.revokeSubjectBySessionId(sessionId, this.clock());
+  }
+
   async authenticateCleanupMutation(
     handle: string | undefined,
     csrfToken: string | undefined,

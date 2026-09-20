@@ -20,6 +20,7 @@ const forbiddenPublicSecrets = [
   "NEXT_PUBLIC_OIDC_CLIENT_SECRET",
   "NEXT_PUBLIC_NATIVE_BRIDGE_HMAC_SECRET",
   "NEXT_PUBLIC_ACCOUNT_ACCESS_REDIS_PASSWORD",
+  "NEXT_PUBLIC_CORE_API_URL",
 ];
 
 const placeholderPattern = /(?:change[-_ ]?me|replace[-_ ]?with|example|placeholder|<[^>]+>)/i;
@@ -117,6 +118,20 @@ function validateAccountAccessEnvironment(env, issuer) {
   }
 }
 
+function validateAccountErasureEnvironment(env) {
+  const mode = env.ACCOUNT_ERASURE_MODE?.trim() || "off";
+  if (mode !== "off" && mode !== "enforce") {
+    throw new Error("ACCOUNT_ERASURE_MODE must be off or enforce.");
+  }
+  if (mode === "off") return;
+  if (env.ACCOUNT_ACCESS_GATE_MODE?.trim() !== "enforce") {
+    throw new Error("Account erasure requires the account access gate in enforce mode.");
+  }
+  const value = env.CORE_API_URL?.trim();
+  if (!value) throw new Error("Missing required environment variables: CORE_API_URL");
+  requireHttpsOrigin("CORE_API_URL", value);
+}
+
 function requireDatabaseUrl(value) {
   let url;
   try {
@@ -212,5 +227,6 @@ export function validateEnvironment(env) {
   requireHttpsOrigin("APP_URL", values.APP_URL);
   requireOidcIssuer(values.OIDC_ISSUER);
   validateAccountAccessEnvironment(env, values.OIDC_ISSUER);
+  validateAccountErasureEnvironment(env);
   validateDatabaseEnvironment(env);
 }

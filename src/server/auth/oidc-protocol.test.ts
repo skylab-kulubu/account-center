@@ -113,6 +113,33 @@ describe("OAuth4WebApiProtocol", () => {
     ]);
   });
 
+  it("forces fresh authentication for account deletion without requesting Keycloak DELETE_ACCOUNT", async () => {
+    const requests: Array<{ url: string; body?: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push({ url, ...(init?.body ? { body: String(init.body) } : {}) });
+      if (url.includes(".well-known")) return Response.json(discovery);
+      return Response.json(
+        { request_uri: "urn:ietf:params:oauth:request_uri:delete-reauth", expires_in: 45 },
+        { status: 201 },
+      );
+    }));
+
+    await new OAuth4WebApiProtocol(config).begin({
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+      forceReauthentication: true,
+    });
+
+    const pushed = requests.find(({ url }) => url === discovery.pushed_authorization_request_endpoint);
+    const parameters = new URLSearchParams(pushed?.body);
+    expect(parameters.get("prompt")).toBe("login");
+    expect(parameters.get("max_age")).toBe("0");
+    expect(parameters.get("kc_action")).toBeNull();
+    expect(pushed?.body).not.toContain("DELETE_ACCOUNT");
+  });
+
   it("rejects arbitrary, parameterless, or mixed account actions before PAR", async () => {
     const request = vi.fn(async (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);

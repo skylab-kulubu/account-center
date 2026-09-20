@@ -37,6 +37,8 @@ try {
         deletedNativeBridges: result.rows[0]?.deleted_native_bridges ?? 0,
         deletedNativeBridgeNonces: result.rows[0]?.deleted_native_bridge_nonces ?? 0,
         deletedActionResults: result.rows[0]?.deleted_action_results ?? 0,
+        deletedDeletionIntents: result.rows[0]?.deleted_deletion_intents ?? 0,
+        scrubbedDeletionRecovery: result.rows[0]?.scrubbed_deletion_recovery ?? 0,
       }));
     }
   } catch (error) {

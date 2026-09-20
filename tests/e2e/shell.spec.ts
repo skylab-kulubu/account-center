@@ -123,6 +123,142 @@ test("desktop protected pages require OIDC login without a session", async ({ pa
   expect(errors).toEqual([]);
 });
 
+test("account deletion remains visibly inert while the production rollout flag is off", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `delete-off-${testInfo.retry}`);
+
+  await gotoAuthenticatedPage(page, "/delete-account");
+
+  await expect(page.getByRole("heading", { name: "Hesabı sil" })).toBeVisible();
+  await expect(page.getByText("Silme akışı henüz etkin değil")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Kimliğimi yeniden doğrula" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Hesabımı kalıcı olarak sil" })).toHaveCount(0);
+});
+
+test("public deletion status works without a session and never renders its receipt", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  const receipt = `adr_${"r".repeat(43)}`;
+  await context.addCookies([{
+    name: "__Host-sky-account-delete-receipt",
+    value: receipt,
+    url: baseUrl,
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+  }]);
+  await page.route("**/api/account/deletion/status", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      status: "processing",
+      partial: true,
+      updatedAt: "2026-09-20T12:00:02.000Z",
+      completedAt: null,
+      csrfToken: "c".repeat(43),
+    }),
+  }));
+
+  await page.goto("/account-deletion");
+
+  await expect(page).toHaveURL(`${baseUrl}/account-deletion`);
+  await expect(page.getByRole("heading", { name: "Hesabın siliniyor" })).toBeVisible();
+  await expect(page.getByText(/sayfayı kapatabilirsin/i)).toBeVisible();
+  const browserSurface = await page.evaluate(() => [
+    document.documentElement.outerHTML,
+    JSON.stringify(Object.entries(localStorage)),
+    JSON.stringify(Object.entries(sessionStorage)),
+    window.location.href,
+  ].join("\n"));
+  expect(browserSurface).not.toContain(receipt);
+});
+
+test("uncertain native deletion submit navigates to sessionless recovery without losing its receipt", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only navigation regression");
+  const localReceipt = "l".repeat(43);
+  await context.addCookies([{
+    name: "__Host-sky-account-delete-receipt",
+    value: localReceipt,
+    url: baseUrl,
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+  }]);
+  await page.route("**/api/account/deletion/status", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "unavailable" }),
+  }));
+  await page.route("**/api/account/deletion", (route) => route.fulfill({
+    status: 303,
+    headers: {
+      location: "/account-deletion?recovery=1",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+    },
+    body: "",
+  }));
+  await page.goto("/account-deletion");
+  await page.evaluate(() => {
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/api/account/deletion";
+    document.body.append(form);
+    form.submit();
+  });
+
+  await expect(page).toHaveURL(new RegExp(
+    `^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/account-deletion(?:\\?recovery=1)?$`,
+  ));
+  await expect(page.getByRole("heading", { name: "Durum alınamadı" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Yeniden kontrol et" })).toBeVisible();
+  expect(await page.content()).not.toContain(localReceipt);
+  expect((await context.cookies()).find(
+    (cookie) => cookie.name === "__Host-sky-account-delete-receipt",
+  )?.value).toBe(localReceipt);
+});
+
+test("native deletion errors return to branded actionable recovery UI", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only navigation regression");
+  await installAuthenticatedSession(context, `delete-errors-${testInfo.retry}`);
+  await page.route("**/api/account/deletion/reauthenticate", (route) => route.fulfill({
+    status: 303,
+    headers: {
+      location: "/delete-account?deletionError=reauth_unavailable",
+      "cache-control": "no-store",
+    },
+    body: "",
+  }));
+  await gotoAuthenticatedPage(page, "/delete-account");
+  await page.evaluate(() => {
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/api/account/deletion/reauthenticate";
+    document.body.append(form);
+    form.submit();
+  });
+  await expect(page).toHaveURL(/\/delete-account\?deletionError=reauth_unavailable$/);
+  await expect(page.getByRole("status")).toContainText("Yeniden doğrulama başlatılamadı");
+
+  await page.route("**/api/account/deletion", (route) => route.fulfill({
+    status: 303,
+    headers: {
+      location: "/delete-account?deletionError=proof_expired",
+      "cache-control": "no-store",
+    },
+    body: "",
+  }));
+  await page.evaluate(() => {
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/api/account/deletion";
+    document.body.append(form);
+    form.submit();
+  });
+  await expect(page).toHaveURL(/\/delete-account\?deletionError=proof_expired$/);
+  await expect(page.getByRole("status")).toContainText("Doğrulama süren doldu");
+  expect(await page.content()).not.toContain("provider unavailable");
+});
+
 test("mobile protected pages preserve the safe return path without a session", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "mobile-only assertion");
   await page.goto("/sessions");

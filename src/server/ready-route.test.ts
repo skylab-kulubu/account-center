@@ -18,7 +18,7 @@ describe("readiness route", () => {
     vi.clearAllMocks();
     readyMocks.gateReady.mockResolvedValue(true);
     readyMocks.query.mockResolvedValue({
-      rows: [{ sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, migrations_ready: true }],
+      rows: [{ sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: true, migrations_ready: true }],
     });
   });
 
@@ -34,16 +34,18 @@ describe("readiness route", () => {
         "0002_auth_security_controls.sql",
         "0003_native_handoff.sql",
         "0004_account_action_results.sql",
+        "0005_account_deletion_intents.sql",
       ]],
     );
   });
 
   it.each([
-    { sessions_ready: false, controls_ready: true, native_ready: true, actions_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: false, native_ready: true, actions_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, native_ready: false, actions_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: false, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, migrations_ready: false },
+    { sessions_ready: false, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: false, native_ready: true, actions_ready: true, deletion_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, native_ready: false, actions_ready: true, deletion_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: false, deletion_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: false, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: true, migrations_ready: false },
   ])("reports not ready for an incomplete schema", async (row) => {
     readyMocks.query.mockResolvedValue({ rows: [row] });
 

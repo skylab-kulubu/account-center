@@ -83,6 +83,11 @@ class MemorySessions implements SessionRepository {
     return 1;
   }
 
+  async revokeSubjectBySessionId(sessionId: string, revokedAt: Date) {
+    if (!this.record || this.record.id !== sessionId) return 0;
+    return this.revokeBySubject(this.record.subject, revokedAt);
+  }
+
   async getTokenCiphertext(id: string, now: Date) {
     if (
       !this.record ||

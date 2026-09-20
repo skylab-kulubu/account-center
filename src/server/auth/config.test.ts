@@ -84,4 +84,17 @@ describe("authentication configuration", () => {
     process.env.NATIVE_BRIDGE_HMAC_SECRET = process.env.TOKEN_ENCRYPTION_KEY;
     expect(() => getAuthConfig()).toThrow(/must differ/);
   });
+
+  it("keeps account erasure off unless an exact Core origin is explicitly enabled", () => {
+    environment("3600");
+    expect(getAuthConfig().accountErasure).toEqual({ mode: "off" });
+    process.env.ACCOUNT_ERASURE_MODE = "enforce";
+    process.env.ACCOUNT_ACCESS_GATE_MODE = "enforce";
+    expect(() => getAuthConfig()).toThrow(/CORE_API_URL/);
+    process.env.CORE_API_URL = "https://api.yildizskylab.com";
+    expect(getAuthConfig().accountErasure).toEqual({
+      mode: "enforce",
+      coreApiUrl: new URL("https://api.yildizskylab.com"),
+    });
+  });
 });
