@@ -1,10 +1,20 @@
 // @vitest-environment node
 
-import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { getAccountAccessGateConfig } from "@/server/access-gate/config";
 
 const originalEnvironment = { ...process.env };
 const issuer = new URL("https://e.yildizskylab.com/realms/e-skylab");
+const pemDirectory = mkdtempSync(join(tmpdir(), "account-access-mtls-"));
+const caPath = join(pemDirectory, "ca.crt");
+const certPath = join(pemDirectory, "client.crt");
+const keyPath = join(pemDirectory, "client.key");
+writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\ntest-ca\n-----END CERTIFICATE-----\n");
+writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\ntest-client\n-----END CERTIFICATE-----\n");
+writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----\n");
 
 function enforceEnvironment() {
   Object.assign(process.env, {
@@ -18,11 +28,17 @@ function enforceEnvironment() {
     ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS: "200",
   });
   delete process.env.ACCOUNT_ACCESS_REDIS_TLS_SERVER_NAME;
-  delete process.env.ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64;
+  delete process.env.ACCOUNT_ACCESS_REDIS_CA_CERT_FILE;
+  delete process.env.ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE;
+  delete process.env.ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE;
 }
 
 afterEach(() => {
   process.env = { ...originalEnvironment };
+});
+
+afterAll(() => {
+  rmSync(pemDirectory, { recursive: true, force: true });
 });
 
 describe("account access gate configuration", () => {
@@ -67,9 +83,25 @@ describe("account access gate configuration", () => {
 
     process.env.ACCOUNT_ACCESS_REDIS_TLS = "true";
     process.env.ACCOUNT_ACCESS_REDIS_TLS_SERVER_NAME = "redis.internal";
+    process.env.ACCOUNT_ACCESS_REDIS_CA_CERT_FILE = caPath;
+    process.env.ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE = certPath;
+    process.env.ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE = keyPath;
     expect(getAccountAccessGateConfig(issuer)).toMatchObject({
       tls: true,
       tlsServerName: "redis.internal",
+      tlsCa: expect.stringContaining("BEGIN CERTIFICATE"),
+      tlsCert: expect.stringContaining("BEGIN CERTIFICATE"),
+      tlsKey: expect.stringContaining("BEGIN PRIVATE KEY"),
     });
+  });
+
+  it("requires readable client mTLS material when TLS is enabled", () => {
+    enforceEnvironment();
+    process.env.ACCOUNT_ACCESS_REDIS_TLS = "true";
+    process.env.ACCOUNT_ACCESS_REDIS_TLS_SERVER_NAME = "redis.internal";
+    process.env.ACCOUNT_ACCESS_REDIS_CA_CERT_FILE = caPath;
+    process.env.ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE = certPath;
+    process.env.ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE = "/missing/client.key";
+    expect(() => getAccountAccessGateConfig(issuer)).toThrow(/TLS_KEY_FILE.*readable/);
   });
 });
