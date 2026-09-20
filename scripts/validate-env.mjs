@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
+
 const required = [
   "APP_URL",
   "DATABASE_URL",
@@ -20,6 +23,7 @@ const forbiddenPublicSecrets = [
   "NEXT_PUBLIC_OIDC_CLIENT_SECRET",
   "NEXT_PUBLIC_NATIVE_BRIDGE_HMAC_SECRET",
   "NEXT_PUBLIC_ACCOUNT_ACCESS_REDIS_PASSWORD",
+  "NEXT_PUBLIC_ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE",
   "NEXT_PUBLIC_CORE_API_URL",
 ];
 
@@ -73,6 +77,20 @@ function requireInteger(name, value, minimum, maximum) {
   }
 }
 
+function requirePemFile(name, value, kind) {
+  if (!isAbsolute(value)) throw new Error(`${name} must be an absolute path.`);
+  let contents;
+  try {
+    contents = readFileSync(value, "utf8");
+  } catch {
+    throw new Error(`${name} must point to a readable file.`);
+  }
+  const marker = kind === "certificate"
+    ? /-----BEGIN CERTIFICATE-----/
+    : /-----BEGIN (?:EC |RSA |ENCRYPTED )?PRIVATE KEY-----/;
+  if (!marker.test(contents)) throw new Error(`${name} must contain a PEM ${kind}.`);
+}
+
 function validateAccountAccessEnvironment(env, issuer) {
   const mode = env.ACCOUNT_ACCESS_GATE_MODE?.trim();
   if (mode !== "off" && mode !== "enforce") {
@@ -90,6 +108,9 @@ function validateAccountAccessEnvironment(env, issuer) {
     "ACCOUNT_ACCESS_REDIS_DATABASE",
     "ACCOUNT_ACCESS_REDIS_TLS",
     "ACCOUNT_ACCESS_REDIS_TLS_SERVER_NAME",
+    "ACCOUNT_ACCESS_REDIS_CA_CERT_FILE",
+    "ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE",
+    "ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE",
     "ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS",
   ];
   const missing = names.filter((name) => !env[name]?.trim());
@@ -109,13 +130,21 @@ function validateAccountAccessEnvironment(env, issuer) {
     50,
     1_000,
   );
-  if (env.ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64?.trim()) {
-    decodeBase64Secret(
-      "ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64",
-      env.ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64.trim(),
-      1,
-    );
-  }
+  requirePemFile(
+    "ACCOUNT_ACCESS_REDIS_CA_CERT_FILE",
+    env.ACCOUNT_ACCESS_REDIS_CA_CERT_FILE.trim(),
+    "certificate",
+  );
+  requirePemFile(
+    "ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE",
+    env.ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE.trim(),
+    "certificate",
+  );
+  requirePemFile(
+    "ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE",
+    env.ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE.trim(),
+    "private key",
+  );
 }
 
 function validateAccountErasureEnvironment(env) {

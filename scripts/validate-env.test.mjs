@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
 import { validateDatabaseEnvironment, validateEnvironment } from "./validate-env.mjs";
+
+const pemDirectory = mkdtempSync(join(tmpdir(), "account-access-env-mtls-"));
+const caPath = join(pemDirectory, "ca.crt");
+const certPath = join(pemDirectory, "client.crt");
+const keyPath = join(pemDirectory, "client.key");
+writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\ntest-ca\n-----END CERTIFICATE-----\n");
+writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\ntest-client\n-----END CERTIFICATE-----\n");
+writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----\n");
+
+after(() => rmSync(pemDirectory, { recursive: true, force: true }));
 
 const valid = {
   APP_URL: "https://my.yildizskylab.com",
@@ -23,6 +35,9 @@ const valid = {
   ACCOUNT_ACCESS_REDIS_DATABASE: "0",
   ACCOUNT_ACCESS_REDIS_TLS: "true",
   ACCOUNT_ACCESS_REDIS_TLS_SERVER_NAME: "account-access-redis.internal",
+  ACCOUNT_ACCESS_REDIS_CA_CERT_FILE: caPath,
+  ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE: certPath,
+  ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE: keyPath,
   ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS: "200",
 };
 const issuerContract = JSON.parse(
@@ -152,6 +167,10 @@ test("requires the complete dedicated Redis contract in enforce mode", () => {
   assert.throws(
     () => validateEnvironment({ ...valid, OIDC_ISSUER: "https://identity.example/realms/other" }),
     /account access v1 contract/,
+  );
+  assert.throws(
+    () => validateEnvironment({ ...valid, ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE: "/missing/client.key" }),
+    /TLS_KEY_FILE.*readable/,
   );
 });
 

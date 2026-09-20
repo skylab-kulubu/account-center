@@ -125,6 +125,8 @@ export function createAccountAccessGate(config: AccountAccessGateConfig): Accoun
           tls: {
             servername: config.tlsServerName,
             ...(config.tlsCa ? { ca: config.tlsCa } : {}),
+            ...(config.tlsCert ? { cert: config.tlsCert } : {}),
+            ...(config.tlsKey ? { key: config.tlsKey } : {}),
           },
         }
       : {}),

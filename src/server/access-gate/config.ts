@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { ACCOUNT_ACCESS_ISSUER } from "@/server/access-gate/contract";
 
 export type AccountAccessGateConfig =
@@ -14,6 +16,8 @@ export type AccountAccessGateConfig =
       tls: boolean;
       tlsServerName?: string;
       tlsCa?: string;
+      tlsCert?: string;
+      tlsKey?: string;
       operationTimeoutMs: number;
     };
 
@@ -33,21 +37,21 @@ function integer(name: string, minimum: number, maximum: number) {
   return parsed;
 }
 
-function tlsCa() {
-  const encoded = process.env.ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64?.trim();
-  if (!encoded) return undefined;
-  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(encoded)) {
-    throw new Error("ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64 must be base64 encoded.");
+function pemFile(name: string, kind: "certificate" | "private key") {
+  const path = required(name);
+  if (!isAbsolute(path)) throw new Error(`${name} must be an absolute path.`);
+
+  let value: string;
+  try {
+    value = readFileSync(path, "utf8");
+  } catch {
+    throw new Error(`${name} must point to a readable file.`);
   }
-  const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/");
-  const decoded = Buffer.from(
-    `${normalized}${"=".repeat((4 - (normalized.length % 4)) % 4)}`,
-    "base64",
-  );
-  if (decoded.length === 0) {
-    throw new Error("ACCOUNT_ACCESS_REDIS_TLS_CA_BASE64 must not be empty.");
-  }
-  return decoded.toString("utf8");
+  const marker = kind === "certificate"
+    ? /-----BEGIN CERTIFICATE-----/
+    : /-----BEGIN (?:EC |RSA |ENCRYPTED )?PRIVATE KEY-----/;
+  if (!marker.test(value)) throw new Error(`${name} must contain a PEM ${kind}.`);
+  return value;
 }
 
 export function getAccountAccessGateConfig(issuer: URL): AccountAccessGateConfig {
@@ -69,7 +73,9 @@ export function getAccountAccessGateConfig(issuer: URL): AccountAccessGateConfig
     throw new Error("ACCOUNT_ACCESS_REDIS_TLS must be true in production.");
   }
   const tlsServerName = tls ? required("ACCOUNT_ACCESS_REDIS_TLS_SERVER_NAME") : undefined;
-  const ca = tlsCa();
+  const tlsCa = tls ? pemFile("ACCOUNT_ACCESS_REDIS_CA_CERT_FILE", "certificate") : undefined;
+  const tlsCert = tls ? pemFile("ACCOUNT_ACCESS_REDIS_TLS_CERT_FILE", "certificate") : undefined;
+  const tlsKey = tls ? pemFile("ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE", "private key") : undefined;
 
   return {
     mode,
@@ -80,7 +86,9 @@ export function getAccountAccessGateConfig(issuer: URL): AccountAccessGateConfig
     database: integer("ACCOUNT_ACCESS_REDIS_DATABASE", 0, 255),
     tls,
     ...(tlsServerName ? { tlsServerName } : {}),
-    ...(ca ? { tlsCa: ca } : {}),
+    ...(tlsCa ? { tlsCa } : {}),
+    ...(tlsCert ? { tlsCert } : {}),
+    ...(tlsKey ? { tlsKey } : {}),
     operationTimeoutMs: integer("ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS", 50, 1_000),
   };
 }
