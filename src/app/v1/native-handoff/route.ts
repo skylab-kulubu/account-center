@@ -6,6 +6,11 @@ import { InvalidNativeHandoffError } from "@/server/auth/native-handoff";
 import { InvalidNativeAccessTokenError } from "@/server/auth/native-handoff-token";
 import { readUtf8Body, RequestBodyError } from "@/server/auth/request-body";
 import { getAuthServices } from "@/server/auth/services";
+import {
+  AccountAccessBlockedError,
+  AccountAccessUnavailableError,
+} from "@/server/access-gate/authorization";
+import { accountAccessUnavailableResponse } from "@/server/access-gate/http";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +52,17 @@ export async function POST(request: NextRequest) {
     return noStore(response);
   } catch (error) {
     const invalid = error instanceof InvalidNativeAccessTokenError ||
-      error instanceof InvalidNativeHandoffError;
+      error instanceof InvalidNativeHandoffError ||
+      error instanceof AccountAccessBlockedError;
+    if (error instanceof AccountAccessUnavailableError) {
+      logAuthEvent({
+        event: "native_handoff_created",
+        requestId,
+        outcome: "failure",
+        reason: "provider_unavailable",
+      });
+      return accountAccessUnavailableResponse();
+    }
     logAuthEvent({
       event: "native_handoff_created",
       requestId,

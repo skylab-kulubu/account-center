@@ -1,4 +1,5 @@
 import type {
+  ActiveSession,
   NativeBridgeRedemption,
   NativeHandoffIdentity,
   NewNativeHandoff,
@@ -31,6 +32,7 @@ export type SessionUseOutcome = SessionUseResult | { proofRejected: true };
 
 export interface SessionRepository {
   insert(session: NewSessionRecord): Promise<void>;
+  findByHandle(handleHash: Buffer, now: Date): Promise<ActiveSession | null>;
   useHandle(input: UseSessionInput): Promise<SessionUseOutcome | null>;
   getTokenCiphertext(id: string, now: Date): Promise<string | null>;
   replaceTokenCiphertext(
@@ -40,6 +42,7 @@ export interface SessionRepository {
     now: Date,
   ): Promise<boolean>;
   revokeByHandle(handleHash: Buffer, revokedAt: Date): Promise<boolean>;
+  revokeBySubject(subject: string, revokedAt: Date): Promise<number>;
   revokeById(id: string, revokedAt: Date): Promise<boolean>;
   deleteByIdReturningToken(id: string): Promise<string | null>;
 }
@@ -87,6 +90,8 @@ export type RedeemNativeBridgeInput = {
 
 export interface NativeHandoffRepository {
   insert(handoff: NewNativeHandoff): Promise<void>;
+  findActiveHandoff(codeHash: Buffer, now: Date): Promise<NativeHandoffIdentity | null>;
   consumeAndCreateBridge(input: ConsumeNativeHandoffInput): Promise<NativeHandoffIdentity | null>;
+  findActiveBridge(codeHash: Buffer, now: Date): Promise<NativeBridgeRedemption | null>;
   redeemBridge(input: RedeemNativeBridgeInput): Promise<NativeBridgeRedemption | null>;
 }

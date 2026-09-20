@@ -38,10 +38,23 @@ jobs:
           runtime: node@22
           cache: true
           require-lockfile: true
+      - name: Start isolated access-gate Redis
+        run: |
+          docker run --detach --name account-access-redis --publish 6389:6379 \
+            redis:7.4.2-alpine redis-server \
+            --requirepass access-gate-test-secret \
+            --appendonly yes --appendfsync always --maxmemory-policy noeviction
+          for attempt in $(seq 1 20); do
+            docker exec account-access-redis redis-cli -a access-gate-test-secret ping | grep -q PONG && exit 0
+            sleep 1
+          done
+          exit 1
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+        env:
+          TEST_ACCOUNT_ACCESS_REDIS_URL: redis://default:access-gate-test-secret@127.0.0.1:6389/15
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm db:migrate
@@ -60,6 +73,14 @@ jobs:
           AUTH_TRUSTED_PROXY: cloudflare
           NATIVE_BRIDGE_HMAC_SECRET: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
           NATIVE_BRIDGE_MTLS_CLIENT_SHA256: abababababababababababababababababababababababababababababababab
+          ACCOUNT_ACCESS_GATE_MODE: enforce
+          ACCOUNT_ACCESS_REDIS_HOST: 127.0.0.1
+          ACCOUNT_ACCESS_REDIS_PORT: "6389"
+          ACCOUNT_ACCESS_REDIS_USERNAME: default
+          ACCOUNT_ACCESS_REDIS_PASSWORD: access-gate-test-secret
+          ACCOUNT_ACCESS_REDIS_DATABASE: "15"
+          ACCOUNT_ACCESS_REDIS_TLS: "false"
+          ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS: "200"
       - uses: docker/setup-buildx-action@v4
       - id: candidate
         uses: docker/build-push-action@v7
@@ -97,10 +118,12 @@ jobs:
             -e AUTH_TRUSTED_PROXY=cloudflare \
             -e NATIVE_BRIDGE_HMAC_SECRET=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE= \
             -e NATIVE_BRIDGE_MTLS_CLIENT_SHA256=abababababababababababababababababababababababababababababababab \
+            -e ACCOUNT_ACCESS_GATE_MODE=off \
             "$CANDIDATE_IMAGE"
           trap 'docker rm -f account-center-candidate >/dev/null 2>&1 || true' EXIT
           curl --fail --silent --show-error --retry 20 --retry-connrefused \
             --retry-delay 1 http://127.0.0.1:33100/api/ready
+          HANDOFF_TEST_ORIGIN=http://127.0.0.1:33100 pnpm test:handoff-response
       - id: meta
         uses: docker/metadata-action@v6
         with:

@@ -107,25 +107,12 @@ export function AccountShell({
   const router = useRouter();
 
   useEffect(() => {
-    const controller = new AbortController();
-    let inFlight = false;
     const refresh = () => {
-      if (inFlight || controller.signal.aborted) return;
-      inFlight = true;
-      void fetch("/api/auth/session/refresh", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: { "x-csrf-token": logoutCsrfToken },
-        signal: controller.signal,
-      })
+      void refreshBrowserSession(logoutCsrfToken)
         .then((response) => {
           if (response.status === 401) router.replace("/login");
         })
-        .catch(() => undefined)
-        .finally(() => {
-          inFlight = false;
-        });
+        .catch(() => undefined);
     };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") refresh();
@@ -139,7 +126,6 @@ export function AccountShell({
       window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
-      controller.abort();
     };
   }, [logoutCsrfToken, router]);
 
@@ -156,4 +142,18 @@ export function AccountShell({
       </div>
     </div>
   );
+}
+
+let refreshInFlight: Promise<Response> | undefined;
+
+function refreshBrowserSession(csrfToken: string) {
+  refreshInFlight ??= fetch("/api/auth/session/refresh", {
+    method: "POST",
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { "x-csrf-token": csrfToken },
+  }).finally(() => {
+    refreshInFlight = undefined;
+  });
+  return refreshInFlight;
 }

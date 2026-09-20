@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "@/app/api/account/route";
 import { KeycloakAccountContractError } from "@/server/keycloak-account/schema";
+import { SESSION_COOKIE } from "@/server/auth/http";
 
 const routeMocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
@@ -12,7 +13,7 @@ const routeMocks = vi.hoisted(() => ({
 
 vi.mock("@/server/auth/services", () => ({
   getAuthServices: () => ({
-    sessions: { authenticate: routeMocks.authenticate },
+    sessionAccess: { authenticate: routeMocks.authenticate },
     account: { snapshot: routeMocks.snapshot },
   }),
 }));
@@ -27,8 +28,11 @@ describe("Account snapshot route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     routeMocks.authenticate.mockResolvedValue({
-      session: { id: "session-id", subject: "user-id" },
-      rotated: false,
+      status: "active",
+      value: {
+        session: { id: "session-id", subject: "user-id" },
+        rotated: false,
+      },
     });
     routeMocks.snapshot.mockResolvedValue({
       profile: {
@@ -56,7 +60,7 @@ describe("Account snapshot route", () => {
   });
 
   it("does not call Account REST without a browser session", async () => {
-    routeMocks.authenticate.mockResolvedValue(null);
+    routeMocks.authenticate.mockResolvedValue({ status: "missing" });
     const response = await GET(request(false));
     expect(response.status).toBe(401);
     expect(routeMocks.snapshot).not.toHaveBeenCalled();
@@ -78,5 +82,27 @@ describe("Account snapshot route", () => {
     expect(body).not.toContain("server-token");
     expect(body).not.toContain("203.0.113.42");
     expect(body).not.toContain("sessions");
+  });
+
+  it("clears blocked sessions generically and performs no account read", async () => {
+    routeMocks.authenticate.mockResolvedValue({ status: "blocked" });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "authentication_required" });
+    expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("");
+    expect(routeMocks.snapshot).not.toHaveBeenCalled();
+  });
+
+  it("returns retryable 503 and performs no account read when the gate is unavailable", async () => {
+    routeMocks.authenticate.mockResolvedValue({ status: "unavailable" });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("retry-after")).toBe("3");
+    expect(routeMocks.snapshot).not.toHaveBeenCalled();
   });
 });

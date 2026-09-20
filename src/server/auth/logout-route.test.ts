@@ -20,7 +20,7 @@ vi.mock("@/server/auth/services", () => ({
   getAuthServices: () => ({
     config: { appUrl: new URL("https://my.yildizskylab.com") },
     sessions: {
-      authenticateMutation: logoutMocks.authenticateMutation,
+      authenticateCleanupMutation: logoutMocks.authenticateMutation,
       deleteSessionAndGetTokens: logoutMocks.deleteSessionAndGetTokens,
     },
     oidc: { revokeRefreshToken: logoutMocks.revokeRefreshToken },

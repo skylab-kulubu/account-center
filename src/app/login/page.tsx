@@ -15,6 +15,7 @@ export default async function LoginPage({
   const loginUrl = `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
   const hasError = parameters.error === "invalid_request" || parameters.error === "unavailable";
   const loggedOut = parameters.loggedOut === "1";
+  const sessionEnded = parameters.sessionEnded === "1";
 
   return (
     <div className="full-state login-state">
@@ -30,7 +31,7 @@ export default async function LoginPage({
             Giriş tamamlanamadı. Lütfen yeniden dene.
           </p>
         ) : null}
-        {loggedOut ? (
+        {loggedOut || sessionEnded ? (
           <p className="login-state__message" role="status">
             Bu cihazdaki Hesap Merkezi oturumu kapatıldı.
           </p>

@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
-import { seedAuthenticatedSession, sessionExists } from "./auth-session";
+import {
+  seedAuthenticatedSession,
+  sessionExists,
+  sessionState,
+  setSubjectGateMarker,
+} from "./auth-session";
 
 const baseUrl = "https://127.0.0.1:3100";
 const sessionCookieName = "__Host-sky-account";
@@ -101,6 +106,28 @@ test("mobile protected pages preserve the safe return path without a session", a
   );
 });
 
+test("handoff responses keep the final assembled no-referrer policy", async ({ playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one assembled-server assertion is sufficient");
+  const request = await playwright.request.newContext({
+    baseURL: baseUrl,
+    ignoreHTTPSErrors: true,
+  });
+
+  try {
+    const response = await request.get("/handoff?code=short", { maxRedirects: 0 });
+
+    expect(response.status()).toBe(303);
+    expect(response.headers()["referrer-policy"]).toBe("no-referrer");
+    expect(response.headers()["cache-control"]).toContain("no-store");
+
+    const health = await request.get("/api/health");
+    expect(health.status()).toBe(200);
+    expect(health.headers()["referrer-policy"]).toBe("same-origin");
+  } finally {
+    await request.dispose();
+  }
+});
+
 test("desktop account shell keeps navigation, skip link, and rotates its secure session", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   const { handle: originalHandle, tokenCanaries } = await installAuthenticatedSession(
@@ -123,6 +150,7 @@ test("desktop account shell keeps navigation, skip link, and rotates its secure 
   await expect(page.getByRole("link", { name: "İçeriğe geç" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();
+  await expect(page).toHaveURL(/\/#main-content$/);
 
   await expect.poll(async () => {
     const cookie = (await context.cookies(baseUrl)).find(
@@ -146,7 +174,9 @@ test("desktop account shell keeps navigation, skip link, and rotates its secure 
   await page.clock.fastForward(5 * 60 * 1_000);
   await expect.poll(() => refreshRequests).toBeGreaterThan(requestsBeforeInterval);
 
-  await page.getByRole("link", { name: "Giriş ve güvenlik" }).first().click();
+  await page.getByRole("navigation", { name: "Hesap ayarları" })
+    .getByRole("link", { name: "Giriş ve güvenlik" })
+    .click();
   await expect(page.getByRole("heading", { name: "Giriş ve güvenlik" })).toBeVisible();
   await assertTokensStayedServerSide();
   expect(errors).toEqual([]);
@@ -218,4 +248,53 @@ test("browser logout validates the form proof, clears the cookie, and hard-delet
     (await context.cookies(baseUrl)).find((cookie) => cookie.name === sessionCookieName),
   ).toBeUndefined();
   await expect.poll(() => sessionExists(sessionId)).toBe(false);
+});
+
+test("blocked session is revoked and clears its stale cookie without a redirect loop", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  const fixture = await installAuthenticatedSession(
+    context,
+    `blocked-${testInfo.retry}`,
+  );
+  await setSubjectGateMarker(fixture.subject, "1");
+  let cleanupRequests = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/auth/session/end")) cleanupRequests += 1;
+  });
+
+  await page.goto("/");
+
+  await expect(page).toHaveURL(/\/login\?sessionEnded=1$/);
+  await expect(page.getByRole("heading", { name: "Hesap Merkezi’ne giriş yap" })).toBeVisible();
+  expect(cleanupRequests).toBe(1);
+  expect(
+    (await context.cookies(baseUrl)).find((cookie) => cookie.name === sessionCookieName),
+  ).toBeUndefined();
+  await expect.poll(async () => (await sessionState(fixture.sessionId))?.revoked_at !== null).toBe(true);
+});
+
+test("malformed gate state returns retryable 503 without touching the session", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  const fixture = await installAuthenticatedSession(
+    context,
+    `unavailable-${testInfo.retry}`,
+  );
+  const before = await sessionState(fixture.sessionId);
+  await setSubjectGateMarker(fixture.subject, "unexpected");
+
+  const unavailableResponse = page.waitForResponse((candidate) =>
+    candidate.url().endsWith("/api/auth/unavailable"),
+  );
+  await page.goto("/");
+  const response = await unavailableResponse;
+
+  await expect(page).toHaveURL(/\/api\/auth\/unavailable$/);
+  await expect(page.getByRole("heading", { name: "Hesap Merkezi şu anda kullanılamıyor" })).toBeVisible();
+  expect(response?.status()).toBe(503);
+  expect(response?.headers()["cache-control"]).toBe("no-store");
+  expect(response?.headers()["retry-after"]).toBe("3");
+  const after = await sessionState(fixture.sessionId);
+  expect(after?.last_seen_at).toEqual(before?.last_seen_at);
+  expect(after?.idle_expires_at).toEqual(before?.idle_expires_at);
+  expect(after?.revoked_at).toBeNull();
 });

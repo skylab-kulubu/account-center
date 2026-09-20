@@ -4,6 +4,10 @@ import { GET as callbackRoute } from "@/app/api/auth/callback/route";
 import { GET as loginRoute } from "@/app/api/auth/login/route";
 import { SESSION_COOKIE, OIDC_TRANSACTION_COOKIE } from "@/server/auth/http";
 import { InvalidOidcTransactionError } from "@/server/auth/oidc-flow";
+import {
+  AccountAccessBlockedError,
+  AccountAccessUnavailableError,
+} from "@/server/access-gate/authorization";
 
 const authMocks = vi.hoisted(() => ({
   begin: vi.fn(),
@@ -129,5 +133,37 @@ describe("authentication routes", () => {
     expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));
     expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+  });
+
+  it("clears stale cookies without disclosing why a verified subject is denied", async () => {
+    authMocks.callback.mockRejectedValue(new AccountAccessBlockedError());
+    const response = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+      {
+        headers: {
+          cookie: `${SESSION_COOKIE}=${"h".repeat(43)}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}`,
+        },
+      },
+    ));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/login?sessionEnded=1",
+    );
+    expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("");
+    expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+  });
+
+  it("returns a retryable no-store 503 when access cannot be proven", async () => {
+    authMocks.callback.mockRejectedValue(new AccountAccessUnavailableError());
+    const response = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    ));
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("retry-after")).toBe("3");
+    expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
   });
 });

@@ -126,6 +126,57 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     })).resolves.not.toBeNull();
   });
 
+  it("resolves a candidate without touching it and revokes every session for a blocked subject", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const handle = Buffer.alloc(32, 61);
+    const originalLastSeen = new Date("2026-09-20T00:05:00Z");
+    await repository.insert({
+      id: "61616161-6161-4616-8616-616161616161",
+      subject: "blocked-subject",
+      keycloakSid: "blocked-sid-one",
+      handleHash: handle,
+      tokenCiphertext: "encrypted-one",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      rotatedAt: new Date("2026-09-20T00:00:00Z"),
+      lastSeenAt: originalLastSeen,
+      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
+    });
+    await repository.insert({
+      id: "62626262-6262-4626-8626-626262626262",
+      subject: "blocked-subject",
+      keycloakSid: "blocked-sid-two",
+      handleHash: Buffer.alloc(32, 62),
+      tokenCiphertext: "encrypted-two",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      rotatedAt: new Date("2026-09-20T00:00:00Z"),
+      lastSeenAt: originalLastSeen,
+      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
+    });
+
+    await expect(repository.findByHandle(
+      handle,
+      new Date("2026-09-20T00:10:00Z"),
+    )).resolves.toMatchObject({ subject: "blocked-subject", lastSeenAt: originalLastSeen });
+    const before = await pool.query(
+      "SELECT last_seen_at, idle_expires_at FROM account_sessions WHERE id = $1",
+      ["61616161-6161-4616-8616-616161616161"],
+    );
+    expect(before.rows[0]?.last_seen_at).toEqual(originalLastSeen);
+    expect(before.rows[0]?.idle_expires_at).toEqual(new Date("2026-09-20T00:30:00Z"));
+
+    await expect(repository.revokeBySubject(
+      "blocked-subject",
+      new Date("2026-09-20T00:10:01Z"),
+    )).resolves.toBe(2);
+    const revoked = await pool.query(
+      "SELECT count(*)::int AS count FROM account_sessions WHERE subject = $1 AND revoked_at IS NOT NULL",
+      ["blocked-subject"],
+    );
+    expect(revoked.rows[0]?.count).toBe(2);
+  });
+
   it("compare-and-swaps token ciphertext only for an active matching session", async () => {
     const repository = new PostgresSessionRepository(pool);
     const now = new Date("2026-09-20T00:20:00Z");

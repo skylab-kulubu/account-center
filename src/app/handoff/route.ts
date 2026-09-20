@@ -4,6 +4,11 @@ import { noStore, setOidcTransactionCookie } from "@/server/auth/http";
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import { InvalidNativeHandoffError } from "@/server/auth/native-handoff";
 import { getAuthServices } from "@/server/auth/services";
+import {
+  AccountAccessBlockedError,
+  AccountAccessUnavailableError,
+} from "@/server/access-gate/authorization";
+import { accountAccessUnavailableResponse } from "@/server/access-gate/http";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +40,17 @@ export async function GET(request: NextRequest) {
     logAuthEvent({ event: "native_handoff_consumed", requestId, outcome: "success" });
     return safeRedirect(response);
   } catch (error) {
-    const invalid = error instanceof InvalidNativeHandoffError;
+    if (error instanceof AccountAccessUnavailableError) {
+      logAuthEvent({
+        event: "native_handoff_consumed",
+        requestId,
+        outcome: "failure",
+        reason: "provider_unavailable",
+      });
+      return safeRedirect(accountAccessUnavailableResponse());
+    }
+    const invalid = error instanceof InvalidNativeHandoffError ||
+      error instanceof AccountAccessBlockedError;
     logAuthEvent({
       event: "native_handoff_consumed",
       requestId,

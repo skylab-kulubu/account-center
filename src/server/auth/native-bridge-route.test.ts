@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/internal/v1/native-handoff/redeem/route";
 import { InvalidNativeBridgeRequestError } from "@/server/auth/native-bridge-auth";
 import { InvalidNativeHandoffError } from "@/server/auth/native-handoff";
+import {
+  AccountAccessBlockedError,
+  AccountAccessUnavailableError,
+} from "@/server/access-gate/authorization";
 
 const mocks = vi.hoisted(() => ({
   verify: vi.fn(),
@@ -146,5 +150,18 @@ describe("native bridge redemption route", () => {
       path: "/internal/rewritten/redeem",
     }));
     expect(mocks.redeem).not.toHaveBeenCalled();
+  });
+
+  it("denies blocked identities generically and fails closed with retry headers", async () => {
+    mocks.redeem.mockRejectedValueOnce(new AccountAccessBlockedError());
+    const blocked = await POST(request());
+    mocks.redeem.mockRejectedValueOnce(new AccountAccessUnavailableError());
+    const unavailable = await POST(request());
+
+    expect(blocked.status).toBe(400);
+    await expect(blocked.json()).resolves.toEqual({ error: "invalid_request" });
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get("cache-control")).toBe("no-store");
+    expect(unavailable.headers.get("retry-after")).toBe("3");
   });
 });

@@ -6,6 +6,11 @@ import { InvalidNativeBridgeRequestError } from "@/server/auth/native-bridge-aut
 import { InvalidNativeHandoffError } from "@/server/auth/native-handoff";
 import { readUtf8Body, RequestBodyError } from "@/server/auth/request-body";
 import { getAuthServices } from "@/server/auth/services";
+import {
+  AccountAccessBlockedError,
+  AccountAccessUnavailableError,
+} from "@/server/access-gate/authorization";
+import { accountAccessUnavailableResponse } from "@/server/access-gate/http";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +92,17 @@ export async function POST(request: NextRequest) {
       auth_time: Math.floor(redeemed.authenticatedAt.getTime() / 1_000),
     }));
   } catch (error) {
-    const invalid = error instanceof InvalidNativeHandoffError;
+    const invalid = error instanceof InvalidNativeHandoffError ||
+      error instanceof AccountAccessBlockedError;
+    if (error instanceof AccountAccessUnavailableError) {
+      logAuthEvent({
+        event: "native_bridge_redeemed",
+        requestId,
+        outcome: "failure",
+        reason: "provider_unavailable",
+      });
+      return accountAccessUnavailableResponse();
+    }
     logAuthEvent({
       event: "native_bridge_redeemed",
       requestId,

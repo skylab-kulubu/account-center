@@ -15,6 +15,15 @@ const valid = {
   AUTH_TRUSTED_PROXY: "cloudflare",
   NATIVE_BRIDGE_HMAC_SECRET: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
   NATIVE_BRIDGE_MTLS_CLIENT_SHA256: "ab".repeat(32),
+  ACCOUNT_ACCESS_GATE_MODE: "enforce",
+  ACCOUNT_ACCESS_REDIS_HOST: "account-access-redis.internal",
+  ACCOUNT_ACCESS_REDIS_PORT: "6379",
+  ACCOUNT_ACCESS_REDIS_USERNAME: "account-center-reader",
+  ACCOUNT_ACCESS_REDIS_PASSWORD: "dedicated-access-gate-secret",
+  ACCOUNT_ACCESS_REDIS_DATABASE: "0",
+  ACCOUNT_ACCESS_REDIS_TLS: "true",
+  ACCOUNT_ACCESS_REDIS_TLS_SERVER_NAME: "account-access-redis.internal",
+  ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS: "200",
 };
 const issuerContract = JSON.parse(
   readFileSync(new URL("../tests/fixtures/oidc-issuer-contract.json", import.meta.url), "utf8"),
@@ -122,4 +131,27 @@ test("requires pinned native bridge transport credentials", () => {
     () => validateEnvironment({ ...valid, NATIVE_BRIDGE_HMAC_SECRET: valid.TOKEN_ENCRYPTION_KEY }),
     /must differ/,
   );
+});
+
+test("requires the complete dedicated Redis contract in enforce mode", () => {
+  assert.throws(
+    () => validateEnvironment({ ...valid, ACCOUNT_ACCESS_REDIS_PASSWORD: "" }),
+    /ACCOUNT_ACCESS_REDIS_PASSWORD/,
+  );
+  assert.throws(
+    () => validateEnvironment({ ...valid, ACCOUNT_ACCESS_REDIS_TLS: "false" }),
+    /must be true in production/,
+  );
+  assert.throws(
+    () => validateEnvironment({ ...valid, OIDC_ISSUER: "https://identity.example/realms/other" }),
+    /account access v1 contract/,
+  );
+});
+
+test("permits an explicit off mode without Redis credentials", () => {
+  const environment = Object.fromEntries(
+    Object.entries({ ...valid, ACCOUNT_ACCESS_GATE_MODE: "off" })
+      .filter(([name]) => !name.startsWith("ACCOUNT_ACCESS_REDIS_")),
+  );
+  assert.doesNotThrow(() => validateEnvironment(environment));
 });
