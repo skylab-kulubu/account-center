@@ -116,6 +116,28 @@ export class Keycloak26AccountReadAdapter implements KeycloakAccountReadAdapter 
     return readBoundedJson(response, resource);
   }
 
+  async #delete(path: "sessions" | `sessions/${string}`, accessToken: string) {
+    let response: Response;
+    try {
+      response = await this.request(new URL(path, this.#baseUrl), {
+        method: "DELETE",
+        cache: "no-store",
+        credentials: "omit",
+        redirect: "error",
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${accessToken}`,
+        },
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      throw new KeycloakAccountUnavailableError();
+    }
+    if (response.status === 401) throw new KeycloakAccountUnauthorizedError();
+    if (response.status === 403) throw new KeycloakAccountForbiddenError();
+    if (response.status !== 204) throw new KeycloakAccountUnavailableError();
+  }
+
   async profile(accessToken: string): Promise<AccountProfile> {
     return parseProfile(await this.#read("profile", "", accessToken));
   }
@@ -139,5 +161,13 @@ export class Keycloak26AccountReadAdapter implements KeycloakAccountReadAdapter 
       this.sessions(accessToken),
     ]);
     return { profile, authentication, sessions };
+  }
+
+  revokeSession(accessToken: string, sessionId: string) {
+    return this.#delete(`sessions/${encodeURIComponent(sessionId)}`, accessToken);
+  }
+
+  revokeOtherSessions(accessToken: string) {
+    return this.#delete("sessions", accessToken);
   }
 }

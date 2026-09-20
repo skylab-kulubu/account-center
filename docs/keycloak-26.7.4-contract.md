@@ -29,3 +29,15 @@ Sürüm sabitlemesi şu fixture’larda tutulur:
 - `tests/fixtures/keycloak-26.7.4-account-devices.json`
 
 Fixture’lar tagged `26.7.4` Java representation ve resource kodundaki alan sözleşmesini test eder. Foundation entegrasyonu şu anda yalnız canlı `/account/` profil okumasını kanıtlar. Credentials, canonical sessions ve optional devices payload’larının gerçek production-clone capture’ı release gate olarak açıktır; bu kanıt gelmeden Account REST adaptörü production-ready sayılmaz.
+
+## Account REST oturum mutation sözleşmesi
+
+Tagged Keycloak `26.7.4` [`SessionResource`](https://github.com/keycloak/keycloak/blob/26.7.4/services/src/main/java/org/keycloak/services/resources/account/SessionResource.java) kaynak koduna göre kullanıcı-token sınırı şudur:
+
+- `DELETE /realms/{realm}/account/sessions/{id}` yalnız `manage-account` rolüyle çalışır, bulunan online/offline session’ın kullanıcısı authenticated user ile eşleşirse backchannel logout yapar ve bulunmayan/başka kullanıcıya ait ID için de gövdesiz `204` döndürür.
+- `DELETE /realms/{realm}/account/sessions` varsayılan `current=false` ile authenticated user’ın mevcut online/offline session’ı dışındaki oturumlarını backchannel logout ile kapatır ve gövdesiz `204` döndürür.
+- Account Center browser’dan bu uçlara doğrudan erişmez. BFF, kullanıcı access token’ını kullanır; Admin API ve service account yoktur.
+- Tekil işlemden önce kanonik `/sessions` listesinde aynı kullanıcının `current=false` kaydı HMAC referansıyla eşleştirilir. Böylece Keycloak ID tarayıcıya çıkmaz ve mevcut session hedeflenemez.
+- Boş olmayan `/sessions` listesi tam bir `current=true` kaydı taşımak zorundadır. Sıfır veya birden fazla current kayıt sözleşme sapmasıdır; BFF referans üretmez ve tekil/toplu mutation çağrısı yapmaz. `[]` ayrı ve kullanılabilir boş durumdur.
+
+Bu kaynak incelemesi response shape capture’ı değildir. Production’a açılmadan önce 26.7.4 production clone’da iki cihazla şu kanıtlar kaydedilmelidir: tekil kapatmanın ikinci çağrısının yine 204 olması; bilinmeyen ID’nin bilgi sızdırmadan 204 olması; koleksiyon DELETE’in current session’ı listede bırakması; kapatılan diğer Account Center session’ı için backchannel logout’un yerel kaydı yok etmesi; response’ların gövdesiz olması. Bu kanıt olmadan mutation adaptörü production-ready sayılmaz.
