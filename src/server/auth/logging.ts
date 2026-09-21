@@ -34,7 +34,8 @@ type AuthLog = {
     | "account_action_started"
     | "account_action_completed"
     | "account_session_cleanup"
-    | "sudo_material_discarded";
+    | "sudo_material_discarded"
+    | "token_audience_legacy";
   requestId: string;
   outcome: "success" | "failure";
   providerStage?: OidcProviderStage;

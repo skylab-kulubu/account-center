@@ -190,8 +190,21 @@ describe("AccountReadService", () => {
     );
   });
 
-  it("rejects pre-cutover single-audience or overbroad tokens before any Account REST request", async () => {
-    for (const aud of ["account", ["account"], ["account", "core", "skyforms"]]) {
+  it("serves a pre-cutover single-audience token during the K2 transition and logs it", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const legacy = tokenSet(jwt({ aud: "account" }));
+    const { service, adapter, oidc } = fixture(legacy);
+    await expect(service.profile(session)).resolves.toMatchObject({ firstName: "Ada" });
+    expect(adapter.profile).toHaveBeenCalledWith(legacy.accessToken);
+    expect(oidc.refresh).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(String(info.mock.calls[0]?.[0])).toContain("token_audience_legacy");
+    expect(String(info.mock.calls[0]?.[0])).not.toContain(legacy.accessToken);
+    info.mockRestore();
+  });
+
+  it("rejects overbroad or malformed audience tokens before any Account REST request", async () => {
+    for (const aud of [["core"], ["account", "account"], ["account", "core", "skyforms"]]) {
       const { service, adapter } = fixture(tokenSet(jwt({ aud })));
       await expect(service.profile(session)).rejects.toBeInstanceOf(AccountAccessTokenContractError);
       expect(adapter.profile).not.toHaveBeenCalled();
@@ -212,7 +225,7 @@ describe("AccountReadService", () => {
   it("does not persist a refreshed token that drifts from the Account REST contract", async () => {
     const expired = tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) - 1 }));
     const { service, adapter, oidc, vault } = fixture(expired);
-    oidc.refresh.mockResolvedValue(tokenSet(jwt({ aud: ["account"] })));
+    oidc.refresh.mockResolvedValue(tokenSet(jwt({ aud: ["account", "core", "skyforms"] })));
 
     await expect(service.profile(session)).rejects.toBeInstanceOf(AccountAccessTokenContractError);
     expect(vault.replaceTokens).not.toHaveBeenCalled();
