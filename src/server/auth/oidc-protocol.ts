@@ -211,7 +211,7 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
       parameters = oauth.validateAuthResponse(
         authorizationServer,
         this.#client,
-        input.callbackUrl,
+        new URLSearchParams(input.callbackUrl.search),
         input.state,
       );
     } catch {
