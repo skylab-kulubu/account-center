@@ -1,15 +1,31 @@
 import "server-only";
 
+import { isReservedObjectKey } from "@/server/contract-shapes";
 import type {
+  AccountGroup,
   AccountProfile,
   AccountSession,
   AuthenticationSummary,
   CredentialInventory,
+  JsonValue,
+  LinkedAccount,
   OwnedCredential,
+  ProfileAttributeMetadata,
+  ProfileAttributeName,
+  ProfileAttributes,
 } from "@/server/keycloak-account/types";
 
+export type KeycloakAccountResource =
+  | "profile"
+  | "credentials"
+  | "sessions"
+  | "devices"
+  | "groups"
+  | "linked-accounts"
+  | "linked-account-uri";
+
 export class KeycloakAccountContractError extends Error {
-  constructor(readonly resource: "profile" | "credentials" | "sessions" | "devices") {
+  constructor(readonly resource: KeycloakAccountResource) {
     super(`Keycloak 26.7.4 ${resource} response did not match the pinned contract.`);
     this.name = "KeycloakAccountContractError";
   }
@@ -37,12 +53,49 @@ function optionalInteger(value: unknown): value is number | null | undefined {
   return value === undefined || value === null || (typeof value === "number" && Number.isSafeInteger(value));
 }
 
-function stringListMap(value: unknown) {
-  return isObject(value) && Object.entries(value).every(([key, values]) =>
-    key.length <= 255 &&
-    Array.isArray(values) &&
-    values.every((item) => typeof item === "string" && item.length <= 512),
+function stringListMap(value: unknown, maximumEntries = 256): value is Record<string, string[]> {
+  return isObject(value) &&
+    Object.keys(value).length <= maximumEntries &&
+    Object.entries(value).every(([key, values]) =>
+      key.length > 0 &&
+      key.length <= 255 &&
+      !isReservedObjectKey(key) &&
+      Array.isArray(values) &&
+      values.length <= 64 &&
+      values.every((item) => typeof item === "string" && item.length <= 512),
+    );
+}
+
+function copyStringListMap(value: Record<string, string[]>) {
+  const copy: Record<string, string[]> = {};
+  for (const [key, values] of Object.entries(value)) copy[key] = [...values];
+  return copy;
+}
+
+const MAX_JSON_DEPTH = 6;
+const MAX_JSON_CONTAINER_SIZE = 64;
+
+function isJsonValue(value: unknown, depth = 0): value is JsonValue {
+  if (value === null || typeof value === "boolean") return true;
+  if (typeof value === "string") return value.length <= 2_048;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (depth >= MAX_JSON_DEPTH) return false;
+  if (Array.isArray(value)) {
+    return value.length <= MAX_JSON_CONTAINER_SIZE && value.every((item) => isJsonValue(item, depth + 1));
+  }
+  if (!isObject(value)) return false;
+  const entries = Object.entries(value);
+  return entries.length <= MAX_JSON_CONTAINER_SIZE && entries.every(([key, item]) =>
+    key.length <= 255 && !isReservedObjectKey(key) && isJsonValue(item, depth + 1),
   );
+}
+
+function isJsonObject(value: unknown): value is Record<string, JsonValue> {
+  return isObject(value) && isJsonValue(value);
+}
+
+function cloneJson<T extends JsonValue>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function optionalBoolean(value: unknown): value is boolean | null | undefined {
@@ -70,6 +123,104 @@ const profileKeys = new Set([
   "userProfileMetadata",
   "enabled",
 ]);
+const profileMetadataKeys = new Set(["attributes", "groups"]);
+const attributeMetadataKeys = new Set([
+  "name",
+  "displayName",
+  "required",
+  "readOnly",
+  "annotations",
+  "validators",
+  "group",
+  "multivalued",
+  "defaultValue",
+]);
+const attributeGroupMetadataKeys = new Set([
+  "name",
+  "displayHeader",
+  "displayDescription",
+  "annotations",
+]);
+const pinnedProfileAttributes: readonly ProfileAttributeName[] = [
+  "schoolEmail",
+  "personalEmail",
+  "skyNumber",
+  "department",
+  "university",
+];
+const MAX_PROFILE_ATTRIBUTE_METADATA = 64;
+
+function validAttributeGroupMetadata(value: unknown) {
+  return isObject(value) &&
+    hasOnlyKeys(value, attributeGroupMetadataKeys) &&
+    requiredString(value.name, 255) &&
+    optionalString(value.displayHeader) &&
+    optionalString(value.displayDescription) &&
+    (value.annotations === undefined || value.annotations === null || isJsonObject(value.annotations));
+}
+
+function parseAttributeMetadata(value: unknown): ProfileAttributeMetadata {
+  if (
+    !isObject(value) ||
+    !hasOnlyKeys(value, attributeMetadataKeys) ||
+    !requiredString(value.name, 255) ||
+    !optionalString(value.displayName) ||
+    typeof value.required !== "boolean" ||
+    typeof value.readOnly !== "boolean" ||
+    !optionalString(value.group, 255) ||
+    !optionalBoolean(value.multivalued) ||
+    !optionalString(value.defaultValue, 2_048) ||
+    (value.annotations !== undefined && value.annotations !== null && !isJsonObject(value.annotations)) ||
+    (value.validators !== undefined && value.validators !== null && !isJsonObject(value.validators))
+  ) {
+    throw new KeycloakAccountContractError("profile");
+  }
+  const validators: Record<string, Record<string, JsonValue>> = {};
+  for (const [validatorId, config] of Object.entries(value.validators ?? {})) {
+    if (!isJsonObject(config)) throw new KeycloakAccountContractError("profile");
+    validators[validatorId] = cloneJson(config);
+  }
+  return {
+    name: value.name,
+    displayName: value.displayName?.trim() || null,
+    required: value.required,
+    readOnly: value.readOnly,
+    validators,
+    annotations: value.annotations ? cloneJson(value.annotations) : {},
+  };
+}
+
+function parseProfileMetadata(value: unknown): ProfileAttributeMetadata[] {
+  if (value === undefined || value === null) return [];
+  if (
+    !isObject(value) ||
+    !hasOnlyKeys(value, profileMetadataKeys) ||
+    (value.attributes !== undefined && value.attributes !== null && !Array.isArray(value.attributes)) ||
+    (value.groups !== undefined && value.groups !== null &&
+      (!Array.isArray(value.groups) || value.groups.length > MAX_PROFILE_ATTRIBUTE_METADATA ||
+        !value.groups.every(validAttributeGroupMetadata)))
+  ) {
+    throw new KeycloakAccountContractError("profile");
+  }
+  const attributes = value.attributes ?? [];
+  if (attributes.length > MAX_PROFILE_ATTRIBUTE_METADATA) throw new KeycloakAccountContractError("profile");
+  const seen = new Set<string>();
+  return attributes.map((attribute) => {
+    const parsed = parseAttributeMetadata(attribute);
+    if (seen.has(parsed.name)) throw new KeycloakAccountContractError("profile");
+    seen.add(parsed.name);
+    return parsed;
+  });
+}
+
+function pinnedAttributes(value: Record<string, string[]> | null | undefined): ProfileAttributes {
+  const attributes = {} as ProfileAttributes;
+  for (const name of pinnedProfileAttributes) {
+    const first = value?.[name]?.[0];
+    attributes[name] = first?.trim() || null;
+  }
+  return attributes;
+}
 
 export function parseProfile(value: unknown): AccountProfile {
   if (
@@ -82,16 +233,18 @@ export function parseProfile(value: unknown): AccountProfile {
     !optionalString(value.email) ||
     typeof value.emailVerified !== "boolean" ||
     !optionalBoolean(value.enabled) ||
-    (value.attributes !== undefined && value.attributes !== null && !stringListMap(value.attributes)) ||
-    (value.userProfileMetadata !== undefined && value.userProfileMetadata !== null)
+    (value.attributes !== undefined && value.attributes !== null && !stringListMap(value.attributes))
   ) {
     throw new KeycloakAccountContractError("profile");
   }
   return {
+    username: value.username?.trim() || null,
     firstName: value.firstName?.trim() || null,
     lastName: value.lastName?.trim() || null,
     email: value.email?.trim() || null,
     emailVerified: value.emailVerified,
+    attributes: pinnedAttributes(value.attributes),
+    attributeMetadata: parseProfileMetadata(value.userProfileMetadata),
   };
 }
 
@@ -395,4 +548,130 @@ export function parseSessions(value: unknown, deviceHints = new Map<string, Devi
     Number(right.current) - Number(left.current) ||
     right.lastAccessAt.localeCompare(left.lastAccessAt),
   );
+}
+
+const groupKeys = new Set([
+  "id",
+  "name",
+  "description",
+  "path",
+  "parentId",
+  "subGroupCount",
+  "subGroups",
+  "attributes",
+  "realmRoles",
+  "clientRoles",
+  "access",
+]);
+const MAX_GROUPS = 256;
+const groupPath = /^\/[^\p{Cc}]{1,1023}$/u;
+
+export function parseGroups(value: unknown): AccountGroup[] {
+  if (!Array.isArray(value) || value.length > MAX_GROUPS) throw new KeycloakAccountContractError("groups");
+  const seen = new Set<string>();
+  return value.map((group) => {
+    if (
+      !isObject(group) ||
+      !hasOnlyKeys(group, groupKeys) ||
+      !requiredString(group.id, 255) ||
+      !requiredString(group.name, 255) ||
+      !optionalString(group.description, 2_048) ||
+      !requiredString(group.path, 1_024) ||
+      !groupPath.test(group.path) ||
+      !optionalString(group.parentId) ||
+      !optionalInteger(group.subGroupCount) ||
+      (group.subGroups !== undefined && group.subGroups !== null && !Array.isArray(group.subGroups)) ||
+      (group.attributes !== undefined && group.attributes !== null && !stringListMap(group.attributes)) ||
+      (group.realmRoles !== undefined && group.realmRoles !== null &&
+        (!Array.isArray(group.realmRoles) || !group.realmRoles.every((role) => typeof role === "string"))) ||
+      (group.clientRoles !== undefined && group.clientRoles !== null && !stringListMap(group.clientRoles)) ||
+      (group.access !== undefined && group.access !== null && !isObject(group.access))
+    ) {
+      throw new KeycloakAccountContractError("groups");
+    }
+    if (seen.has(group.id)) throw new KeycloakAccountContractError("groups");
+    seen.add(group.id);
+    return {
+      id: group.id,
+      name: group.name,
+      path: group.path,
+      attributes: group.attributes ? copyStringListMap(group.attributes) : {},
+    };
+  });
+}
+
+const linkedAccountKeys = new Set([
+  "connected",
+  "social",
+  "providerAlias",
+  "providerName",
+  "displayName",
+  "linkedUsername",
+]);
+const MAX_LINKED_ACCOUNTS = 64;
+const providerAlias = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
+
+export function parseLinkedAccounts(value: unknown): LinkedAccount[] {
+  if (!Array.isArray(value) || value.length > MAX_LINKED_ACCOUNTS) {
+    throw new KeycloakAccountContractError("linked-accounts");
+  }
+  const seen = new Set<string>();
+  return value.map((account) => {
+    if (
+      !isObject(account) ||
+      !hasOnlyKeys(account, linkedAccountKeys) ||
+      typeof account.connected !== "boolean" ||
+      typeof account.social !== "boolean" ||
+      !requiredString(account.providerAlias, 255) ||
+      !providerAlias.test(account.providerAlias) ||
+      !optionalString(account.providerName) ||
+      !optionalString(account.displayName) ||
+      !optionalString(account.linkedUsername)
+    ) {
+      throw new KeycloakAccountContractError("linked-accounts");
+    }
+    if (seen.has(account.providerAlias)) throw new KeycloakAccountContractError("linked-accounts");
+    seen.add(account.providerAlias);
+    return {
+      connected: account.connected,
+      providerAlias: account.providerAlias,
+      displayName: account.displayName?.trim() || null,
+      linkedUsername: account.linkedUsername?.trim() || null,
+      social: account.social,
+    };
+  });
+}
+
+const linkedAccountUriKeys = new Set(["accountLinkUri", "nonce", "hash"]);
+
+export function parseLinkedAccountUri(value: unknown, issuer: URL, expectedProviderAlias: string): URL {
+  if (
+    !isObject(value) ||
+    !hasOnlyKeys(value, linkedAccountUriKeys) ||
+    !requiredString(value.accountLinkUri, 4_096) ||
+    !requiredString(value.nonce, 255) ||
+    !requiredString(value.hash, 255)
+  ) {
+    throw new KeycloakAccountContractError("linked-account-uri");
+  }
+  let uri: URL;
+  try {
+    uri = new URL(value.accountLinkUri);
+  } catch {
+    throw new KeycloakAccountContractError("linked-account-uri");
+  }
+  const realmPath = issuer.pathname.replace(/\/$/, "");
+  if (
+    uri.protocol !== "https:" ||
+    uri.origin !== issuer.origin ||
+    uri.username ||
+    uri.password ||
+    uri.hash ||
+    uri.pathname !== `${realmPath}/broker/${encodeURIComponent(expectedProviderAlias)}/link` ||
+    uri.searchParams.get("nonce") !== value.nonce ||
+    uri.searchParams.get("hash") !== value.hash
+  ) {
+    throw new KeycloakAccountContractError("linked-account-uri");
+  }
+  return uri;
 }

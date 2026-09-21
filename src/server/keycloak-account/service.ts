@@ -8,6 +8,7 @@ import {
   AccountAccessTokenExpiredError,
   validateAccountAccessToken,
 } from "@/server/keycloak-account/access-token";
+import type { SkyAuthorization } from "@/server/keycloak-account/access-token";
 import { KeycloakAccountUnauthorizedError } from "@/server/keycloak-account/adapter";
 import { KeycloakAccountContractError } from "@/server/keycloak-account/schema";
 import type {
@@ -121,6 +122,22 @@ export class AccountReadService {
     return snapshot.tokens.accessToken;
   }
 
+  /**
+   * The session's current user access token, refreshed when it is expired or
+   * about to expire and re-validated against the pinned contract. Callers that
+   * talk to the sky-account SPI or core with the same bearer use this instead
+   * of reading the encrypted token material themselves.
+   */
+  accessToken(session: SessionIdentity, options: { forceRefresh?: boolean } = {}) {
+    return this.#accessToken(session, options.forceRefresh ?? false);
+  }
+
+  /** The `sky_authorization` read model of the session's validated access token. */
+  async authorization(session: SessionIdentity): Promise<SkyAuthorization> {
+    const accessToken = await this.#accessToken(session);
+    return this.#validate(accessToken, session).authorization;
+  }
+
   async #read<T>(session: SessionIdentity, operation: (accessToken: string) => Promise<T>) {
     const accessToken = await this.#accessToken(session);
     try {
@@ -168,6 +185,19 @@ export class AccountReadService {
   sessionsList(session: SessionIdentity) {
     return this.#read(session, async (accessToken) =>
       this.#validatedSessions(await this.adapter.sessions(accessToken)));
+  }
+
+  groups(session: SessionIdentity) {
+    return this.#read(session, (accessToken) => this.adapter.groups(accessToken));
+  }
+
+  linkedAccounts(session: SessionIdentity) {
+    return this.#read(session, (accessToken) => this.adapter.linkedAccounts(accessToken));
+  }
+
+  linkedAccountUri(session: SessionIdentity, providerAlias: string, redirectUri: URL) {
+    return this.#read(session, (accessToken) =>
+      this.adapter.linkedAccountUri(accessToken, providerAlias, redirectUri));
   }
 
   managedSessions(session: SessionIdentity) {

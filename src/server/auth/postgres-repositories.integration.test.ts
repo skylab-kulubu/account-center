@@ -24,6 +24,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "0003_native_handoff.sql",
       "0004_account_action_results.sql",
       "0005_account_deletion_intents.sql",
+      "0006_account_sudo.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);

@@ -182,6 +182,22 @@ test("permits an explicit off mode without Redis credentials", () => {
   assert.doesNotThrow(() => validateEnvironment(environment));
 });
 
+test("validates the optional club-profile Core origin whenever it is present", () => {
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, CORE_API_URL: "https://api.yildizskylab.com" }));
+  assert.throws(
+    () => validateEnvironment({ ...valid, CORE_API_URL: "http://api.yildizskylab.com" }),
+    /CORE_API_URL/,
+  );
+  assert.throws(
+    () => validateEnvironment({ ...valid, CORE_API_URL: "https://api.yildizskylab.com/v1/" }),
+    /CORE_API_URL/,
+  );
+  assert.throws(
+    () => validateEnvironment({ ...valid, CORE_API_URL: "https://<core-origin>" }),
+    /placeholder/,
+  );
+});
+
 test("keeps account erasure default-off and requires the exact Core origin when enabled", () => {
   assert.doesNotThrow(() => validateEnvironment(valid));
   assert.doesNotThrow(() => validateEnvironment({ ...valid, ACCOUNT_ERASURE_MODE: "off" }));

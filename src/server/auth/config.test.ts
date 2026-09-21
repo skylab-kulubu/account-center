@@ -97,4 +97,22 @@ describe("authentication configuration", () => {
       coreApiUrl: new URL("https://api.yildizskylab.com"),
     });
   });
+
+  it("keeps the club-profile core origin optional but canonical whenever it is set", () => {
+    environment("3600");
+    expect(getAuthConfig().coreApiUrl).toBeNull();
+    process.env.CORE_API_URL = "https://api.yildizskylab.com";
+    expect(getAuthConfig().coreApiUrl).toEqual(new URL("https://api.yildizskylab.com"));
+    expect(getAuthConfig().accountErasure).toEqual({ mode: "off" });
+    for (const invalid of [
+      "http://api.yildizskylab.com",
+      "https://api.yildizskylab.com/v1",
+      "https://user:secret@api.yildizskylab.com",
+      "https://api.yildizskylab.com/?x=1",
+      "https://API.yildizskylab.com",
+    ]) {
+      process.env.CORE_API_URL = invalid;
+      expect(() => getAuthConfig()).toThrow(/CORE_API_URL/);
+    }
+  });
 });

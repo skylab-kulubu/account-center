@@ -6,7 +6,7 @@ import type { OidcTokenSet } from "@/server/auth/types";
 import { AccountAccessTokenContractError } from "@/server/keycloak-account/access-token";
 import { KeycloakAccountContractError } from "@/server/keycloak-account/schema";
 import { AccountReadService } from "@/server/keycloak-account/service";
-import type { KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
+import type { AccountProfile, KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
 
 const now = new Date("2026-09-20T12:00:00Z");
 const issuer = new URL("https://e.yildizskylab.com/realms/e-skylab");
@@ -18,7 +18,7 @@ function jwt(overrides: Record<string, unknown> = {}) {
     iss: issuer.href,
     sub: session.subject,
     azp: "account-center",
-    aud: "account",
+    aud: ["account", "core"],
     scope: "openid",
     resource_access: {
       account: {
@@ -29,6 +29,31 @@ function jwt(overrides: Record<string, unknown> = {}) {
     ...overrides,
   })).toString("base64url");
   return `${header}.${payload}.signature`;
+}
+
+function profile(): AccountProfile {
+  return {
+    username: "account-fixture",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "a@example.invalid",
+    emailVerified: true,
+    attributes: {
+      schoolEmail: "ada@std.yildiz.edu.tr",
+      personalEmail: null,
+      skyNumber: "SKY-0000042",
+      department: null,
+      university: "Yıldız Teknik Üniversitesi",
+    },
+    attributeMetadata: [{
+      name: "firstName",
+      displayName: "${firstName}",
+      required: true,
+      readOnly: true,
+      validators: { length: { max: 255 } },
+      annotations: {},
+    }],
+  };
 }
 
 function tokenSet(accessToken = jwt()): OidcTokenSet {
@@ -62,7 +87,16 @@ function fixture(initial = tokenSet()) {
     }),
   };
   const adapter = {
-    profile: vi.fn().mockResolvedValue({ firstName: "Ada", lastName: "Lovelace", email: "a@example.invalid", emailVerified: true }),
+    profile: vi.fn().mockResolvedValue(profile()),
+    groups: vi.fn().mockResolvedValue([
+      { id: "group-id", name: "WEBLAB", path: "/ARGE/WEBLAB", attributes: { display_name_tr: ["WebLab"] } },
+    ]),
+    linkedAccounts: vi.fn().mockResolvedValue([
+      { connected: true, providerAlias: "OBS", displayName: "YTÜ Microsoft", linkedUsername: null, social: false },
+    ]),
+    linkedAccountUri: vi.fn().mockResolvedValue(
+      new URL("https://e.yildizskylab.com/realms/e-skylab/broker/OBS/link?nonce=n&hash=h"),
+    ),
     authentication: vi.fn().mockResolvedValue({ passwordConfigured: true, otpConfigured: false, passkeyCount: 1 }),
     credentialInventory: vi.fn().mockResolvedValue({
       summary: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
@@ -72,7 +106,7 @@ function fixture(initial = tokenSet()) {
     revokeSession: vi.fn().mockResolvedValue(undefined),
     revokeOtherSessions: vi.fn().mockResolvedValue(undefined),
     snapshot: vi.fn().mockResolvedValue({
-      profile: { firstName: "Ada", lastName: "Lovelace", email: "a@example.invalid", emailVerified: true },
+      profile: profile(),
       authentication: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
       sessions: [],
     }),
@@ -97,6 +131,53 @@ describe("AccountReadService", () => {
     expect(oidc.refresh).not.toHaveBeenCalled();
   });
 
+  it("exposes the sky_authorization read model of the validated token without an Account REST call", async () => {
+    const { service, adapter, oidc } = fixture(tokenSet(jwt({
+      sky_authorization: { core: { roles: ["events.manage"] }, skyforms: { roles: [] } },
+    })));
+    await expect(service.authorization(session)).resolves.toEqual({
+      core: ["events.manage"],
+      skyforms: [],
+    });
+    expect(adapter.profile).not.toHaveBeenCalled();
+    expect(oidc.refresh).not.toHaveBeenCalled();
+    await expect(fixture().service.authorization(session)).resolves.toEqual({});
+  });
+
+  it("hands out the refreshed session token for sky-account and core calls", async () => {
+    const expired = tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) - 1 }));
+    const { service, oidc, vault } = fixture(expired);
+    await expect(service.accessToken(session)).resolves.toEqual(expect.stringContaining("."));
+    expect(oidc.refresh).toHaveBeenCalledWith(expired);
+    expect(vault.replaceTokens).toHaveBeenCalledTimes(1);
+
+    const currentToken = jwt();
+    const current = fixture(tokenSet(currentToken));
+    await expect(current.service.accessToken(session)).resolves.toBe(currentToken);
+    expect(current.oidc.refresh).not.toHaveBeenCalled();
+    await expect(current.service.accessToken(session, { forceRefresh: true })).resolves.not.toBe(currentToken);
+    expect(current.oidc.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads groups and linked accounts through the same refreshing token path", async () => {
+    const { service, adapter } = fixture();
+    await expect(service.groups(session)).resolves.toEqual([
+      expect.objectContaining({ path: "/ARGE/WEBLAB" }),
+    ]);
+    await expect(service.linkedAccounts(session)).resolves.toEqual([
+      expect.objectContaining({ providerAlias: "OBS", connected: true }),
+    ]);
+    await expect(service.linkedAccountUri(session, "OBS", new URL("https://my.yildizskylab.com/identity")))
+      .resolves.toBeInstanceOf(URL);
+    expect(adapter.groups).toHaveBeenCalledWith(expect.stringContaining("."));
+    expect(adapter.linkedAccounts).toHaveBeenCalledWith(expect.stringContaining("."));
+    expect(adapter.linkedAccountUri).toHaveBeenCalledWith(
+      expect.stringContaining("."),
+      "OBS",
+      new URL("https://my.yildizskylab.com/identity"),
+    );
+  });
+
   it("refreshes an expired user token and compare-and-swaps encrypted token material", async () => {
     const expired = tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) - 1 }));
     const { service, oidc, vault } = fixture(expired);
@@ -109,8 +190,21 @@ describe("AccountReadService", () => {
     );
   });
 
-  it("rejects non-account or multi-audience tokens before any Account REST request", async () => {
-    const { service, adapter } = fixture(tokenSet(jwt({ aud: ["account", "core"] })));
+  it("rejects pre-cutover single-audience or overbroad tokens before any Account REST request", async () => {
+    for (const aud of ["account", ["account"], ["account", "core", "skyforms"]]) {
+      const { service, adapter } = fixture(tokenSet(jwt({ aud })));
+      await expect(service.profile(session)).rejects.toBeInstanceOf(AccountAccessTokenContractError);
+      expect(adapter.profile).not.toHaveBeenCalled();
+    }
+  });
+
+  it("rejects a token that carries core roles even with the expected audience", async () => {
+    const { service, adapter } = fixture(tokenSet(jwt({
+      resource_access: {
+        account: { roles: ["manage-account", "view-profile"] },
+        core: { roles: ["admin"] },
+      },
+    })));
     await expect(service.profile(session)).rejects.toBeInstanceOf(AccountAccessTokenContractError);
     expect(adapter.profile).not.toHaveBeenCalled();
   });
@@ -118,7 +212,7 @@ describe("AccountReadService", () => {
   it("does not persist a refreshed token that drifts from the Account REST contract", async () => {
     const expired = tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) - 1 }));
     const { service, adapter, oidc, vault } = fixture(expired);
-    oidc.refresh.mockResolvedValue(tokenSet(jwt({ aud: ["account", "core"] })));
+    oidc.refresh.mockResolvedValue(tokenSet(jwt({ aud: ["account"] })));
 
     await expect(service.profile(session)).rejects.toBeInstanceOf(AccountAccessTokenContractError);
     expect(vault.replaceTokens).not.toHaveBeenCalled();
@@ -199,7 +293,7 @@ describe("AccountReadService", () => {
   it("keeps Keycloak session ids out of the combined browser snapshot", async () => {
     const { service, adapter } = fixture();
     adapter.snapshot.mockResolvedValue({
-      profile: { firstName: "Ada", lastName: "Lovelace", email: "a@example.invalid", emailVerified: true },
+      profile: profile(),
       authentication: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
       sessions: [{
         id: "keycloak-session-secret",

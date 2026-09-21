@@ -34,9 +34,13 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 
 ## Özellikler
 
-- Ad, soyad ve birincil e-posta bilgilerinin güvenli görünümü ve yönetimi.
+- Ad, soyad ve birincil e-posta bilgilerinin güvenli görünümü.
 - Parola, TOTP ve geçiş anahtarı işlemleri için yeniden doğrulamalı Keycloak
   AIA akışları.
+- Bu sürüm yalnız v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş
+  token sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi,
+  şifreli sudo saklama). Kullanıcı adı, e-posta, kulüp profili ve ürün içi
+  güvenlik yüzeyleri A1–A5 işleriyle gelir; bu sürümde arayüzde yer almaz.
 - Açık cihaz ve tarayıcı oturumlarını görüntüleme, tek tek kapatma veya mevcut
   cihaz dışındaki tüm oturumları sonlandırma.
 - Yerel uygulamalar için tek kullanımlık, mTLS ve HMAC korumalı native SSO
@@ -54,7 +58,8 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 | Keycloak | Kullanıcı, credential, grup ve kimlik oturumlarının kaynağı |
 | PostgreSQL | Şifreli token setleri, opaque oturumlar ve tek kullanımlık işlemler |
 | Redis | Platform çapındaki hesap erişim engeli için salt okunur güven sınırı |
-| Core API | Kulüp alanındaki silme/anonimleştirme iş akışının koordinasyonu |
+| sky-account SPI | Keycloak içindeki kimlik/kimlik bilgisi değişiklikleri ve Sudo modu (`${OIDC_ISSUER}/sky-account/v1`) |
+| Core API | Kulüp profili (`/v1/users/me`) ve silme/anonimleştirme iş akışının koordinasyonu |
 
 Tarayıcı yalnız `Secure`, `HttpOnly`, `SameSite` ve `__Host-` kurallarına uyan
 opaque bir oturum çerezi taşır. Keycloak token setleri PostgreSQL'de
@@ -116,12 +121,21 @@ doğrular. Trafik yalnız readiness başarılı olduğunda yönlendirilmelidir.
 
 Ortam değişkenlerinin tam listesi ve güvenli örnek değerleri
 [`.env.example`](.env.example) dosyasındadır. Gerçek gizli bilgiler repoya
-eklenmez.
+eklenmez. `CORE_API_URL` isteğe bağlıdır: tanımlıysa kulüp profili çağrıları
+için canonical, credential'sız bir HTTPS origin olmak zorundadır; tanımsızsa
+kulüp profili özellikleri kapalı kalır. Yeni bir gizli değer gerekmez;
+sudo proof'ları mevcut `TOKEN_ENCRYPTION_KEY` ile oturum kaydında şifrelenir.
+
+Sürüm geçişi: bu sürüm Keycloak kullanıcı token'ında tam olarak
+`aud=["account","core"]` bekler. Önce Keycloak reconcile (K2) uygulanmalı,
+sonra bu imaj dağıtılmalıdır; ayrıntı
+[Keycloak sözleşmesinde](docs/keycloak-26.7.4-contract.md).
 
 ## Ayrıntılı belgeler
 
 - [Mimari ve güven sınırları](docs/architecture.md)
 - [Keycloak 26.7.4 sözleşmesi](docs/keycloak-26.7.4-contract.md)
+- [sky-account API v1 sözleşmesi](docs/sky-account-api.md)
 - [Parola, TOTP ve geçiş anahtarı işlemleri](docs/account-actions.md)
 - [Native SSO köprüsü](docs/native-handoff-keycloak-contract.md)
 - [Kenar güveni ve mTLS](docs/auth-edge-trust.md)
@@ -130,8 +144,8 @@ eklenmez.
 
 ## Ürün sınırları
 
-- Telefon, öğrenci kartı, kulüp rolleri, SkyPass ve etkinlik verileri Core'un
-  alanıdır.
+- Telefon (salt okunur görünüm dışında), öğrenci kartı, kulüp rolleri, SkyPass
+  ve etkinlik verileri Core'un alanıdır.
 - Hesap Merkezi Keycloak'ın yerine geçmez ve kullanıcı parolası saklamaz.
 - Superadmin kulüp operasyon panelidir; kişisel hesap güvenliği burada
   yönetilmez.

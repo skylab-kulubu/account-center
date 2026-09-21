@@ -17,6 +17,8 @@ export type AuthConfig = {
   sessionIdleTtlSeconds: number;
   sessionRotationSeconds: number;
   previousHandleGraceSeconds: number;
+  /** Canonical core origin for the person's own `/v1/users/me` endpoints; `null` keeps club-profile features off. */
+  coreApiUrl: URL | null;
   accountErasure:
     | { mode: "off" }
     | { mode: "enforce"; coreApiUrl: URL };
@@ -75,13 +77,8 @@ function integer(name: string, minimum: number, maximum: number) {
   return parsed;
 }
 
-function accountErasureConfig(): AuthConfig["accountErasure"] {
-  const mode = process.env.ACCOUNT_ERASURE_MODE?.trim() || "off";
-  if (mode === "off") return { mode };
-  if (mode !== "enforce") throw new Error("ACCOUNT_ERASURE_MODE must be off or enforce.");
-  if (process.env.ACCOUNT_ACCESS_GATE_MODE?.trim() !== "enforce") {
-    throw new Error("Account erasure requires the account access gate in enforce mode.");
-  }
+function coreApiUrlConfig(): URL | null {
+  if (!process.env.CORE_API_URL?.trim()) return null;
   const value = required("CORE_API_URL");
   const coreApiUrl = httpsUrl("CORE_API_URL");
   if (
@@ -94,6 +91,17 @@ function accountErasureConfig(): AuthConfig["accountErasure"] {
   ) {
     throw new Error("CORE_API_URL must be a canonical credential-free HTTPS origin.");
   }
+  return coreApiUrl;
+}
+
+function accountErasureConfig(coreApiUrl: URL | null): AuthConfig["accountErasure"] {
+  const mode = process.env.ACCOUNT_ERASURE_MODE?.trim() || "off";
+  if (mode === "off") return { mode };
+  if (mode !== "enforce") throw new Error("ACCOUNT_ERASURE_MODE must be off or enforce.");
+  if (process.env.ACCOUNT_ACCESS_GATE_MODE?.trim() !== "enforce") {
+    throw new Error("Account erasure requires the account access gate in enforce mode.");
+  }
+  if (!coreApiUrl) throw new Error("Missing required server configuration: CORE_API_URL");
   return { mode, coreApiUrl };
 }
 
@@ -138,6 +146,8 @@ export function getAuthConfig(): AuthConfig {
     throw new Error("OIDC_CLIENT_ID must be the dedicated account-center client.");
   }
 
+  const coreApiUrl = coreApiUrlConfig();
+
   return {
     appUrl,
     issuer: oidcIssuer(),
@@ -155,7 +165,8 @@ export function getAuthConfig(): AuthConfig {
     sessionIdleTtlSeconds: 30 * 60,
     sessionRotationSeconds: 15 * 60,
     previousHandleGraceSeconds: 30,
-    accountErasure: accountErasureConfig(),
+    coreApiUrl,
+    accountErasure: accountErasureConfig(coreApiUrl),
   };
 }
 

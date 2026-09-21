@@ -1,0 +1,19 @@
+{
+  "id": "0f6d2c1e-3b4a-4d5e-8f90-000000000001",
+  "email": "ada@std.yildiz.edu.tr",
+  "firstName": "Ada",
+  "lastName": "Lovelace",
+  "username": "account-fixture",
+  "schoolEmail": "ada@std.yildiz.edu.tr",
+  "skyNumber": "SKY-0000042",
+  "studentCardLinked": true,
+  "linkedin": "https://www.linkedin.com/in/ada-lovelace",
+  "university": "Yıldız Teknik Üniversitesi",
+  "faculty": "Elektrik-Elektronik Fakültesi",
+  "department": "Bilgisayar Mühendisliği",
+  "profilePictureId": "7c1e0a2b-5d6f-4a8b-9c0d-000000000002",
+  "profilePictureUrl": "https://cdn.yildizskylab.com/media/profile/7c1e0a2b-5d6f-4a8b-9c0d-000000000002.webp",
+  "phone": "+905551112233",
+  "createdAt": "2025-10-01T09:00:00Z",
+  "updatedAt": "2026-09-21T13:10:41.130Z"
+}

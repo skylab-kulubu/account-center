@@ -1,0 +1,38 @@
+[
+  {
+    "id": "5b7c0f6e-0d6a-4e0e-9f2f-000000000001",
+    "name": "UYELER",
+    "path": "/UYELER",
+    "attributes": {
+      "display_name_tr": ["Üyeler"]
+    },
+    "realmRoles": [],
+    "clientRoles": {}
+  },
+  {
+    "id": "5b7c0f6e-0d6a-4e0e-9f2f-000000000002",
+    "name": "WEBLAB",
+    "description": "Web ve platform ekibi",
+    "path": "/ARGE/WEBLAB",
+    "parentId": "5b7c0f6e-0d6a-4e0e-9f2f-000000000010",
+    "attributes": {
+      "display_name_tr": ["WebLab"],
+      "team_slug": ["weblab"]
+    },
+    "realmRoles": ["member-of-weblab"],
+    "clientRoles": {
+      "core": ["team.weblab"]
+    }
+  },
+  {
+    "id": "5b7c0f6e-0d6a-4e0e-9f2f-000000000003",
+    "name": "LIDERLER",
+    "path": "/ARGE/WEBLAB/LIDERLER",
+    "parentId": "5b7c0f6e-0d6a-4e0e-9f2f-000000000002",
+    "attributes": {},
+    "realmRoles": ["private-realm-role"],
+    "clientRoles": {
+      "superadmin": ["private-client-role"]
+    }
+  }
+]
