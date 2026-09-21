@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import type { OidcProviderStage } from "@/server/auth/oidc-protocol";
 
 const sensitiveKey = /(?:authorization|cookie|token|secret|code|state|nonce|verifier|email|name|subject|sid|credential)/i;
 
@@ -35,6 +36,7 @@ type AuthLog = {
     | "account_session_cleanup";
   requestId: string;
   outcome: "success" | "failure";
+  providerStage?: OidcProviderStage;
   reason?:
     | "invalid_transaction"
     | "provider_unavailable"
