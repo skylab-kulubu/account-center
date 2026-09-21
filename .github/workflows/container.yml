@@ -148,3 +148,35 @@ jobs:
             test "$(docker image inspect --format '{{.Id}}' "$target")" = "$source_image_id"
             docker push "$target"
           done <<< "$TARGET_TAGS"
+      - name: Trigger the production Dokploy deployment
+        if: github.ref == 'refs/heads/production'
+        env:
+          DOKPLOY_DEPLOY_HOOK: ${{ secrets.DOKPLOY_DEPLOY_HOOK }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DOKPLOY_DEPLOY_HOOK" ]]; then
+            echo "DOKPLOY_DEPLOY_HOOK is required for production deployment." >&2
+            exit 1
+          fi
+
+          response_file=$(mktemp)
+          trap 'rm -f "$response_file"' EXIT
+          if ! response_code=$(
+            curl --silent --show-error \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --output "$response_file" \
+              --write-out '%{http_code}' \
+              --user-agent 'DokployDeployHook/1.0' \
+              --request POST \
+              "$DOKPLOY_DEPLOY_HOOK"
+          ); then
+            echo "Dokploy deployment request failed before receiving an HTTP response." >&2
+            exit 1
+          fi
+
+          echo "Dokploy hook HTTP $response_code"
+          if [[ ! "$response_code" =~ ^2[0-9][0-9]$ ]]; then
+            echo "Dokploy did not accept the production deployment request." >&2
+            exit 1
+          fi
