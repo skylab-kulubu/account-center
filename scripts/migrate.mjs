@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { serializeDatabaseError } from "./database-error.mjs";
 import { validateDatabaseEnvironment } from "./validate-env.mjs";
 
 validateDatabaseEnvironment(process.env);
@@ -37,8 +38,8 @@ try {
       client.release();
     }
   }
-} catch {
-  console.error(JSON.stringify({ event: "database_migration_failed" }));
+} catch (error) {
+  console.error(JSON.stringify(serializeDatabaseError(error)));
   process.exitCode = 1;
 } finally {
   await pool.end();

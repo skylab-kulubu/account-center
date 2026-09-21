@@ -24,7 +24,7 @@ RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/scripts/start.mjs /app/scripts/validate-env.mjs /app/scripts/migrate.mjs /app/scripts/prune-auth.mjs ./scripts/
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/start.mjs /app/scripts/validate-env.mjs /app/scripts/database-error.mjs /app/scripts/migrate.mjs /app/scripts/prune-auth.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/migrations ./migrations
 COPY --from=builder --chown=nextjs:nodejs /app/maintenance ./maintenance
 USER nextjs

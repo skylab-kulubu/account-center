@@ -15,7 +15,7 @@ jobs:
       packages: write
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
