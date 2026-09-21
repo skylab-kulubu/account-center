@@ -17,3 +17,16 @@ test("publishes only the single candidate image that passed browser and containe
   assert.match(workflow, /source_image_id=.*docker image inspect/);
   assert.ok(workflow.indexOf("pnpm test:handoff-response") < workflow.indexOf("docker push \"$target\""));
 });
+
+test("triggers the production Dokploy deployment only after publishing the verified image", () => {
+  const publish = workflow.indexOf("Publish the verified image without rebuilding");
+  const deploy = workflow.indexOf("Trigger the production Dokploy deployment");
+
+  assert.ok(publish >= 0);
+  assert.ok(deploy > publish);
+  assert.match(workflow, /if: github\.ref == 'refs\/heads\/production'/);
+  assert.match(workflow, /DOKPLOY_DEPLOY_HOOK: \$\{\{ secrets\.DOKPLOY_DEPLOY_HOOK \}\}/);
+  assert.match(workflow, /--user-agent 'DokployDeployHook\/1\.0'/);
+  assert.match(workflow, /Dokploy did not accept the production deployment request/);
+  assert.doesNotMatch(workflow, /continue-on-error:\s*true/);
+});
