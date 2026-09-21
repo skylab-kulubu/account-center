@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import { NextURL } from "next/dist/server/web/next-url";
 import type { AuthConfig } from "@/server/auth/config";
 import {
   OidcContractError,
@@ -269,6 +270,32 @@ describe("OAuth4WebApiProtocol", () => {
       name: "OidcProviderStageError",
       stage: "authorization_response",
       message: "The OIDC provider failed during authorization_response.",
+    } satisfies Partial<OidcProviderStageError>);
+  });
+
+  it("accepts the NextURL instance supplied by a NextRequest callback", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes(".well-known")) return Response.json(discovery);
+      if (url === discovery.token_endpoint) throw new Error("token transport reached");
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    const callbackUrl = new NextURL("https://my.yildizskylab.com/api/auth/callback");
+    callbackUrl.searchParams.set("code", "authorization-code");
+    callbackUrl.searchParams.set("state", "state-value");
+    callbackUrl.searchParams.set("iss", config.issuer.href);
+
+    const exchange = new OAuth4WebApiProtocol(config).exchange({
+      callbackUrl: callbackUrl as unknown as URL,
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+    });
+
+    await expect(exchange).rejects.toMatchObject({
+      name: "OidcProviderStageError",
+      stage: "token_request",
     } satisfies Partial<OidcProviderStageError>);
   });
 
