@@ -20,6 +20,11 @@ function jwt(overrides: Record<string, unknown> = {}) {
     azp: "account-center",
     aud: "account",
     scope: "openid",
+    resource_access: {
+      account: {
+        roles: ["manage-account", "view-profile"],
+      },
+    },
     exp: Math.floor(now.getTime() / 1_000) + 300,
     ...overrides,
   })).toString("base64url");
