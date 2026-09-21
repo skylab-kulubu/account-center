@@ -40,6 +40,20 @@ export class OidcContractError extends Error {
   }
 }
 
+export type OidcProviderStage =
+  | "discovery"
+  | "authorization_response"
+  | "token_request"
+  | "token_response"
+  | "id_token_signature";
+
+export class OidcProviderStageError extends Error {
+  constructor(readonly stage: OidcProviderStage) {
+    super(`The OIDC provider failed during ${stage}.`);
+    this.name = "OidcProviderStageError";
+  }
+}
+
 export function validateAuthenticationTime(
   claims: Record<string, unknown>,
   now: Date = new Date(),
@@ -184,31 +198,60 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
   }
 
   async exchange(input: ExchangeAuthorizationInput) {
-    const authorizationServer = await this.#authorizationServer();
-    const parameters = oauth.validateAuthResponse(
-      authorizationServer,
-      this.#client,
-      input.callbackUrl,
-      input.state,
-    );
-    const response = await oauth.authorizationCodeGrantRequest(
-      authorizationServer,
-      this.#client,
-      this.#clientAuthentication,
-      parameters,
-      oidcRedirectUri(this.config),
-      input.codeVerifier,
-      { [oauth.customFetch]: timeoutFetch },
-    );
-    const tokens = await oauth.processAuthorizationCodeResponse(
-      authorizationServer,
-      this.#client,
-      response,
-      { expectedNonce: input.nonce, requireIdToken: true },
-    );
-    await oauth.validateApplicationLevelSignature(authorizationServer, response, {
-      [oauth.customFetch]: timeoutFetch,
-    });
+    let authorizationServer: oauth.AuthorizationServer;
+    try {
+      authorizationServer = await this.#authorizationServer();
+    } catch (error) {
+      if (error instanceof OidcContractError) throw error;
+      throw new OidcProviderStageError("discovery");
+    }
+
+    let parameters: URLSearchParams;
+    try {
+      parameters = oauth.validateAuthResponse(
+        authorizationServer,
+        this.#client,
+        input.callbackUrl,
+        input.state,
+      );
+    } catch {
+      throw new OidcProviderStageError("authorization_response");
+    }
+
+    let response: Response;
+    try {
+      response = await oauth.authorizationCodeGrantRequest(
+        authorizationServer,
+        this.#client,
+        this.#clientAuthentication,
+        parameters,
+        oidcRedirectUri(this.config),
+        input.codeVerifier,
+        { [oauth.customFetch]: timeoutFetch },
+      );
+    } catch {
+      throw new OidcProviderStageError("token_request");
+    }
+
+    let tokens: oauth.TokenEndpointResponse;
+    try {
+      tokens = await oauth.processAuthorizationCodeResponse(
+        authorizationServer,
+        this.#client,
+        response,
+        { expectedNonce: input.nonce, requireIdToken: true },
+      );
+    } catch {
+      throw new OidcProviderStageError("token_response");
+    }
+
+    try {
+      await oauth.validateApplicationLevelSignature(authorizationServer, response, {
+        [oauth.customFetch]: timeoutFetch,
+      });
+    } catch {
+      throw new OidcProviderStageError("id_token_signature");
+    }
     const claims = oauth.getValidatedIdTokenClaims(tokens);
     if (!claims?.sub || !tokens.id_token) throw new OidcContractError("OIDC response has no usable identity.");
     const authenticatedAt = validateAuthenticationTime(claims);

@@ -12,7 +12,10 @@ import {
 } from "@/server/auth/http";
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import { InvalidOidcTransactionError } from "@/server/auth/oidc-flow";
-import { OidcContractError } from "@/server/auth/oidc-protocol";
+import {
+  OidcContractError,
+  OidcProviderStageError,
+} from "@/server/auth/oidc-protocol";
 import { getAuthServices } from "@/server/auth/services";
 import {
   AccountAccessBlockedError,
@@ -109,6 +112,9 @@ export async function GET(request: NextRequest) {
         : error instanceof OidcContractError || blocked
           ? "contract_blocked"
           : "provider_unavailable",
+      ...(error instanceof OidcProviderStageError
+        ? { providerStage: error.stage }
+        : {}),
     });
     if (unavailable) {
       const response = accountAccessUnavailableResponse();
