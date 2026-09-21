@@ -13,6 +13,8 @@ import {
   AccountAccessBlockedError,
   AccountAccessUnavailableError,
 } from "@/server/access-gate/authorization";
+import { logAuthEvent } from "@/server/auth/logging";
+import { OidcProviderStageError } from "@/server/auth/oidc-protocol";
 
 const authMocks = vi.hoisted(() => ({
   begin: vi.fn(),
@@ -123,6 +125,35 @@ describe("authentication routes", () => {
     expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
     expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
     expect(authMocks.revokeHandle).not.toHaveBeenCalled();
+  });
+
+  it("logs only the safe OIDC provider stage when callback processing fails", async () => {
+    authMocks.callback.mockRejectedValue(
+      new OidcProviderStageError("authorization_response"),
+    );
+    const request = new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=secret-code&state=${"s".repeat(43)}`,
+      {
+        headers: {
+          cookie: `${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}`,
+        },
+      },
+    );
+
+    const response = await callbackRoute(request);
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/login?error=unavailable",
+    );
+    expect(logAuthEvent).toHaveBeenCalledWith({
+      event: "oidc_login_failed",
+      requestId: "request-id",
+      outcome: "failure",
+      reason: "provider_unavailable",
+      providerStage: "authorization_response",
+    });
+    expect(JSON.stringify(vi.mocked(logAuthEvent).mock.calls)).not.toContain("secret-code");
   });
 
   it("replaces the old local session only after a successful callback", async () => {

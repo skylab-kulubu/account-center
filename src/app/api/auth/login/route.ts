@@ -2,7 +2,10 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { noStore, setOidcTransactionCookie } from "@/server/auth/http";
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
-import { OidcContractError } from "@/server/auth/oidc-protocol";
+import {
+  OidcContractError,
+  OidcProviderStageError,
+} from "@/server/auth/oidc-protocol";
 import { getAuthServices } from "@/server/auth/services";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +34,9 @@ export async function GET(request: NextRequest) {
       requestId,
       outcome: "failure",
       reason: error instanceof OidcContractError ? "contract_blocked" : "provider_unavailable",
+      ...(error instanceof OidcProviderStageError
+        ? { providerStage: error.stage }
+        : {}),
     });
     const destination = new URL("/login", request.url);
     destination.searchParams.set("error", "unavailable");

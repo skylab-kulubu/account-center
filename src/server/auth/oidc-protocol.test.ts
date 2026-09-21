@@ -5,6 +5,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import type { AuthConfig } from "@/server/auth/config";
 import {
   OidcContractError,
+  OidcProviderStageError,
   OAuth4WebApiProtocol,
   validateAuthenticationTime,
 } from "@/server/auth/oidc-protocol";
@@ -244,6 +245,58 @@ describe("OAuth4WebApiProtocol", () => {
       authenticatedAt: new Date((issuedAt - 60) * 1_000),
     });
     await expect(exchange(false)).rejects.toBeInstanceOf(OidcContractError);
+  });
+
+  it("classifies callback validation failures without exposing authorization material", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes(".well-known")) return Response.json(discovery);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    const callbackUrl = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callbackUrl.searchParams.set("state", "different-state");
+    callbackUrl.searchParams.set("iss", config.issuer.href);
+
+    const exchange = new OAuth4WebApiProtocol(config).exchange({
+      callbackUrl,
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+    });
+
+    await expect(exchange).rejects.toMatchObject({
+      name: "OidcProviderStageError",
+      stage: "authorization_response",
+      message: "The OIDC provider failed during authorization_response.",
+    } satisfies Partial<OidcProviderStageError>);
+  });
+
+  it("classifies token endpoint transport failures without logging the code", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes(".well-known")) return Response.json(discovery);
+      if (url === discovery.token_endpoint) throw new Error("transport included sensitive material");
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    const callbackUrl = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callbackUrl.searchParams.set("code", "authorization-code");
+    callbackUrl.searchParams.set("state", "state-value");
+    callbackUrl.searchParams.set("iss", config.issuer.href);
+
+    const exchange = new OAuth4WebApiProtocol(config).exchange({
+      callbackUrl,
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+    });
+
+    await expect(exchange).rejects.toMatchObject({
+      name: "OidcProviderStageError",
+      stage: "token_request",
+      message: "The OIDC provider failed during token_request.",
+    } satisfies Partial<OidcProviderStageError>);
   });
 
   it("refreshes with the confidential client and preserves the original verified ID token", async () => {
