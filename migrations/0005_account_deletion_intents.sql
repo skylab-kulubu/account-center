@@ -146,7 +146,11 @@ BEGIN
     )
     INTO actual_constraints
     FROM pg_constraint AS constraint_value
-   WHERE constraint_value.conrelid = relation_oid;
+   WHERE constraint_value.conrelid = relation_oid
+     -- PostgreSQL 18 exposes NOT NULL constraints in pg_constraint as
+     -- contype = 'n'. Their semantics are already covered by the column
+     -- fingerprint above, while PostgreSQL 17 does not return these rows.
+     AND constraint_value.contype <> 'n';
 
   SELECT array_agg(index_fingerprint.signature ORDER BY index_fingerprint.signature)
     INTO actual_indexes
