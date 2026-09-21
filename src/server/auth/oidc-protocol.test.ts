@@ -203,6 +203,11 @@ describe("OAuth4WebApiProtocol", () => {
     const makeAccessToken = () => new SignJWT({
       azp: config.clientId,
       scope: "openid",
+      resource_access: {
+        account: {
+          roles: ["manage-account", "view-profile"],
+        },
+      },
     })
       .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
       .setIssuer(config.issuer.href)
