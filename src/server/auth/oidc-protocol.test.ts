@@ -211,7 +211,7 @@ describe("OAuth4WebApiProtocol", () => {
     })
       .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
       .setIssuer(config.issuer.href)
-      .setAudience("account")
+      .setAudience(["account", "core"])
       .setSubject("user-id")
       .setIssuedAt(issuedAt)
       .setExpirationTime(issuedAt + 300)

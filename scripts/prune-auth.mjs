@@ -39,6 +39,7 @@ try {
         deletedActionResults: result.rows[0]?.deleted_action_results ?? 0,
         deletedDeletionIntents: result.rows[0]?.deleted_deletion_intents ?? 0,
         scrubbedDeletionRecovery: result.rows[0]?.scrubbed_deletion_recovery ?? 0,
+        scrubbedSudoProofs: result.rows[0]?.scrubbed_sudo_proofs ?? 0,
       }));
     }
   } catch (error) {

@@ -147,6 +147,13 @@ function validateAccountAccessEnvironment(env, issuer) {
   );
 }
 
+function validateCoreApiEnvironment(env) {
+  const value = env.CORE_API_URL?.trim();
+  if (!value) return;
+  if (placeholderPattern.test(value)) throw new Error("CORE_API_URL contains a placeholder value.");
+  requireHttpsOrigin("CORE_API_URL", value);
+}
+
 function validateAccountErasureEnvironment(env) {
   const mode = env.ACCOUNT_ERASURE_MODE?.trim() || "off";
   if (mode !== "off" && mode !== "enforce") {
@@ -156,9 +163,7 @@ function validateAccountErasureEnvironment(env) {
   if (env.ACCOUNT_ACCESS_GATE_MODE?.trim() !== "enforce") {
     throw new Error("Account erasure requires the account access gate in enforce mode.");
   }
-  const value = env.CORE_API_URL?.trim();
-  if (!value) throw new Error("Missing required environment variables: CORE_API_URL");
-  requireHttpsOrigin("CORE_API_URL", value);
+  if (!env.CORE_API_URL?.trim()) throw new Error("Missing required environment variables: CORE_API_URL");
 }
 
 function requireDatabaseUrl(value) {
@@ -256,6 +261,7 @@ export function validateEnvironment(env) {
   requireHttpsOrigin("APP_URL", values.APP_URL);
   requireOidcIssuer(values.OIDC_ISSUER);
   validateAccountAccessEnvironment(env, values.OIDC_ISSUER);
+  validateCoreApiEnvironment(env);
   validateAccountErasureEnvironment(env);
   validateDatabaseEnvironment(env);
 }

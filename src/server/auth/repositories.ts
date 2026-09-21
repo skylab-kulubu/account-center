@@ -64,6 +64,22 @@ export interface SessionRepository {
   deleteByIdReturningToken(id: string): Promise<string | null>;
 }
 
+export type StoredSudo = {
+  ciphertext: string;
+  expiresAt: Date;
+};
+
+/**
+ * Encrypted sudo token material on the active session record. A sudo entry
+ * only exists while the session itself is active; revocation, expiry and
+ * deletion of the session take the sudo material with them.
+ */
+export interface SudoRepository {
+  replaceSudo(sessionId: string, ciphertext: string, expiresAt: Date, now: Date): Promise<boolean>;
+  readSudo(sessionId: string, now: Date): Promise<StoredSudo | null>;
+  clearSudo(sessionId: string): Promise<void>;
+}
+
 export type BackchannelLogoutInput = {
   jtiHash: Buffer;
   seenAt: Date;

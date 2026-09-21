@@ -17,7 +17,7 @@ import {
   AccountAccessUnavailableError,
 } from "@/server/access-gate/authorization";
 import { AccountReadService } from "@/server/keycloak-account/service";
-import type { KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
+import type { AccountProfile, KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
 
 class MemoryTransactions implements OidcTransactionRepository {
   rows = new Map<string, StoredOidcTransaction & { consumed?: boolean }>();
@@ -97,15 +97,33 @@ function fixture(decision: "active" | "blocked" | "unavailable" = "active") {
     summary: { passwordConfigured: true, otpConfigured: false, passkeyCount: 0 },
     credentials: [],
   };
+  const profile: AccountProfile = {
+    username: null,
+    firstName: null,
+    lastName: null,
+    email: null,
+    emailVerified: false,
+    attributes: {
+      schoolEmail: null,
+      personalEmail: null,
+      skyNumber: null,
+      department: null,
+      university: null,
+    },
+    attributeMetadata: [],
+  };
   const adapter = {
-    profile: async () => ({ firstName: null, lastName: null, email: null, emailVerified: false }),
+    profile: async () => profile,
     authentication: async () => inventory.summary,
     credentialInventory: async () => inventory,
     sessions: async () => [],
+    groups: async () => [],
+    linkedAccounts: async () => [],
+    linkedAccountUri: async () => new URL("https://e.yildizskylab.com/realms/e-skylab/broker/OBS/link"),
     revokeSession: async () => undefined,
     revokeOtherSessions: async () => undefined,
     snapshot: async () => ({
-      profile: { firstName: null, lastName: null, email: null, emailVerified: false },
+      profile,
       authentication: inventory.summary,
       sessions: [],
     }),

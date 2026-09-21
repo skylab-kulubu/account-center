@@ -1,0 +1,4 @@
+{
+  "sudoToken": "eyJhbGciOiJIUzUxMiIsInR5cCI6InNreS1zdWRvIiwia2lkIjoiaG1hYy1rZXkifQ.eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzaWQiOiJzaWQtZml4dHVyZSIsImF6cCI6ImFjY291bnQtY2VudGVyIiwiYXVkIjoic2t5LWFjY291bnQiLCJhbXIiOlsicHdkIl0sImV4cCI6MTc4OTk5ODkxOH0.fixture-signature-not-verifiable-outside-keycloak",
+  "expiresAt": "2026-09-21T13:15:18Z"
+}

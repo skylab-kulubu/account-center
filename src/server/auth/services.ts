@@ -16,10 +16,12 @@ import {
   PostgresBackchannelLogoutRepository,
   PostgresRateLimitRepository,
   PostgresSessionRepository,
+  PostgresSudoRepository,
   PostgresNativeHandoffRepository,
 } from "@/server/auth/postgres-repositories";
 import { AnonymousAuthRateLimiter } from "@/server/auth/rate-limit";
 import { SessionManager } from "@/server/auth/sessions";
+import { SudoVault } from "@/server/auth/sudo";
 import { getDatabasePool } from "@/server/db/pool";
 import { Keycloak26AccountReadAdapter } from "@/server/keycloak-account/adapter";
 import { AccountReadService } from "@/server/keycloak-account/service";
@@ -33,6 +35,8 @@ import { AccountSessionAccess } from "@/server/access-gate/session-access";
 import { AccountDeletionOrchestrator } from "@/server/account-deletion/orchestrator";
 import { CoreAccountDeletionHttpGateway } from "@/server/account-deletion/core-gateway";
 import { PostgresAccountDeletionRepository } from "@/server/account-deletion/postgres-repository";
+import { CoreProfileHttpClient } from "@/server/core/profile-client";
+import { SkyAccountHttpClient } from "@/server/sky-account/client";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
 const globalServices = globalThis as typeof globalThis & { accountCenterAuthServices?: AuthServices };
@@ -89,6 +93,9 @@ function createAuthServices() {
     accountAccess,
     config.appUrl,
   );
+  const sudo = new SudoVault(new PostgresSudoRepository(pool), cipher);
+  const skyAccount = new SkyAccountHttpClient(config.issuer);
+  const coreProfile = config.coreApiUrl ? new CoreProfileHttpClient(config.coreApiUrl) : null;
   const accountDeletion = config.accountErasure.mode === "enforce"
     ? new AccountDeletionOrchestrator(
         new PostgresAccountDeletionRepository(pool),
@@ -108,6 +115,9 @@ function createAuthServices() {
     actionResults,
     nativeHandoff,
     accountDeletion,
+    sudo,
+    skyAccount,
+    coreProfile,
     nativeBridgeRequest: new NativeBridgeRequestVerifier(
       config.nativeBridgeHmacSecret,
       config.nativeBridgeMtlsClientSha256,

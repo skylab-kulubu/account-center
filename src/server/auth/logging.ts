@@ -33,7 +33,8 @@ type AuthLog = {
     | "native_bridge_redeemed"
     | "account_action_started"
     | "account_action_completed"
-    | "account_session_cleanup";
+    | "account_session_cleanup"
+    | "sudo_material_discarded";
   requestId: string;
   outcome: "success" | "failure";
   providerStage?: OidcProviderStage;
@@ -53,7 +54,8 @@ type AuthLog = {
     | "invalid_account_action"
     | "account_action_unverified"
     | "rate_limited"
-    | "local_session_revocation_failed";
+    | "local_session_revocation_failed"
+    | "sudo_decrypt_failed";
 };
 
 export function logAuthEvent(entry: AuthLog) {

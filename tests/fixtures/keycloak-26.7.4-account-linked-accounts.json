@@ -1,0 +1,17 @@
+[
+  {
+    "connected": true,
+    "social": false,
+    "providerAlias": "OBS",
+    "providerName": "OBS",
+    "displayName": "YTÜ Microsoft",
+    "linkedUsername": "ada@std.yildiz.edu.tr"
+  },
+  {
+    "connected": false,
+    "social": true,
+    "providerAlias": "github",
+    "providerName": "github",
+    "displayName": "GitHub"
+  }
+]

@@ -1,0 +1,171 @@
+{
+  "unauthorized": {
+    "type": "tag:yildizskylab.com,2026:sky-account:unauthorized",
+    "title": "Bearer token is not an Account Center user token",
+    "status": 401,
+    "detail": "Oturumun doğrulanamadı. Yeniden giriş yap.",
+    "code": "unauthorized"
+  },
+  "sudo_required": {
+    "type": "tag:yildizskylab.com,2026:sky-account:sudo_required",
+    "title": "A fresh sudo token is required",
+    "status": 401,
+    "detail": "Bu işlem için kimliğini yeniden doğrulaman gerekiyor.",
+    "code": "sudo_required"
+  },
+  "sudo_expired": {
+    "type": "tag:yildizskylab.com,2026:sky-account:sudo_expired",
+    "title": "The sudo token has expired",
+    "status": 401,
+    "detail": "Doğrulamanın süresi doldu. Yeniden doğrula.",
+    "code": "sudo_expired"
+  },
+  "invalid_credentials": {
+    "type": "tag:yildizskylab.com,2026:sky-account:invalid_credentials",
+    "title": "Invalid password or verification code",
+    "status": 401,
+    "detail": "Parola veya doğrulama kodu yanlış.",
+    "code": "invalid_credentials"
+  },
+  "user_temporarily_locked": {
+    "type": "tag:yildizskylab.com,2026:sky-account:user_temporarily_locked",
+    "title": "The account is temporarily locked",
+    "status": 401,
+    "detail": "Çok fazla hatalı deneme yapıldı. Hesabın geçici olarak kilitlendi.",
+    "code": "user_temporarily_locked"
+  },
+  "user_disabled": {
+    "type": "tag:yildizskylab.com,2026:sky-account:user_disabled",
+    "title": "The account is disabled",
+    "status": 401,
+    "detail": "Hesabın devre dışı. Yönetim ekibiyle iletişime geç.",
+    "code": "user_disabled"
+  },
+  "invalid_request": {
+    "type": "tag:yildizskylab.com,2026:sky-account:invalid_request",
+    "title": "The request body is invalid",
+    "status": 400,
+    "detail": "İstek anlaşılamadı.",
+    "code": "invalid_request",
+    "field": "username"
+  },
+  "password_not_configured": {
+    "type": "tag:yildizskylab.com,2026:sky-account:password_not_configured",
+    "title": "No password is configured",
+    "status": 400,
+    "detail": "Hesabında parola tanımlı değil.",
+    "code": "password_not_configured"
+  },
+  "totp_not_configured": {
+    "type": "tag:yildizskylab.com,2026:sky-account:totp_not_configured",
+    "title": "No authenticator app is configured",
+    "status": 400,
+    "detail": "Hesabında doğrulama uygulaması tanımlı değil.",
+    "code": "totp_not_configured"
+  },
+  "password_policy": {
+    "type": "tag:yildizskylab.com,2026:sky-account:password_policy",
+    "title": "New password violates the password policy",
+    "status": 400,
+    "detail": "Geçersiz Şifre: En az 12 karakter uzunluğunda olmalı.",
+    "code": "password_policy",
+    "policy": "invalidPasswordMinLengthMessage",
+    "params": [12]
+  },
+  "password_rejected": {
+    "type": "tag:yildizskylab.com,2026:sky-account:password_rejected",
+    "title": "Keycloak rejected the new password",
+    "status": 400,
+    "detail": "Yeni parola kabul edilmedi.",
+    "code": "password_rejected"
+  },
+  "totp_setup_expired": {
+    "type": "tag:yildizskylab.com,2026:sky-account:totp_setup_expired",
+    "title": "The TOTP setup has expired",
+    "status": 400,
+    "detail": "Kurulumun süresi doldu. Baştan başla.",
+    "code": "totp_setup_expired"
+  },
+  "invalid_totp_code": {
+    "type": "tag:yildizskylab.com,2026:sky-account:invalid_totp_code",
+    "title": "The confirmation code is wrong",
+    "status": 400,
+    "detail": "Kod yanlış. Uygulamandaki güncel kodu gir.",
+    "code": "invalid_totp_code"
+  },
+  "invalid_name": {
+    "type": "tag:yildizskylab.com,2026:sky-account:invalid_name",
+    "title": "The name is invalid",
+    "status": 400,
+    "detail": "Ad boş olamaz.",
+    "code": "invalid_name",
+    "field": "firstName"
+  },
+  "invalid_username": {
+    "type": "tag:yildizskylab.com,2026:sky-account:invalid_username",
+    "title": "The username is invalid",
+    "status": 400,
+    "detail": "Kullanıcı adı yalnız küçük harf, rakam, nokta ve alt çizgi içerebilir.",
+    "code": "invalid_username",
+    "field": "username"
+  },
+  "name_locked": {
+    "type": "tag:yildizskylab.com,2026:sky-account:name_locked",
+    "title": "A verified YTÜ account cannot change its name",
+    "status": 403,
+    "detail": "Doğrulanmış YTÜ hesabının adı YTÜ kaydından gelir ve değiştirilemez.",
+    "code": "name_locked"
+  },
+  "credential_not_found": {
+    "type": "tag:yildizskylab.com,2026:sky-account:credential_not_found",
+    "title": "The credential was not found",
+    "status": 404,
+    "detail": "Kimlik bilgisi bulunamadı.",
+    "code": "credential_not_found"
+  },
+  "duplicate_label": {
+    "type": "tag:yildizskylab.com,2026:sky-account:duplicate_label",
+    "title": "An authenticator with this label exists",
+    "status": 409,
+    "detail": "Aynı adda bir doğrulama uygulaması zaten var.",
+    "code": "duplicate_label"
+  },
+  "username_taken": {
+    "type": "tag:yildizskylab.com,2026:sky-account:username_taken",
+    "title": "The username is taken",
+    "status": 409,
+    "detail": "Bu kullanıcı adı kullanılıyor.",
+    "code": "username_taken"
+  },
+  "username_cooldown": {
+    "type": "tag:yildizskylab.com,2026:sky-account:username_cooldown",
+    "title": "The username was changed recently",
+    "status": 409,
+    "detail": "Kullanıcı adını 14 günde bir değiştirebilirsin.",
+    "code": "username_cooldown",
+    "retryAfter": 604800,
+    "availableAt": "2026-09-28T13:10:41Z"
+  },
+  "rate_limited": {
+    "type": "tag:yildizskylab.com,2026:sky-account:rate_limited",
+    "title": "Too many requests",
+    "status": 429,
+    "detail": "Çok fazla deneme yaptın. Biraz sonra yeniden dene.",
+    "code": "rate_limited",
+    "retryAfter": 540
+  },
+  "unmanaged_attributes_enabled": {
+    "type": "tag:yildizskylab.com,2026:sky-account:unmanaged_attributes_enabled",
+    "title": "Realm user profile allows unmanaged attributes",
+    "status": 503,
+    "detail": "Hesap değişiklikleri geçici olarak kapalı.",
+    "code": "unmanaged_attributes_enabled"
+  },
+  "internal_error": {
+    "type": "tag:yildizskylab.com,2026:sky-account:internal_error",
+    "title": "Unexpected error",
+    "status": 500,
+    "detail": "Beklenmeyen bir sorun oluştu. Değişiklik yapılmadı.",
+    "code": "internal_error"
+  }
+}

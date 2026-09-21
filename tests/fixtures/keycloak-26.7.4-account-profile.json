@@ -1,12 +1,135 @@
 {
+  "id": "11111111-1111-4111-8111-111111111111",
   "username": "account-fixture",
   "firstName": "Ada",
   "lastName": "Lovelace",
   "email": "account-fixture@example.invalid",
   "emailVerified": true,
   "attributes": {
-    "school_email": ["private-school-address@example.invalid"],
-    "sky_number": ["SKY-0000042"]
+    "schoolEmail": ["ada@std.yildiz.edu.tr"],
+    "personalEmail": ["ada-personal@example.invalid"],
+    "skyNumber": ["SKY-0000042"],
+    "department": ["Bilgisayar Mühendisliği"],
+    "university": ["Yıldız Teknik Üniversitesi"],
+    "skyMail": ["legacy-skymail@example.invalid"],
+    "usernameChangedAt": ["2026-09-01T10:00:00Z"],
+    "locale": ["tr"]
+  },
+  "userProfileMetadata": {
+    "attributes": [
+      {
+        "name": "username",
+        "displayName": "${username}",
+        "required": true,
+        "readOnly": true,
+        "validators": {
+          "length": { "min": 3, "max": 255 },
+          "username-prohibited-characters": {},
+          "up-username-not-idn-homograph": {}
+        },
+        "multivalued": false
+      },
+      {
+        "name": "email",
+        "displayName": "${email}",
+        "required": true,
+        "readOnly": true,
+        "validators": {
+          "email": {},
+          "length": { "max": 255 }
+        },
+        "multivalued": false
+      },
+      {
+        "name": "firstName",
+        "displayName": "${firstName}",
+        "required": true,
+        "readOnly": true,
+        "validators": {
+          "length": { "max": 255 },
+          "person-name-prohibited-characters": {}
+        },
+        "multivalued": false
+      },
+      {
+        "name": "lastName",
+        "displayName": "${lastName}",
+        "required": true,
+        "readOnly": true,
+        "validators": {
+          "length": { "max": 255 },
+          "person-name-prohibited-characters": {}
+        },
+        "multivalued": false
+      },
+      {
+        "name": "schoolEmail",
+        "displayName": "Okul e-postası",
+        "required": false,
+        "readOnly": true,
+        "annotations": { "inputType": "text" },
+        "validators": { "email": {} },
+        "multivalued": false
+      },
+      {
+        "name": "personalEmail",
+        "displayName": "Kişisel e-posta",
+        "required": false,
+        "readOnly": true,
+        "validators": { "email": {} },
+        "multivalued": false
+      },
+      {
+        "name": "skyNumber",
+        "displayName": "SKY numarası",
+        "required": false,
+        "readOnly": true,
+        "validators": {},
+        "multivalued": false
+      },
+      {
+        "name": "department",
+        "displayName": "Bölüm",
+        "required": false,
+        "readOnly": true,
+        "validators": { "length": { "max": 255 } },
+        "multivalued": false
+      },
+      {
+        "name": "university",
+        "displayName": "Üniversite",
+        "required": false,
+        "readOnly": true,
+        "validators": {},
+        "group": "school",
+        "multivalued": false,
+        "defaultValue": "Yıldız Teknik Üniversitesi"
+      },
+      {
+        "name": "skyMail",
+        "displayName": "SkyMail",
+        "required": false,
+        "readOnly": true,
+        "validators": { "email": {} },
+        "multivalued": false
+      },
+      {
+        "name": "usernameChangedAt",
+        "displayName": "Kullanıcı adı değişimi",
+        "required": false,
+        "readOnly": true,
+        "validators": {},
+        "multivalued": false
+      }
+    ],
+    "groups": [
+      {
+        "name": "school",
+        "displayHeader": "Okul bilgileri",
+        "displayDescription": "YTÜ Microsoft hesabından gelir",
+        "annotations": {}
+      }
+    ]
   },
   "enabled": true
 }
