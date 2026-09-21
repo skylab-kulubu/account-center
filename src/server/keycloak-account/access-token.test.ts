@@ -27,6 +27,11 @@ function claims(overrides: Record<string, unknown> = {}) {
     azp: expected.clientId,
     aud: "account",
     scope: "openid",
+    resource_access: {
+      account: {
+        roles: ["manage-account", "view-profile"],
+      },
+    },
     exp: Math.floor(now.getTime() / 1_000) + 300,
     ...overrides,
   };
@@ -45,6 +50,16 @@ describe("Account REST access token contract", () => {
     ["another subject", { sub: "other-user" }],
     ["profile scope", { scope: "openid profile" }],
     ["another issuer", { iss: "https://attacker.invalid/realms/fake" }],
+  ])("rejects %s", (_label, override) => {
+    expect(() => validateAccountAccessToken(jwt(claims(override)), expected, now))
+      .toThrow(AccountAccessTokenContractError);
+  });
+
+  it.each([
+    ["missing account roles", { resource_access: undefined }],
+    ["only profile access", { resource_access: { account: { roles: ["view-profile"] } } }],
+    ["only account management", { resource_access: { account: { roles: ["manage-account"] } } }],
+    ["a malformed role claim", { resource_access: { account: { roles: "manage-account" } } }],
   ])("rejects %s", (_label, override) => {
     expect(() => validateAccountAccessToken(jwt(claims(override)), expected, now))
       .toThrow(AccountAccessTokenContractError);

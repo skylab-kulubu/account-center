@@ -2,6 +2,16 @@ import "server-only";
 
 import { decodeJwt, decodeProtectedHeader } from "jose";
 
+const requiredAccountRoles = ["manage-account", "view-profile"] as const;
+
+function hasRequiredAccountRoles(resourceAccess: unknown) {
+  if (typeof resourceAccess !== "object" || resourceAccess === null) return false;
+  const account = (resourceAccess as Record<string, unknown>).account;
+  if (typeof account !== "object" || account === null) return false;
+  const roles = (account as Record<string, unknown>).roles;
+  return Array.isArray(roles) && requiredAccountRoles.every((role) => roles.includes(role));
+}
+
 export class AccountAccessTokenContractError extends Error {
   constructor() {
     super("The server-held Account REST token does not match the pinned user-token contract.");
@@ -40,6 +50,7 @@ export function validateAccountAccessToken(
     !Array.isArray(audience) ||
     audience.length !== 1 ||
     audience[0] !== "account" ||
+    !hasRequiredAccountRoles(claims.resource_access) ||
     typeof claims.exp !== "number" ||
     !Number.isSafeInteger(claims.exp)
   ) {
