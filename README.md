@@ -126,10 +126,13 @@ için canonical, credential'sız bir HTTPS origin olmak zorundadır; tanımsızs
 kulüp profili özellikleri kapalı kalır. Yeni bir gizli değer gerekmez;
 sudo proof'ları mevcut `TOKEN_ENCRYPTION_KEY` ile oturum kaydında şifrelenir.
 
-Sürüm geçişi: bu sürüm Keycloak kullanıcı token'ında tam olarak
-`aud=["account","core"]` bekler. Önce Keycloak reconcile (K2) uygulanmalı,
-sonra bu imaj dağıtılmalıdır; ayrıntı
-[Keycloak sözleşmesinde](docs/keycloak-26.7.4-contract.md).
+Sürüm geçişi: bu sürüm Keycloak kullanıcı token'ında K2 geçişi boyunca
+eski `aud=account` ve güncel `aud=["account","core"]` kümelerinden tam olarak
+birini kabul eder; eski küme her doğrulamada `token_audience_legacy` log
+olayı üretir. Sıra: önce bu imaj dağıtılır, sonra Keycloak reconcile (K2)
+uygulanır, en geç 8 saat içinde loglarda sıfır `token_audience_legacy` olayı
+doğrulanır, ardından takip bileti A0c ile sözleşme tek kümeye daraltılır;
+ayrıntı [Keycloak sözleşmesinde](docs/keycloak-26.7.4-contract.md).
 
 ## Ayrıntılı belgeler
 
