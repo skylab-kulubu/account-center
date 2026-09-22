@@ -5,6 +5,7 @@ import { GET as loginRoute } from "@/app/api/auth/login/route";
 import {
   ACCOUNT_DELETION_PROOF_COOKIE,
   ACCOUNT_DELETION_RECEIPT_COOKIE,
+  EMBEDDED_APP_COOKIE,
   SESSION_COOKIE,
   OIDC_TRANSACTION_COOKIE,
 } from "@/server/auth/http";
@@ -266,6 +267,29 @@ describe("authentication routes", () => {
     expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));
     expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+    expect(response.cookies.get(EMBEDDED_APP_COOKIE)).toBeUndefined();
+  });
+
+  it("marks a native handoff session as embedded in SkyApp for exactly the session's lifetime", async () => {
+    const absoluteExpiresAt = new Date(Date.now() + 8 * 60 * 60 * 1_000);
+    authMocks.callback.mockResolvedValue({
+      handle: "n".repeat(43),
+      absoluteExpiresAt,
+      returnTo: "/",
+      nativeHandoff: true,
+    });
+
+    const response = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    ));
+
+    expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));
+    const embedded = response.cookies.get(EMBEDDED_APP_COOKIE);
+    expect(embedded?.value).toBe("skyapp");
+    expect(embedded).toMatchObject({ httpOnly: true, secure: true, sameSite: "lax", path: "/" });
+    expect(embedded?.maxAge).toBe(response.cookies.get(SESSION_COOKIE)?.maxAge);
+    expect(embedded?.maxAge).toBeGreaterThan(8 * 60 * 60 - 5);
   });
 
   it("keeps deletion proof and receipt in secure host-only cookies after fresh reauthentication", async () => {

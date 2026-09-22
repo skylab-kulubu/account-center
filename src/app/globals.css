@@ -2266,6 +2266,10 @@ a.settings-row:hover .settings-row__chevron {
     padding: 34px 18px calc(48px + env(safe-area-inset-bottom));
   }
 
+  .account-root[data-embedded] .account-content {
+    min-height: 100dvh;
+  }
+
   .page-header {
     margin-bottom: 26px;
   }
