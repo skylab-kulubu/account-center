@@ -80,6 +80,7 @@ describe("anonymous auth rate limiting", () => {
     ["sudo_options" as const, 30],
     ["security_mutation" as const, 30],
     ["totp_confirm" as const, 10],
+    ["identity_mutation" as const, 10],
   ])("caps %s attempts per session at %d in a fixed 15-minute window", async (scope, limit) => {
     const repository = new CapturingRateLimits();
     const limiter = new AnonymousAuthRateLimiter(

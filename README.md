@@ -34,7 +34,13 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 
 ## Özellikler
 
-- Ad, soyad ve birincil e-posta bilgilerinin güvenli görünümü.
+- Kimlik sayfası: ad ve soyad (doğrulanmış YTÜ hesabında YTÜ kaydından gelir
+  ve kilitlidir, diğer hesaplarda yerinde düzenlenir; değişiklik sky-account
+  SPI'ye yazılır ve core'daki kulüp profili gölgesi aynı işlemde eşitlenir),
+  kullanıcı adı değişikliği (benzersizlik ve 14 günlük bekleme SPI'de,
+  sonuçları anlatan onay penceresi ve Sudo modu), YTÜ durumu ve birincil /
+  okul e-postası satırları. `/personal-information` kalıcı olarak
+  `/identity` adresine yönlenir.
 - Hassas işlemlerden önce ürün içi "kimliğini doğrula" adımı (Sudo modu):
   parola, passkey ya da doğrulama kodu ile beş dakikalık, sunucuda şifreli
   saklanan yeniden doğrulama; hiçbiri yoksa Microsoft ile yeniden giriş.
@@ -47,8 +53,9 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
   Keycloak'a yönlendirme yoktur.
 - Bu sürüm v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş token
   sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi, şifreli
-  sudo saklama ve doğrulama diyaloğu). Kullanıcı adı ve e-posta yüzeyleri
-  A1 ve A3 işleriyle gelir; bu sürümde arayüzde yer almaz.
+  sudo saklama ve doğrulama diyaloğu). Kişisel e-posta ekleme, birincil adres
+  seçimi ve YTÜ hesabı bağlama sonraki işlerle gelir; kimlik sayfası bunları
+  "yakında" olarak gösterir.
 - Kulüp profili: SKY numarası, öğrenci kartı durumu, okul e-postası ve kendi
   telefonun salt okunur; üniversite, fakülte, bölüm ve LinkedIn bağlantısı
   düzenlenebilir; profil fotoğrafı önizlemeyle yüklenir, değiştirilir veya

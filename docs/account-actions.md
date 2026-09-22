@@ -42,6 +42,20 @@ Every other failure answers `{ error, detail, retryAfter?, policy?, params? }` w
 
 No password, code, secret, attestation, sudo token, bearer token or credential id appears in a log line, an error message or a URL. Logs record only `security_action` events with the action kind (`password`, `totp_setup`, `totp_confirm`, `passkey_options`, `passkey_register`, `credential_delete`), the outcome and a fixed reason code.
 
+## Name and username (identity page)
+
+The identity page (`/identity`, "Kimlik") changes the person's name and username through the same SPI; Account REST `POST /account` is never used for identity, because the realm keeps `firstName`/`lastName`/`email` user:view-only and `editUsernameAllowed=false`. Routes live under `/api/account/identity` (`src/server/identity/routes.ts`); the page reads the view with the session cookie only and re-reads it after every change.
+
+| Route | Body | Success | sky-account call |
+| --- | --- | --- | --- |
+| `GET /api/account/identity` | — | `{ firstName, lastName, nameLocked, username, usernameChangeAvailableAt, verifiedYtu, schoolEmail, email, emailVerified, csrfToken }` | `GET identity` |
+| `PATCH /api/account/identity/name` | `{ firstName, lastName }` (≤ 4 KB; each 1–64 characters after folding runs of spaces and trimming; control, format, NBSP and the Keycloak prohibited person-name characters are refused with `400 invalid_name` + `field`) | `200 { coreSync: "synced" \| "failed" \| "disabled" }` | `PATCH identity/name`, then core `PATCH /v1/users/me { firstName, lastName }` with the names the SPI stored |
+| `POST /api/account/identity/username` | `{ username }` (lower-cased, `^[a-z0-9._]{3,30}$`, otherwise `400 invalid_username`) | `204` | `POST identity/username` with `X-Sky-Sudo` |
+
+The name route needs no Sudo mode (the SPI refuses a Verified YTÜ account with `403 name_locked`, relayed as such); the username route runs the same Sudo mode gate and `428` challenge as the security routes. Both apply exact `Origin` → CSRF → access gate and session → (username: Sudo mode gate) → local per-session budget `identity_mutation` (10 / 15 min; the SPI's `mutation` budget is shared with the credential routes) → body → SPI. A core failure after the SPI accepted the name is not rolled back: the answer says `coreSync: "failed"`, the page shows "Kulüp profilindeki adın daha sonra eşitlenecek." and the BFF logs `identity_name_core_sync_failed` with a fixed reason (`provider_unavailable`, `invalid_token`, `contract_blocked`, `core_rejected`, `core_disabled`) so the shadow can be reconciled; `coreSync: "disabled"` means `CORE_API_URL` is unset.
+
+Error mapping: `invalid_name` → `400` (+ `field`), `invalid_username` → `400` (+ `field: "username"`), `name_locked` → `403`, `username_taken` → `409` (+ `field: "username"`, shown on the field as "kullanılıyor"), `username_cooldown` → `409` + `retryAfter`, `availableAt` and `Retry-After` (shown as the next allowed moment in Turkish; the page also disables the change while `GET identity` reports a future `usernameChangeAvailableAt`), the rest as in the security routes. Logs carry only `identity_action` events (`identityAction: "name" | "username"`, outcome, fixed reason); no name or username ever appears in a log line, an error answer or a URL.
+
 ## Rollback
 
 The previous image (`main` before this change) still contains the application-initiated-action path (`POST /api/auth/action`, the `account-action` transaction kind, `kc_action` in PAR and the one-time `account_action_results` feedback). Rolling back is a deployment of that image; no configuration flag switches between the two models. The `account_action_results` table and migration `0004` stay in place so that image keeps working and the readiness probe keeps passing; the hourly prune job still empties the table. A later release drops the table once the previous image is no longer a rollback target.
@@ -58,5 +72,5 @@ Fixture and unit tests cannot prove the platform ceremonies. Production stays bl
 
 ## Upstream contract references
 
-- [sky-account API v1](sky-account-api.md): `credentials/password`, `credentials/totp/setup|confirm`, `credentials/webauthn/options|register`, `DELETE credentials/{id}`, `X-Sky-Sudo`, RFC 7807 codes.
+- [sky-account API v1](sky-account-api.md): `identity`, `identity/name`, `identity/username`, `credentials/password`, `credentials/totp/setup|confirm`, `credentials/webauthn/options|register`, `DELETE credentials/{id}`, `X-Sky-Sudo`, RFC 7807 codes.
 - [Keycloak 26.7.4 contract](keycloak-26.7.4-contract.md): the forced re-authentication (`prompt=login&max_age=0`) that remains for account deletion and the Sudo mode fallback.

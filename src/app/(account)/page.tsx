@@ -41,10 +41,10 @@ export default async function OverviewPage() {
 
       <SettingsGroup title="Hesap ayarları" description="En sık kullanılan hesap ve güvenlik alanları.">
         <SettingsRow
-          href="/personal-information"
+          href="/identity"
           icon={<CircleUserRound aria-hidden="true" size={19} />}
-          title="Kişisel bilgiler"
-          description="Adını ve birincil e-posta adresini görüntüle."
+          title="Kimlik"
+          description="Adını, kullanıcı adını ve YTÜ hesabının durumunu yönet."
         />
         <SettingsRow
           href="/club-profile"

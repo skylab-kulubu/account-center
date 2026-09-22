@@ -12,7 +12,7 @@ import type { FullConfig } from "@playwright/test";
 const pages = [
   "/",
   "/login",
-  "/personal-information",
+  "/identity",
   "/security",
   "/sessions",
   "/permissions",
@@ -26,6 +26,7 @@ const pages = [
   "/api/auth/callback",
   "/api/auth/unavailable",
   "/api/account",
+  "/api/account/identity",
   "/api/account/sessions",
   "/api/account/security",
   "/api/account/club-profile",
@@ -43,6 +44,7 @@ const mutations = [
   "/api/account/sudo/webauthn/options",
   "/api/account/sudo/webauthn/verify",
   "/api/account/sudo/reauthenticate",
+  "/api/account/identity/username",
   "/api/account/security/password",
   "/api/account/security/totp/setup",
   "/api/account/security/totp/confirm",
@@ -63,6 +65,7 @@ export default async function globalSetup(config: FullConfig) {
     for (const path of mutations) {
       await context.post(path, { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
     }
+    await context.patch("/api/account/identity/name", { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
     await context.delete("/api/account/security/credentials/warm-up", { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
     await context.delete(`/api/account/sessions/${"w".repeat(43)}`, { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
   } finally {
