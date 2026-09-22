@@ -1,0 +1,5 @@
+{
+  "accountLinkUri": "https://e.yildizskylab.com/realms/e-skylab/broker/OBS/link?nonce=8f3c2a1e-6b7d-4c9a-9e1f-2d3c4b5a6978&hash=q7ZlCzOFk1w5U6E7Wf2v8NfGf1cEV7Yv1m7z9d7Qm2E&client_id=account-console&redirect_uri=https%3A%2F%2Fmy.yildizskylab.com%2Fidentity",
+  "nonce": "8f3c2a1e-6b7d-4c9a-9e1f-2d3c4b5a6978",
+  "hash": "q7ZlCzOFk1w5U6E7Wf2v8NfGf1cEV7Yv1m7z9d7Qm2E"
+}

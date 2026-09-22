@@ -97,4 +97,33 @@ describe("authentication configuration", () => {
       coreApiUrl: new URL("https://api.yildizskylab.com"),
     });
   });
+
+  it("defaults the YTÜ identity provider alias to OBS and accepts only a URL-safe alias", () => {
+    environment("3600");
+    expect(getAuthConfig().ytuIdpAlias).toBe("OBS");
+    process.env.YTU_IDP_ALIAS = " obs-sandbox_2 ";
+    expect(getAuthConfig().ytuIdpAlias).toBe("obs-sandbox_2");
+    for (const invalid of ["OBS/link", "OBS OBS", "a".repeat(65), "<idp-alias>", "OBS?x=1", "ÖBS"]) {
+      process.env.YTU_IDP_ALIAS = invalid;
+      expect(() => getAuthConfig()).toThrow(/YTU_IDP_ALIAS/);
+    }
+  });
+
+  it("keeps the club-profile core origin optional but canonical whenever it is set", () => {
+    environment("3600");
+    expect(getAuthConfig().coreApiUrl).toBeNull();
+    process.env.CORE_API_URL = "https://api.yildizskylab.com";
+    expect(getAuthConfig().coreApiUrl).toEqual(new URL("https://api.yildizskylab.com"));
+    expect(getAuthConfig().accountErasure).toEqual({ mode: "off" });
+    for (const invalid of [
+      "http://api.yildizskylab.com",
+      "https://api.yildizskylab.com/v1",
+      "https://user:secret@api.yildizskylab.com",
+      "https://api.yildizskylab.com/?x=1",
+      "https://API.yildizskylab.com",
+    ]) {
+      process.env.CORE_API_URL = invalid;
+      expect(() => getAuthConfig()).toThrow(/CORE_API_URL/);
+    }
+  });
 });

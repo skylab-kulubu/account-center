@@ -28,7 +28,20 @@ describe("AccountShell", () => {
   it("exposes the account navigation and marks the current page", () => {
     render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
 
-    expect(screen.getByRole("navigation", { name: "Hesap ayarları" })).toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "Hesap ayarları" });
+    expect(navigation).toBeInTheDocument();
+    expect(Array.from(navigation.querySelectorAll("a"), (link) => link.textContent)).toEqual([
+      "Özet",
+      "Kimlik",
+      "Kulüp profili",
+      "Giriş ve güvenlik",
+      "Oturumlar ve cihazlar",
+      "Yetkilerim",
+      "Hesabı sil",
+    ]);
+    expect(screen.getByRole("link", { name: "Kimlik" })).toHaveAttribute("href", "/identity");
+    expect(screen.getByRole("link", { name: "Yetkilerim" })).toHaveAttribute("href", "/permissions");
+    expect(screen.getByRole("link", { name: "Kulüp profili" })).toHaveAttribute("href", "/club-profile");
     expect(screen.getByRole("link", { name: "Giriş ve güvenlik" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "İçeriğe geç" })).toHaveAttribute("href", "#main-content");
     expect(screen.getByText("İçerik")).toBeInTheDocument();

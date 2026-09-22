@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AccountShell } from "@/components/account-shell";
+import { SudoProvider } from "@/components/sudo-provider";
 import { getAuthServices } from "@/server/auth/services";
 import { currentAccountSession } from "@/server/access-gate/current-session";
 
@@ -13,7 +14,7 @@ export default async function AccountLayout({ children }: Readonly<{ children: R
 
   return (
     <AccountShell logoutCsrfToken={services.sessions.csrfToken(session.session.id)}>
-      {children}
+      <SudoProvider>{children}</SudoProvider>
     </AccountShell>
   );
 }

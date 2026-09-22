@@ -5,6 +5,7 @@ const { spkiFingerprint } = ensureE2eCertificate();
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
@@ -22,23 +23,25 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testIgnore: /account-ui\.spec\.ts/,
+      testIgnore: /(?:account-ui|club-profile)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "mobile",
-      testIgnore: /account-ui\.spec\.ts/,
+      testIgnore: /(?:account-ui|club-profile)\.spec\.ts/,
       use: { ...devices["Pixel 7"] },
     },
     {
       name: "reduced-motion",
-      testIgnore: /account-ui\.spec\.ts/,
+      testIgnore: /(?:account-ui|club-profile)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], reducedMotion: "reduce" },
     },
     {
+      // Runs once every route has been compiled by the projects above, so the
+      // stateful club-profile flow is not interrupted by a dev-server reload.
       name: "account-ui-matrix",
       dependencies: ["desktop", "mobile", "reduced-motion"],
-      testMatch: /account-ui\.spec\.ts/,
+      testMatch: /(?:account-ui|club-profile)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
   ],

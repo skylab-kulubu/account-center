@@ -1,5 +1,6 @@
 import {
   CircleUserRound,
+  IdCard,
   KeyRound,
   MonitorSmartphone,
   ShieldCheck,
@@ -40,22 +41,34 @@ export default async function OverviewPage() {
 
       <SettingsGroup title="Hesap ayarları" description="En sık kullanılan hesap ve güvenlik alanları.">
         <SettingsRow
-          href="/personal-information"
+          href="/identity"
           icon={<CircleUserRound aria-hidden="true" size={19} />}
-          title="Kişisel bilgiler"
-          description="Adını ve birincil e-posta adresini görüntüle."
+          title="Kimlik"
+          description="Adını, kullanıcı adını ve YTÜ hesabının durumunu yönet."
+        />
+        <SettingsRow
+          href="/club-profile"
+          icon={<IdCard aria-hidden="true" size={19} />}
+          title="Kulüp profili"
+          description="SKY numaran, öğrenci kartın, kulüp bilgilerin ve profil fotoğrafın."
         />
         <SettingsRow
           href="/security"
           icon={<KeyRound aria-hidden="true" size={19} />}
           title="Giriş ve güvenlik"
-          description="Şifre, passkey ve iki adımlı doğrulama."
+          description="Parola, passkey ve doğrulama uygulamasını buradan yönet."
         />
         <SettingsRow
           href="/sessions"
           icon={<MonitorSmartphone aria-hidden="true" size={19} />}
           title="Oturumlar ve cihazlar"
           description="Hesabının açık olduğu cihazları denetle."
+        />
+        <SettingsRow
+          href="/permissions"
+          icon={<ShieldCheck aria-hidden="true" size={19} />}
+          title="Yetkilerim"
+          description="Takımlarını, yetki seviyeni ve uygulama yetkilerini gör."
         />
       </SettingsGroup>
 

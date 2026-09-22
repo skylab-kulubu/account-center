@@ -13,6 +13,7 @@ export async function GET() {
       native_ready: boolean;
       actions_ready: boolean;
       deletion_ready: boolean;
+      sudo_ready: boolean;
       migrations_ready: boolean;
     }>(
       `SELECT
@@ -24,7 +25,13 @@ export async function GET() {
            AND to_regclass('public.account_native_bridge_request_nonces') IS NOT NULL AS native_ready,
          to_regclass('public.account_action_results') IS NOT NULL AS actions_ready,
          to_regclass('public.account_deletion_intents') IS NOT NULL AS deletion_ready,
-         (SELECT count(*) = 5
+         (SELECT count(*) = 2
+            FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'account_sessions'
+             AND ((column_name = 'sudo_token_ciphertext' AND data_type = 'text')
+               OR (column_name = 'sudo_expires_at' AND data_type = 'timestamp with time zone'))) AS sudo_ready,
+         (SELECT count(*) = 6
             FROM account_center_schema_migrations
            WHERE name = ANY($1::text[])) AS migrations_ready`,
       [[
@@ -33,6 +40,7 @@ export async function GET() {
         "0003_native_handoff.sql",
         "0004_account_action_results.sql",
         "0005_account_deletion_intents.sql",
+        "0006_account_sudo.sql",
       ]],
     );
     if (
@@ -41,6 +49,7 @@ export async function GET() {
       !result.rows[0]?.native_ready ||
       !result.rows[0]?.actions_ready ||
       !result.rows[0]?.deletion_ready ||
+      !result.rows[0]?.sudo_ready ||
       !result.rows[0]?.migrations_ready ||
       !await services.accountAccess.ready()
     ) {

@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
   output: "standalone",
   poweredByHeader: false,
+  async redirects() {
+    // The v1 "Kişisel bilgiler" page became "Kimlik"; old links keep working.
+    return [{ source: "/personal-information", destination: "/identity", permanent: true }];
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

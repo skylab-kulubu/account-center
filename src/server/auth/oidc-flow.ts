@@ -1,26 +1,40 @@
 import "server-only";
 
 import * as oauth from "oauth4webapi";
-import { constantTimeEqual, randomOpaqueValue } from "@/server/auth/crypto";
+import { randomOpaqueValue } from "@/server/auth/crypto";
 import { OidcContractError, type OidcProtocol } from "@/server/auth/oidc-protocol";
 import type { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import type { SessionManager } from "@/server/auth/sessions";
 import type {
-  AccountActionKind,
-  AccountActionTransactionPayload,
   AccountDeletionReauthenticationTransactionPayload,
   ActiveSession,
   NativeHandoffIdentity,
+  SudoReauthenticationTransactionPayload,
+  YtuLinkTransactionPayload,
 } from "@/server/auth/types";
 import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
-import type { AccountReadService } from "@/server/keycloak-account/service";
-import type { KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
 
+/**
+ * How the `idp_link` round trip ended: Keycloak's own `kc_action_status`, or
+ * `unverified` when the fresh token set could not be stored on this session.
+ * `success` still has to be proven by re-reading the identity.
+ */
+export type YtuLinkCallbackStatus = "success" | "cancelled" | "error" | "unverified";
+
+export type OidcFlowOptions = {
+  /** Alias of the YTÜ Microsoft identity provider, the only `kc_action_parameter` ever pushed. */
+  ytuIdpAlias: string;
+  clock?: () => Date;
+};
+
+/** Account pages a login or a Sudo mode re-authentication may return to; mirrored in `oidc-transactions.ts`. */
 const allowedReturnPaths = new Set([
   "/",
-  "/personal-information",
+  "/identity",
   "/security",
   "/sessions",
+  "/permissions",
+  "/club-profile",
   "/delete-account",
 ]);
 
@@ -30,18 +44,6 @@ export class InvalidOidcTransactionError extends Error {
     this.name = "InvalidOidcTransactionError";
   }
 }
-
-export class InvalidAccountActionError extends Error {
-  constructor() {
-    super("The requested account action is not allowed.");
-    this.name = "InvalidAccountActionError";
-  }
-}
-
-export type BeginAccountActionInput = {
-  kind: AccountActionKind;
-  deletionReference?: string;
-};
 
 export function normalizeReturnTo(value: string | null | undefined) {
   if (!value) return "/";
@@ -55,18 +57,22 @@ export function normalizeReturnTo(value: string | null | undefined) {
 }
 
 export class OidcFlowService {
+  private readonly ytuIdpAlias: string;
+  private readonly clock: () => Date;
+
   constructor(
     private readonly protocol: OidcProtocol,
     private readonly transactions: OidcTransactionStore,
     private readonly sessions: Pick<
       SessionManager,
-      "authenticate" | "candidate" | "create" | "credentialReference" | "readTokens" | "replaceTokens"
+      "authenticate" | "candidate" | "create" | "readTokens" | "replaceTokens"
     >,
     private readonly accountAccess: Pick<AccountAccessAuthorizer, "requireActive">,
-    private readonly account: Pick<AccountReadService, "credentialInventory">,
-    private readonly credentialAdapter: Pick<KeycloakAccountReadAdapter, "credentialInventory">,
-    private readonly clock: () => Date = () => new Date(),
-  ) {}
+    options: OidcFlowOptions,
+  ) {
+    this.ytuIdpAlias = options.ytuIdpAlias;
+    this.clock = options.clock ?? (() => new Date());
+  }
 
   async begin(returnTo?: string | null) {
     const proof = {
@@ -109,78 +115,6 @@ export class OidcFlowService {
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
 
-  async beginAccountAction(input: BeginAccountActionInput, session: ActiveSession) {
-    const inventory = await this.account.credentialInventory(session);
-    let credentialType: AccountActionTransactionPayload["action"]["credentialType"];
-    let keycloakAction: string;
-    let credentialId: string | undefined;
-
-    if (input.kind === "password") {
-      credentialType = "password";
-      keycloakAction = "UPDATE_PASSWORD";
-    } else if (input.kind === "otp") {
-      credentialType = "otp";
-      keycloakAction = "CONFIGURE_TOTP";
-    } else if (input.kind === "passkey") {
-      credentialType = "webauthn-passwordless";
-      keycloakAction = "webauthn-register-passwordless";
-    } else {
-      if (!input.deletionReference || !/^[A-Za-z0-9_-]{43}$/.test(input.deletionReference)) {
-        throw new InvalidAccountActionError();
-      }
-      const owned = inventory.credentials.find((credential) =>
-        credential.removeable &&
-        ["otp", "totp", "webauthn-passwordless"].includes(credential.type) &&
-        /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(credential.id) &&
-        constantTimeEqual(
-          this.sessions.credentialReference(session.id, credential.id),
-          input.deletionReference!,
-        ),
-      );
-      if (!owned) throw new InvalidAccountActionError();
-      credentialId = owned.id;
-      credentialType = owned.type === "webauthn-passwordless" ? "webauthn-passwordless" : "otp";
-      keycloakAction = `delete_credential:${owned.id}`;
-    }
-
-    const proof = {
-      state: oauth.generateRandomState(),
-      nonce: oauth.generateRandomNonce(),
-      codeVerifier: oauth.generateRandomCodeVerifier(),
-      accountAction: keycloakAction,
-      forceReauthentication: true,
-    };
-    const authorization = await this.protocol.begin(proof);
-    const browserBinding = randomOpaqueValue();
-    const initiatedAt = this.clock();
-    await this.transactions.create(
-      {
-        state: proof.state,
-        nonce: proof.nonce,
-        codeVerifier: proof.codeVerifier,
-        purpose: "account-action",
-        returnTo: "/security",
-        expectedSubject: session.subject,
-        expectedSessionId: session.id,
-        initiatedAt: initiatedAt.toISOString(),
-        action: {
-          kind: input.kind,
-          keycloakAction,
-          credentialType,
-          ...(credentialId ? { credentialId } : {}),
-          beforeCredentials: inventory.credentials.map(({ id, type, createdAt }) => ({
-            id,
-            type,
-            createdAt,
-          })),
-        },
-      },
-      browserBinding,
-      authorization.expiresIn,
-    );
-    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
-  }
-
   async beginAccountDeletionReauthentication(session: ActiveSession) {
     const proof = {
       state: oauth.generateRandomState(),
@@ -208,8 +142,79 @@ export class OidcFlowService {
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
 
+  /**
+   * Sudo mode fallback for a person without password, passkey or TOTP: the
+   * same forced re-authentication as account deletion, returning to the page
+   * that asked for sudo. The callback verifies the signed `auth_time` and
+   * hands the fresh ID token to `POST sudo/authentication`, which turns it
+   * into a sudo token for the same five-minute window.
+   */
+  async beginSudoReauthentication(session: ActiveSession, returnTo?: string | null) {
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+      forceReauthentication: true,
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    const initiatedAt = this.clock();
+    await this.transactions.create(
+      {
+        state: proof.state,
+        nonce: proof.nonce,
+        codeVerifier: proof.codeVerifier,
+        purpose: "sudo-reauthentication",
+        returnTo: normalizeReturnTo(returnTo),
+        expectedSubject: session.subject,
+        expectedSessionId: session.id,
+        initiatedAt: initiatedAt.toISOString(),
+      },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
+  /**
+   * "YTÜ hesabımı bağla": the `idp_link` application-initiated action for the
+   * YTÜ Microsoft identity provider, bound to the current session and always
+   * returning to the identity page. Keycloak itself takes the person to
+   * Microsoft, so no `prompt=login` is requested; the callback exchanges the
+   * code like a re-authentication and the route proves the link afterwards.
+   */
+  async beginYtuLink(session: ActiveSession) {
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+      accountAction: { action: "idp_link" as const, parameter: this.ytuIdpAlias },
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    const initiatedAt = this.clock();
+    await this.transactions.create(
+      {
+        state: proof.state,
+        nonce: proof.nonce,
+        codeVerifier: proof.codeVerifier,
+        purpose: "ytu-link",
+        returnTo: "/identity",
+        expectedSubject: session.subject,
+        expectedSessionId: session.id,
+        initiatedAt: initiatedAt.toISOString(),
+      },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
   async #boundActionSession(
-    transaction: AccountActionTransactionPayload | AccountDeletionReauthenticationTransactionPayload,
+    transaction:
+      | AccountDeletionReauthenticationTransactionPayload
+      | SudoReauthenticationTransactionPayload
+      | YtuLinkTransactionPayload,
     sessionHandle: string | undefined,
   ) {
     const candidate = await this.sessions.candidate(sessionHandle);
@@ -226,105 +231,6 @@ export class OidcFlowService {
       active.session.subject !== transaction.expectedSubject
     ) throw new InvalidOidcTransactionError();
     return active.session;
-  }
-
-  #accountActionChanged(
-    transaction: AccountActionTransactionPayload,
-    after: Awaited<ReturnType<KeycloakAccountReadAdapter["credentialInventory"]>>,
-  ) {
-    const before = transaction.action.beforeCredentials;
-    if (transaction.action.kind === "delete-credential") {
-      return !after.credentials.some(({ id }) => id === transaction.action.credentialId);
-    }
-    const relevantBefore = before.filter(({ type }) => {
-      if (transaction.action.credentialType === "otp") return type === "otp" || type === "totp";
-      return type === transaction.action.credentialType;
-    });
-    const relevantAfter = after.credentials.filter(({ type }) => {
-      if (transaction.action.credentialType === "otp") return type === "otp" || type === "totp";
-      return type === transaction.action.credentialType;
-    });
-    if (transaction.action.kind === "password") {
-      return relevantAfter.some((credential) => {
-        const previous = relevantBefore.find(({ id }) => id === credential.id);
-        return !previous || previous.createdAt !== credential.createdAt;
-      });
-    }
-    const beforeIds = new Set(relevantBefore.map(({ id }) => id));
-    return relevantAfter.some(({ id }) => !beforeIds.has(id));
-  }
-
-  async #accountActionCallback(
-    callbackUrl: URL,
-    transaction: AccountActionTransactionPayload,
-    sessionHandle: string | undefined,
-  ) {
-    const session = await this.#boundActionSession(transaction, sessionHandle);
-    const result = (actionOutcome: "success" | "cancelled" | "error" | "unverified") => ({
-      actionOutcome,
-      action: transaction.action.kind,
-      returnTo: transaction.returnTo,
-      sessionId: session.id,
-    });
-    if (callbackUrl.searchParams.has("error")) {
-      return result("error");
-    }
-    const returnedAction = callbackUrl.searchParams.get("kc_action");
-    const expectedAction = transaction.action.keycloakAction.split(":", 1)[0]!;
-    const status = callbackUrl.searchParams.get("kc_action_status");
-    if (returnedAction !== expectedAction || (status !== "success" && status !== "cancelled")) {
-      return result("error");
-    }
-
-    let authorization;
-    try {
-      authorization = await this.protocol.exchange({
-        callbackUrl,
-        state: transaction.state,
-        nonce: transaction.nonce,
-        codeVerifier: transaction.codeVerifier,
-      });
-    } catch {
-      return result("error");
-    }
-    if (
-      authorization.subject !== transaction.expectedSubject ||
-      !authorization.keycloakSid
-    ) {
-      return result("error");
-    }
-    const initiatedAt = new Date(transaction.initiatedAt);
-    if (authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000) {
-      return result("error");
-    }
-    await this.accountAccess.requireActive(authorization.subject);
-    // Keycloak can rotate refresh tokens during the fresh-auth code exchange,
-    // including when the user cancels the requested action. Keep the existing
-    // BFF session usable without extending its absolute lifetime.
-    const currentTokens = await this.sessions.readTokens(session.id);
-    if (currentTokens) {
-      await this.sessions.replaceTokens(
-        session.id,
-        currentTokens.version,
-        authorization.tokens,
-        authorization.keycloakSid,
-      );
-    }
-    if (status === "cancelled") {
-      return result("cancelled");
-    }
-
-    let after;
-    try {
-      after = await this.credentialAdapter.credentialInventory(authorization.tokens.accessToken);
-    } catch {
-      return result("unverified");
-    }
-    if (!this.#accountActionChanged(transaction, after)) {
-      return result("unverified");
-    }
-
-    return result("success");
   }
 
   async #accountDeletionReauthenticationCallback(
@@ -378,6 +284,113 @@ export class OidcFlowService {
     };
   }
 
+  async #sudoReauthenticationCallback(
+    callbackUrl: URL,
+    transaction: SudoReauthenticationTransactionPayload,
+    sessionHandle: string | undefined,
+  ) {
+    const session = await this.#boundActionSession(transaction, sessionHandle);
+    if (callbackUrl.searchParams.has("error")) {
+      return {
+        sudoReauthentication: "cancelled" as const,
+        returnTo: transaction.returnTo,
+      };
+    }
+    let authorization;
+    try {
+      authorization = await this.protocol.exchange({
+        callbackUrl,
+        state: transaction.state,
+        nonce: transaction.nonce,
+        codeVerifier: transaction.codeVerifier,
+        forceReauthentication: true,
+      });
+    } catch {
+      throw new InvalidOidcTransactionError();
+    }
+    const initiatedAt = new Date(transaction.initiatedAt);
+    if (
+      authorization.subject !== transaction.expectedSubject ||
+      !authorization.keycloakSid ||
+      authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000
+    ) {
+      throw new InvalidOidcTransactionError();
+    }
+    await this.accountAccess.requireActive(authorization.subject);
+    const currentTokens = await this.sessions.readTokens(session.id);
+    if (!currentTokens) throw new InvalidOidcTransactionError();
+    await this.sessions.replaceTokens(
+      session.id,
+      currentTokens.version,
+      authorization.tokens,
+      authorization.keycloakSid,
+    );
+    return {
+      sudoReauthentication: "success" as const,
+      session,
+      authenticatedAt: authorization.authenticatedAt,
+      // The proof the caller presents to `POST sudo/authentication`; it stays on the server.
+      freshIdToken: authorization.tokens.idToken,
+      returnTo: transaction.returnTo,
+    };
+  }
+
+  /**
+   * Return from the `idp_link` action. Keycloak answers with a code plus
+   * `kc_action=idp_link&kc_action_status=success|cancelled|error`; anything
+   * else (an OAuth error, a missing or different action, an unknown status, a
+   * failed exchange) counts as `error` and changes nothing. A code that
+   * exchanges is kept even when the action was cancelled, because Keycloak may
+   * have rotated the session at Microsoft: the fresh token set replaces the
+   * stored one (the `sid` may change) so the BFF session stays usable. The
+   * identity at Keycloak must still be this session's person; the bound
+   * session and subject are checked before anything is stored, and a token set
+   * another request replaced meanwhile (a lost compare-and-swap) ends the
+   * round trip as `unverified` rather than passing an unproven claim on.
+   * `success` is a claim, not proof: the route re-reads the identity before
+   * announcing it.
+   */
+  async #ytuLinkCallback(
+    callbackUrl: URL,
+    transaction: YtuLinkTransactionPayload,
+    sessionHandle: string | undefined,
+  ) {
+    const session = await this.#boundActionSession(transaction, sessionHandle);
+    const outcome = (ytuLink: YtuLinkCallbackStatus) => ({ ytuLink, session, returnTo: transaction.returnTo });
+    if (callbackUrl.searchParams.has("error")) return outcome("error");
+    const status = callbackUrl.searchParams.get("kc_action_status");
+    if (
+      callbackUrl.searchParams.get("kc_action") !== "idp_link" ||
+      (status !== "success" && status !== "cancelled" && status !== "error")
+    ) {
+      return outcome("error");
+    }
+    let authorization;
+    try {
+      authorization = await this.protocol.exchange({
+        callbackUrl,
+        state: transaction.state,
+        nonce: transaction.nonce,
+        codeVerifier: transaction.codeVerifier,
+      });
+    } catch {
+      return outcome("error");
+    }
+    if (authorization.subject !== transaction.expectedSubject || !authorization.keycloakSid) {
+      throw new InvalidOidcTransactionError();
+    }
+    await this.accountAccess.requireActive(authorization.subject);
+    const currentTokens = await this.sessions.readTokens(session.id);
+    if (!currentTokens) throw new InvalidOidcTransactionError();
+    const replaced = await this.sessions.replaceTokens(
+      session.id,
+      currentTokens.version,
+      authorization.tokens,
+      authorization.keycloakSid,
+    );
+    return outcome(replaced ? status : "unverified");
+  }
+
   async callback(
     callbackUrl: URL,
     browserBinding: string | undefined,
@@ -388,11 +401,14 @@ export class OidcFlowService {
     const transaction = await this.transactions.consume(state, browserBinding);
     if (!transaction) throw new InvalidOidcTransactionError();
 
-    if (transaction.purpose === "account-action") {
-      return this.#accountActionCallback(callbackUrl, transaction, sessionHandle);
-    }
     if (transaction.purpose === "account-deletion-reauthentication") {
       return this.#accountDeletionReauthenticationCallback(callbackUrl, transaction, sessionHandle);
+    }
+    if (transaction.purpose === "sudo-reauthentication") {
+      return this.#sudoReauthenticationCallback(callbackUrl, transaction, sessionHandle);
+    }
+    if (transaction.purpose === "ytu-link") {
+      return this.#ytuLinkCallback(callbackUrl, transaction, sessionHandle);
     }
 
     const authorization = await this.protocol.exchange({

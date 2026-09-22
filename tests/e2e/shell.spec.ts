@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
 import {
   seedAuthenticatedSession,
-  seedAccountActionResult,
   sessionExists,
   sessionState,
   setSubjectGateMarker,
@@ -20,6 +19,25 @@ function failOnPageErrors(page: Page) {
   return errors;
 }
 
+/**
+ * Posts an injected form the way a native WebView would and waits for the
+ * resulting address. The dev server can still reload the freshly compiled
+ * page once, which discards a navigation started from the old document, so
+ * the submit is repeated on the new one (every mocked answer is idempotent).
+ */
+async function submitInjectedForm(page: Page, action: string, expectedUrl: RegExp) {
+  await expect(async () => {
+    await page.evaluate((target) => {
+      const form = document.createElement("form");
+      form.method = "post";
+      form.action = target;
+      document.body.append(form);
+      form.submit();
+    }, action);
+    await expect(page).toHaveURL(expectedUrl, { timeout: 5_000 });
+  }).toPass({ timeout: 20_000 });
+}
+
 async function gotoAuthenticatedPage(page: Page, url: string) {
   const refreshResponsePromise = page.waitForResponse((response) =>
     response.url().endsWith("/api/auth/session/refresh"),
@@ -27,6 +45,8 @@ async function gotoAuthenticatedPage(page: Page, url: string) {
   await page.goto(url);
   const refreshResponse = await refreshResponsePromise;
   expect(refreshResponse.status()).toBe(204);
+  // The dev server may still compile and reload the route on first use; settle before scripting the page.
+  await page.waitForLoadState("networkidle");
 }
 
 function monitorTokenCanaries(page: Page, canaries: string[]) {
@@ -74,6 +94,26 @@ function monitorTokenCanaries(page: Page, canaries: string[]) {
       expect.arrayContaining(["document", "fetch", "script"]),
     );
   };
+}
+
+/**
+ * The security page reads `/api/account/security`, which needs a real user
+ * token; the seeded session carries canaries, so the inventory is answered
+ * here in the shape `src/server/security/routes.ts` produces.
+ */
+async function mockSecurityInventory(page: Page) {
+  await page.route("**/api/account/security", (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill({
+      json: {
+        password: true,
+        totp: [],
+        passkeys: [],
+        sudo: { methods: ["password"], fallback: null, active: null },
+        csrfToken: "session-bound-csrf",
+      },
+    });
+  });
 }
 
 async function installAuthenticatedSession(
@@ -198,15 +238,8 @@ test("uncertain native deletion submit navigates to sessionless recovery without
     body: "",
   }));
   await page.goto("/account-deletion");
-  await page.evaluate(() => {
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = "/api/account/deletion";
-    document.body.append(form);
-    form.submit();
-  });
-
-  await expect(page).toHaveURL(new RegExp(
+  await page.waitForLoadState("networkidle");
+  await submitInjectedForm(page, "/api/account/deletion", new RegExp(
     `^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/account-deletion(?:\\?recovery=1)?$`,
   ));
   await expect(page.getByRole("heading", { name: "Durum alınamadı" })).toBeVisible();
@@ -229,14 +262,7 @@ test("native deletion errors return to branded actionable recovery UI", async ({
     body: "",
   }));
   await gotoAuthenticatedPage(page, "/delete-account");
-  await page.evaluate(() => {
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = "/api/account/deletion/reauthenticate";
-    document.body.append(form);
-    form.submit();
-  });
-  await expect(page).toHaveURL(/\/delete-account\?deletionError=reauth_unavailable$/);
+  await submitInjectedForm(page, "/api/account/deletion/reauthenticate", /\/delete-account\?deletionError=reauth_unavailable$/);
   await expect(page.getByRole("status")).toContainText("Yeniden doğrulama başlatılamadı");
 
   await page.route("**/api/account/deletion", (route) => route.fulfill({
@@ -247,14 +273,7 @@ test("native deletion errors return to branded actionable recovery UI", async ({
     },
     body: "",
   }));
-  await page.evaluate(() => {
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = "/api/account/deletion";
-    document.body.append(form);
-    form.submit();
-  });
-  await expect(page).toHaveURL(/\/delete-account\?deletionError=proof_expired$/);
+  await submitInjectedForm(page, "/api/account/deletion", /\/delete-account\?deletionError=proof_expired$/);
   await expect(page.getByRole("status")).toContainText("Doğrulama süren doldu");
   expect(await page.content()).not.toContain("provider unavailable");
 });
@@ -268,67 +287,6 @@ test("mobile protected pages preserve the safe return path without a session", a
     "href",
     "/api/auth/login?returnTo=%2Fsessions",
   );
-});
-
-test("account action initiation is not an anonymous redirector", async ({ playwright }, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop", "one server-side assertion is sufficient");
-  const request = await playwright.request.newContext({
-    baseURL: baseUrl,
-    ignoreHTTPSErrors: true,
-    extraHTTPHeaders: {
-      origin: baseUrl,
-      "sec-fetch-site": "same-origin",
-    },
-  });
-  try {
-    const response = await request.post("/api/auth/action", {
-      form: { csrfToken: "forged", action: "password" },
-      maxRedirects: 0,
-    });
-    expect(response.status()).toBe(401);
-    expect(response.headers()["cache-control"]).toContain("no-store");
-    expect(response.headers()["location"]).toBeUndefined();
-  } finally {
-    await request.dispose();
-  }
-});
-
-test("security feedback survives failed delivery and disappears only after acknowledgement", async ({ context, page }, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop", "one browser-backed assertion is sufficient");
-  const fixture = await installAuthenticatedSession(context, `action-result-${testInfo.retry}`);
-
-  await gotoAuthenticatedPage(page, "/security?action=otp&status=success");
-  await expect(page.getByRole("heading", { name: "Giriş ve güvenlik" })).toBeVisible();
-  await expect(page.getByText("İşlem tamamlandı")).toHaveCount(0);
-
-  const reference = await seedAccountActionResult(fixture.sessionId);
-  const acknowledgementPath = `/api/auth/action-result/${reference}`;
-  let abortAcknowledgement = true;
-  await page.route(`**${acknowledgementPath}`, async (route) => {
-    if (abortAcknowledgement) {
-      abortAcknowledgement = false;
-      await route.abort("failed");
-      return;
-    }
-    await route.continue();
-  });
-  const failedAcknowledgement = page.waitForEvent("requestfailed", {
-    predicate: (request) => request.url().endsWith(acknowledgementPath),
-  });
-  await gotoAuthenticatedPage(page, `/security?result=${reference}`);
-  await expect(page.getByText("İşlem tamamlandı")).toBeVisible();
-  await expect(page.getByText(/Keycloak’taki güncel durumla doğrulandı/)).toBeVisible();
-  await failedAcknowledgement;
-
-  const successfulAcknowledgement = page.waitForResponse((response) =>
-    response.url().endsWith(acknowledgementPath) && response.request().method() === "POST",
-  );
-  await gotoAuthenticatedPage(page, page.url());
-  await expect(page.getByText("İşlem tamamlandı")).toBeVisible();
-  expect((await successfulAcknowledgement).status()).toBe(204);
-
-  await gotoAuthenticatedPage(page, page.url());
-  await expect(page.getByText("İşlem tamamlandı")).toHaveCount(0);
 });
 
 test("handoff responses keep the final assembled no-referrer policy", async ({ playwright }, testInfo) => {
@@ -362,6 +320,7 @@ test("desktop account shell keeps navigation, skip link, and rotates its secure 
   );
   const assertTokensStayedServerSide = monitorTokenCanaries(page, tokenCanaries);
   const errors = failOnPageErrors(page);
+  await mockSecurityInventory(page);
   let refreshRequests = 0;
   let refreshResponses = 0;
   page.on("request", (request) => {

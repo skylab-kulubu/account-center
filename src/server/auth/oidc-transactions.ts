@@ -11,7 +11,7 @@ function validCoreProof(payload: OidcTransactionPayload) {
     /^[A-Za-z0-9_-]{32,256}$/.test(payload.state) &&
     /^[A-Za-z0-9_-]{32,256}$/.test(payload.nonce) &&
     /^[A-Za-z0-9._~-]{43,128}$/.test(payload.codeVerifier) &&
-    ["/", "/personal-information", "/security", "/sessions", "/delete-account"]
+    ["/", "/identity", "/security", "/sessions", "/permissions", "/club-profile", "/delete-account"]
       .includes(payload.returnTo)
   );
 }
@@ -23,57 +23,20 @@ function validIsoDate(value: string) {
 
 function validTransactionPayload(payload: OidcTransactionPayload) {
   if (!validCoreProof(payload)) return false;
-  if (payload.purpose === "account-action") {
-    const initiatedAt = new Date(payload.initiatedAt);
-    if (
-      !payload.expectedSubject ||
-      payload.expectedSubject.length > 255 ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.expectedSessionId) ||
-      !Number.isFinite(initiatedAt.getTime()) ||
-      initiatedAt.toISOString() !== payload.initiatedAt ||
-      !["password", "otp", "passkey", "delete-credential"].includes(payload.action.kind) ||
-      payload.action.beforeCredentials.length > 64
-    ) return false;
-    const expectedAction = payload.action.kind === "password"
-      ? { keycloakAction: "UPDATE_PASSWORD", credentialType: "password", hasCredentialId: false }
-      : payload.action.kind === "otp"
-        ? { keycloakAction: "CONFIGURE_TOTP", credentialType: "otp", hasCredentialId: false }
-        : payload.action.kind === "passkey"
-          ? { keycloakAction: "webauthn-register-passwordless", credentialType: "webauthn-passwordless", hasCredentialId: false }
-          : {
-              keycloakAction: `delete_credential:${payload.action.credentialId ?? ""}`,
-              credentialType: payload.action.credentialType,
-              hasCredentialId: true,
-            };
-    if (
-      payload.action.keycloakAction !== expectedAction.keycloakAction ||
-      payload.action.credentialType !== expectedAction.credentialType ||
-      (payload.action.kind === "delete-credential" &&
-        payload.action.credentialType !== "otp" &&
-        payload.action.credentialType !== "webauthn-passwordless") ||
-      (expectedAction.hasCredentialId !== (payload.action.credentialId !== undefined)) ||
-      (payload.action.credentialId !== undefined &&
-        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(payload.action.credentialId))
-    ) return false;
-    const seen = new Set<string>();
-    return payload.action.beforeCredentials.every((credential) => {
-      if (seen.has(credential.id)) return false;
-      seen.add(credential.id);
-      return (
-        credential.id.length > 0 && credential.id.length <= 255 &&
-        credential.type.length > 0 && credential.type.length <= 128 &&
-        (credential.createdAt === null || validIsoDate(credential.createdAt))
-      );
-    });
-  }
-  if (payload.purpose === "account-deletion-reauthentication") {
+  if (
+    payload.purpose === "account-deletion-reauthentication" ||
+    payload.purpose === "sudo-reauthentication" ||
+    payload.purpose === "ytu-link"
+  ) {
     return (
       typeof payload.expectedSubject === "string" &&
       payload.expectedSubject.length > 0 &&
       payload.expectedSubject.length <= 255 &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
         .test(payload.expectedSessionId) &&
-      validIsoDate(payload.initiatedAt)
+      validIsoDate(payload.initiatedAt) &&
+      // The YTÜ link always lands on the identity page; no other return path is stored.
+      (payload.purpose !== "ytu-link" || payload.returnTo === "/identity")
     );
   }
   if (payload.purpose !== undefined && payload.purpose !== "login") return false;
