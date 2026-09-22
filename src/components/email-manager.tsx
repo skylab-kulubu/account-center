@@ -1,6 +1,6 @@
 "use client";
 
-import { GraduationCap, Link2, Mail, MailCheck, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
+import { GraduationCap, Link2, Mail, MailCheck, Pencil, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -66,6 +66,7 @@ export const emailCopy = {
     verifiedDetail: "Kodla doğrulandı. Bu adresle de giriş yapabilirsin.",
     unverifiedDetail: "Doğrulanmadı; birincil adres yapılamaz.",
     add: "Kişisel e-posta ekle",
+    change: "Değiştir",
     remove: "Kaldır",
   },
   add: {
@@ -77,9 +78,18 @@ export const emailCopy = {
     invalid: "Geçerli bir e-posta adresi gir.",
     alreadyYours: "Bu adres zaten hesabında kayıtlı.",
   },
+  change: {
+    title: "Kişisel e-postayı değiştir",
+    label: "Yeni e-posta adresi",
+    hint: (current: string) =>
+      `Yeni adrese 6 haneli bir doğrulama kodu göndereceğiz; kod 10 dakika geçerli. Kodu girene kadar ${current} kişisel adresin olarak kalır. Göndermeden önce kimliğini doğrulaman istenir.`,
+    primary: "Birincil adresin de yeni adrese geçer.",
+  },
   code: {
     title: "Doğrulama kodunu gir",
     sentTo: (address: string) => `${address} adresine 6 haneli bir kod gönderdik. Kodu kimseyle paylaşma.`,
+    replaces: (current: string) => `Kodu girdiğinde ${current} yerine bu adres kişisel e-postan olur.`,
+    attemptsLeft: (attemptsLeft: number) => `${attemptsLeft} deneme hakkın kaldı.`,
     label: "Doğrulama kodu",
     hint: "Postadaki 6 rakamı gir; araya giren boşluklar sorun değil.",
     remaining: "Kalan süre:",
@@ -93,6 +103,8 @@ export const emailCopy = {
     gone: "Bu kodun süresi dolmuş ya da kod artık geçerli değil. Yeni kod iste.",
     expired: "Kodun süresi doldu. Yeni kod iste.",
     confirmed: (address: string) => `${address} doğrulandı. Artık bu adresle de giriş yapabilirsin.`,
+    replaced: (address: string, previous: string) =>
+      `${address} doğrulandı; kişisel e-postan artık bu adres. ${previous} ile artık giriş yapamazsın.`,
   },
   primary: {
     title: "Birincil e-posta",
@@ -122,7 +134,13 @@ export const emailCopy = {
 
 type Notice = { tone: "positive" | "warning"; title: string; detail: string };
 
-type Flow = { kind: "add" } | { kind: "remove" };
+/** A change the SPI still holds (`GET /api/account/email/pending`), shown again as the code panel. */
+export type WaitingChange = { address: string; expiresAt: string; attemptsLeft: number };
+
+type Flow =
+  /** Adding a first personal address, or replacing the existing one (`change`); `waiting` restores the code panel. */
+  | { kind: "add" | "change"; waiting?: WaitingChange }
+  | { kind: "remove" };
 
 function optionalAddress(value: unknown): value is string | null {
   return value === null || (typeof value === "string" && value.length > 0 && value.length <= 320);
@@ -153,6 +171,30 @@ export function parseEmailPayload(value: unknown): EmailPayload | null {
     personalEmailVerified: value.personalEmailVerified,
     csrfToken: value.csrfToken,
   };
+}
+
+/**
+ * `{ pending }` of `GET /api/account/email/pending`: the waiting change,
+ * `null` when nothing waits, `undefined` for an answer outside the contract
+ * (treated like nothing waiting: the page simply does not restore).
+ */
+export function parsePendingPayload(value: unknown): WaitingChange | null | undefined {
+  if (!isObject(value)) return undefined;
+  if (value.pending === null) return null;
+  const pending = value.pending;
+  if (
+    !isObject(pending) ||
+    !optionalAddress(pending.address) ||
+    pending.address === null ||
+    typeof pending.expiresAt !== "string" ||
+    pending.expiresAt.length > 64 ||
+    !Number.isFinite(Date.parse(pending.expiresAt)) ||
+    typeof pending.attemptsLeft !== "number" ||
+    !Number.isSafeInteger(pending.attemptsLeft) ||
+    pending.attemptsLeft < 0 ||
+    pending.attemptsLeft > 100
+  ) return undefined;
+  return { address: pending.address, expiresAt: pending.expiresAt, attemptsLeft: pending.attemptsLeft };
 }
 
 /** Trimmed and lower-cased the way the SPI stores it, so the page shows and compares what Keycloak will hold. */
@@ -226,16 +268,21 @@ type CodeState =
 type PendingChange = { address: string; deadline: number };
 
 /**
- * "Kişisel e-posta ekle": the address → Sudo mode (`runWithSudo` opens the
- * dialog on `428` and retries once) → `change-request` → the code panel with
- * the address, the ten-minute countdown, the six-digit input and "yeni kod
- * gönder". The code is confirmed with the session only. A wrong code shows
- * the tries left; an exhausted, vanished or timed-out code closes the input
- * until a new code is sent. The pending change lives only in this component:
- * nothing about it is stored in the browser.
+ * "Kişisel e-posta ekle" / "Değiştir": the address → Sudo mode
+ * (`runWithSudo` opens the dialog on `428` and retries once) →
+ * `change-request` → the code panel with the address, the ten-minute
+ * countdown, the six-digit input and "yeni kod gönder". The code is
+ * confirmed with the session only. A wrong code shows the tries left; an
+ * exhausted, vanished or timed-out code closes the input until a new code is
+ * sent. `waiting` opens straight on the code panel of a change the SPI still
+ * holds (read from `GET /api/account/email/pending`); nothing about the
+ * change is ever stored in the browser. `replacing` is the personal address
+ * a confirmed code replaces (the primary moves with it when it was primary).
  */
 function PersonalEmailFlow({
   payload,
+  replacing,
+  waiting,
   onDone,
   onCancel,
   ensureSudo,
@@ -243,6 +290,8 @@ function PersonalEmailFlow({
   onAuthenticationRequired,
 }: FlowCallbacks & {
   payload: EmailPayload;
+  replacing: string | null;
+  waiting?: WaitingChange;
   onDone: (address: string) => void;
   onCancel: () => void;
 }) {
@@ -254,7 +303,10 @@ function PersonalEmailFlow({
   /** Which action a lockout or rate limit applies to, so a wait on one never blocks the other. */
   const [waitScope, setWaitScope] = useState<"send" | "confirm">("send");
   const waitSeconds = useWaitSeconds(feedback);
-  const [change, setChange] = useState<PendingChange | null>(null);
+  const [change, setChange] = useState<PendingChange | null>(() =>
+    waiting ? { address: waiting.address, deadline: localDeadline(waiting.expiresAt) } : null);
+  /** Tries left on the current code, when the SPI said so (a restored change or a wrong code). */
+  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(waiting?.attemptsLeft ?? null);
   const [code, setCode] = useState("");
   const [codeState, setCodeState] = useState<CodeState>("open");
   const [resent, setResent] = useState(false);
@@ -312,6 +364,7 @@ function PersonalEmailFlow({
         setChange({ address, deadline: localDeadline(expiresAt) });
         setCode("");
         setCodeState("open");
+        setAttemptsLeft(null);
         setResent(again);
         focusTarget.current = "code";
         return;
@@ -376,13 +429,14 @@ function PersonalEmailFlow({
       setCode("");
       const error = errorOf(body);
       if (response.status === 400 && error === "invalid_code") {
-        const attemptsLeft = isObject(body) && typeof body.attemptsLeft === "number" ? body.attemptsLeft : null;
-        if (attemptsLeft === 0) {
+        const left = isObject(body) && typeof body.attemptsLeft === "number" ? body.attemptsLeft : null;
+        setAttemptsLeft(left);
+        if (left === 0) {
           setCodeState("exhausted");
           return;
         }
         focusTarget.current = "code";
-        setFieldError(attemptsLeft === null ? emailCopy.code.wrongUnknown : emailCopy.code.wrong(attemptsLeft));
+        setFieldError(left === null ? emailCopy.code.wrongUnknown : emailCopy.code.wrong(left));
         return;
       }
       if (response.status === 404 && error === "no_pending_change") {
@@ -404,12 +458,12 @@ function PersonalEmailFlow({
     return (
       <form className="security-panel" aria-labelledby={`${baseId}-title`} noValidate onSubmit={submitAddress}>
         <h3 id={`${baseId}-title`} className="security-panel__title">
-          <Plus aria-hidden="true" size={16} />
-          {emailCopy.add.title}
+          {replacing ? <Pencil aria-hidden="true" size={16} /> : <Plus aria-hidden="true" size={16} />}
+          {replacing ? emailCopy.change.title : emailCopy.add.title}
         </h3>
         <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
         <div className="sudo-field">
-          <label htmlFor={inputId}>{emailCopy.add.label}</label>
+          <label htmlFor={inputId}>{replacing ? emailCopy.change.label : emailCopy.add.label}</label>
           <input
             ref={addressInput}
             id={inputId}
@@ -433,7 +487,11 @@ function PersonalEmailFlow({
             }}
           />
           {fieldError ? <small id={errorId} className="security-field-error" role="alert">{fieldError}</small> : null}
-          <small id={hintId}>{emailCopy.add.hint}</small>
+          <small id={hintId}>
+            {replacing
+              ? `${emailCopy.change.hint(replacing)}${payload.primary === "personal" ? ` ${emailCopy.change.primary}` : ""}`
+              : emailCopy.add.hint}
+          </small>
         </div>
         <div className="security-panel__actions">
           <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
@@ -470,12 +528,16 @@ function PersonalEmailFlow({
         {emailCopy.code.title}
       </h3>
       <p className="email-code__lead">{emailCopy.code.sentTo(change.address)}</p>
+      {replacing ? <p className="email-code__lead">{emailCopy.code.replaces(replacing)}</p> : null}
       {!codeClosed ? (
         <p className="email-code__timer" role="timer">
           {emailCopy.code.remaining} <strong>{formatCountdown(remaining)}</strong>
         </p>
       ) : null}
       {resent ? <p className="email-code__resent" role="status">{emailCopy.code.resent}</p> : null}
+      {attemptsLeft !== null && attemptsLeft > 0 && !codeClosed && !fieldError ? (
+        <p className="email-code__timer">{emailCopy.code.attemptsLeft(attemptsLeft)}</p>
+      ) : null}
       {closedMessage ? <FeedbackAlert feedback={{ tone: "warning", detail: closedMessage }} /> : null}
       <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
       <div className="sudo-field">
@@ -707,12 +769,15 @@ function RemoveDialog({
   const baseId = useId();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  /** The SPI kept a primary personal address because no linked school address can take over. */
+  const [noFallback, setNoFallback] = useState(false);
   const waitSeconds = useWaitSeconds(feedback);
 
   const remove = async () => {
     if (pending || waitSeconds > 0) return;
     setPending(true);
     setFeedback(null);
+    setNoFallback(false);
     try {
       const outcome = await runWithSudo(
         () => securityRequest({ method: "DELETE", path: "/api/account/email/personal", csrfToken: payload.csrfToken }),
@@ -722,7 +787,10 @@ function RemoveDialog({
         onDone();
         return;
       }
-      const next = feedbackFor(outcome, () => null, onAuthenticationRequired);
+      const next = feedbackFor(outcome, (error) => {
+        if (error === "no_fallback_email") setNoFallback(true);
+        return null;
+      }, onAuthenticationRequired);
       if (next === "reload-csrf") {
         setFeedback({ tone: "warning", detail: sharedCopy.csrfRenewed });
         await onCsrfRenewed();
@@ -756,6 +824,7 @@ function RemoveDialog({
       ) : null}
       <p className="identity-consequences__sudo">{emailCopy.remove.sudo}</p>
       <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
+      {noFallback && !payload.verifiedYtu ? <div className="email-primary__blocked"><YtuLink /></div> : null}
       <div className="confirmation-dialog__actions">
         <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
           Vazgeç
@@ -778,10 +847,13 @@ function RemoveDialog({
 /**
  * The e-mail page ("E-posta ve giriş"): the School e-mail (read-only, a
  * verified badge only for a Verified YTÜ account), the Personal e-mail
- * (add with a mailed six-digit code typed into this page, remove) and the
- * Primary e-mail choice, all read from `/api/account/email` and re-read
- * after every change; the server's addresses, not the answer of a mutation,
- * are what the page shows.
+ * (add or change with a mailed six-digit code typed into this page, remove)
+ * and the Primary e-mail choice, all read from `/api/account/email` and
+ * re-read after every change; the server's addresses, not the answer of a
+ * mutation, are what the page shows. A change still waiting for its code
+ * (`/api/account/email/pending`) reopens the code panel on load and when the
+ * person comes back to the page (from the mail app), never over a form they
+ * are using.
  */
 export function EmailManager() {
   const router = useRouter();
@@ -792,6 +864,9 @@ export function EmailManager() {
   const [flow, setFlow] = useState<Flow | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const firstLoadStarted = useRef(false);
+  /** Read by the visibility listener, which must not replace a flow the person opened meanwhile. */
+  const flowRef = useRef<Flow | null>(null);
+  const payloadRef = useRef<EmailPayload | null>(null);
   const trigger = useRef<HTMLElement | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const focusNotice = useRef(false);
@@ -800,7 +875,7 @@ export function EmailManager() {
     router.replace(loginPath(RETURN_TO));
   }, [router]);
 
-  const load = useCallback(async (preserve = false) => {
+  const load = useCallback(async (preserve = false): Promise<EmailPayload | null> => {
     if (!preserve) setLoading(true);
     setProblem(null);
     try {
@@ -808,30 +883,68 @@ export function EmailManager() {
       const body = await responseJson(response);
       if (response.status === 401) {
         onAuthenticationRequired();
-        return;
+        return null;
       }
       if (!response.ok) {
         setProblem({ title: emailCopy.loadFailed.title, detail: detailOf(body, emailCopy.loadFailed.detail) });
-        return;
+        return null;
       }
       const parsed = parseEmailPayload(body);
       if (!parsed) {
         setProblem(emailCopy.contract);
-        return;
+        return null;
       }
+      payloadRef.current = parsed;
       setPayload(parsed);
+      return parsed;
     } catch {
       setProblem(emailCopy.loadFailed);
+      return null;
     } finally {
       setLoading(false);
     }
   }, [onAuthenticationRequired]);
 
+  const changeFlow = useCallback((next: Flow | null) => {
+    flowRef.current = next;
+    setFlow(next);
+  }, []);
+
+  /**
+   * Reopens the code panel of a change the SPI still holds. Best effort: an
+   * answer that is not a waiting change (none, an outage, drift) leaves the
+   * page as it is, and a flow the person opened meanwhile is never replaced.
+   */
+  const restoreWaiting = useCallback(async (current: EmailPayload) => {
+    if (flowRef.current !== null) return;
+    try {
+      const response = await fetch("/api/account/email/pending", { cache: "no-store", credentials: "same-origin" });
+      if (!response.ok) return;
+      const waiting = parsePendingPayload(await responseJson(response));
+      if (!waiting || flowRef.current !== null) return;
+      changeFlow({ kind: current.personalEmail ? "change" : "add", waiting });
+    } catch {
+      // The page works without it; the next load or return asks again.
+    }
+  }, [changeFlow]);
+
   useEffect(() => {
     if (firstLoadStarted.current) return;
     firstLoadStarted.current = true;
-    void load();
-  }, [load]);
+    void load().then((loaded) => {
+      if (loaded) void restoreWaiting(loaded);
+    });
+  }, [load, restoreWaiting]);
+
+  // Coming back from the mail app: the person may have left the code panel or reloaded elsewhere.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || !payloadRef.current) return;
+      void restoreWaiting(payloadRef.current);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [restoreWaiting]);
 
   useEffect(() => {
     if (!focusNotice.current || !noticeRef.current) return;
@@ -842,25 +955,25 @@ export function EmailManager() {
   const openFlow = useCallback((next: Flow, element: HTMLElement) => {
     trigger.current = element;
     setNotice(null);
-    setFlow(next);
-  }, []);
+    changeFlow(next);
+  }, [changeFlow]);
 
   const closeFlow = useCallback(() => {
-    setFlow(null);
+    changeFlow(null);
     const element = trigger.current;
     trigger.current = null;
     queueMicrotask(() => {
       if (element?.isConnected) element.focus();
     });
-  }, []);
+  }, [changeFlow]);
 
   const finish = useCallback(async (detail: string) => {
-    setFlow(null);
+    changeFlow(null);
     trigger.current = null;
     focusNotice.current = true;
     setNotice({ tone: "positive", title: "İşlem tamamlandı", detail });
     await load(true);
-  }, [load]);
+  }, [changeFlow, load]);
 
   const csrfRenewed = useCallback(async () => {
     invalidateSudo();
@@ -929,6 +1042,16 @@ export function EmailManager() {
                 {payload.personalEmailVerified ? emailCopy.verified : emailCopy.unverified}
               </StatusBadge>
               <button
+                className="security-action"
+                type="button"
+                aria-label={`${personalEmail} — ${emailCopy.personal.change}`}
+                disabled={busy}
+                onClick={(event) => openFlow({ kind: "change" }, event.currentTarget)}
+              >
+                <Pencil aria-hidden="true" size={15} />
+                {emailCopy.personal.change}
+              </button>
+              <button
                 className="quiet-danger-button"
                 type="button"
                 aria-label={`${personalEmail} — ${emailCopy.personal.remove}`}
@@ -962,10 +1085,17 @@ export function EmailManager() {
             </div>
           </>
         )}
-        {flow?.kind === "add" && !personalEmail ? (
+        {flow && flow.kind !== "remove" ? (
           <PersonalEmailFlow
+            key={flow.waiting?.expiresAt ?? flow.kind}
             payload={payload}
-            onDone={(address) => void finish(emailCopy.code.confirmed(address))}
+            replacing={flow.kind === "change" ? personalEmail : null}
+            waiting={flow.waiting}
+            onDone={(address) => void finish(
+              flow.kind === "change" && personalEmail
+                ? emailCopy.code.replaced(address, personalEmail)
+                : emailCopy.code.confirmed(address),
+            )}
             onCancel={closeFlow}
             {...callbacks}
           />
