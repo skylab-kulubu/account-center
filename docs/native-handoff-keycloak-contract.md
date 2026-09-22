@@ -9,7 +9,7 @@ Bu belge Account Center BFF ile `sky-native-handoff` Keycloak authenticator aras
 3. Başarılı cevap yalnız `{ "handoffUrl": "https://my.yildizskylab.com/handoff?code=...", "expiresIn": 45 }` içerir. Kod 32-byte rastgele değerdir; PostgreSQL'de yalnız SHA-256 özeti bulunur ve token ömründen daha uzun yaşayamaz.
 4. WebView bu URL'yi üst seviye navigation olarak açar. `/handoff` kodu atomik olarak tek kez tüketir, ayrı bir 32-byte internal bridge code oluşturur ve OIDC Code + S256 PKCE isteğini PAR ile başlatır.
 5. `sky_native_handoff=<bridge-code>` yalnız PAR gövdesindedir. Browser authorization URL'sinde yalnız `client_id` ve `request_uri` bulunur; access token, refresh token veya bridge code bulunmaz.
-6. OIDC callback, imzalı ID token `sub` ve `auth_time` değerlerini handoff'ta beklenen değerlerle birebir bağlar. Eşleşmezse BFF session oluşturulmaz. Başarıda standart opaque `__Host-sky-account` cookie oluşturulur.
+6. OIDC callback, imzalı ID token `sub` ve `auth_time` değerlerini handoff'ta beklenen değerlerle birebir bağlar. Eşleşmezse BFF session oluşturulmaz. Başarıda standart opaque `__Host-sky-account` cookie oluşturulur. Bu session'ın ömrü uygulamadaki ilk girişten değil, köprünün açtığı yeni Keycloak web session'ından (callback anı) başlar: `offline_access` kullanan uygulamanın `auth_time` değeri günlerce eski olabilir. `auth_time` ise değişmeden kalır; Sudo modu ve hesap silme taze giriş kanıtını yine ayrı bir `prompt=login&max_age=0` turundan ister.
 
 `/handoff` query'si uygulama loglarına alınmaz ve cevap `Referrer-Policy: no-referrer` taşır. Cloudflare, ingress, APM ve access-log ayarları bu path'te query string kaydetmeyecek biçimde ayrıca doğrulanmalıdır.
 

@@ -9,7 +9,7 @@ import type {
 } from "@/server/auth/oidc-protocol";
 import type { OidcTransactionRepository, SessionRepository } from "@/server/auth/repositories";
 import { OidcTransactionStore } from "@/server/auth/oidc-transactions";
-import { SessionManager } from "@/server/auth/sessions";
+import { SessionManager, UpstreamSessionExpiredError } from "@/server/auth/sessions";
 import type { NewSessionRecord, SessionUseResult, StoredOidcTransaction } from "@/server/auth/types";
 import {
   AccountAccessAuthorizer,
@@ -196,5 +196,36 @@ describe("OidcFlowService", () => {
       returnTo: "/",
     });
     expect(repository.inserted?.subject).toBe("native-user");
+  });
+
+  it("opens a native bridge session even when the app logged in longer ago than the upstream session max", async () => {
+    const { flow, protocol, repository } = fixture();
+    const appLogin = new Date(Date.now() - 20 * 24 * 60 * 60 * 1_000);
+    const started = await flow.beginNative(
+      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt: appLogin },
+      "bridge-hint",
+    );
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    callback.searchParams.set("state", protocol.proof!.state);
+    protocol.authorization = { ...protocol.authorization, subject: "native-user", authenticatedAt: appLogin };
+
+    const before = Date.now();
+    await expect(flow.callback(callback, started.browserBinding)).resolves.toMatchObject({ returnTo: "/" });
+    expect(repository.inserted?.subject).toBe("native-user");
+    expect(repository.inserted!.absoluteExpiresAt.getTime()).toBeGreaterThanOrEqual(before + 3_600_000);
+  });
+
+  it("still refuses a plain login whose auth_time is older than the upstream session max", async () => {
+    const { flow, protocol, repository } = fixture();
+    const started = await flow.begin("/");
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    callback.searchParams.set("state", protocol.proof!.state);
+    protocol.authorization = {
+      ...protocol.authorization,
+      authenticatedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1_000),
+    };
+
+    await expect(flow.callback(callback, started.browserBinding)).rejects.toBeInstanceOf(UpstreamSessionExpiredError);
+    expect(repository.inserted).toBeUndefined();
   });
 });

@@ -61,6 +61,8 @@ type AuthLog = {
   reason?:
     | "invalid_transaction"
     | "provider_unavailable"
+    /** `oidc_login_failed`: the Keycloak session outlived `OIDC_UPSTREAM_SESSION_MAX_SECONDS`. */
+    | "upstream_session_expired"
     | "contract_blocked"
     | "invalid_csrf"
     | "invalid_logout_token"
