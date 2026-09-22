@@ -58,7 +58,7 @@ export const emailCopy = {
     title: "Okul e-postası",
     description: "YTÜ Microsoft hesabından gelir; buradan değiştirilemez.",
     missing: "Kayıtlı değil",
-    verifiedDetail: "YTÜ Microsoft hesabınla doğrulandı. Bu adresle de giriş yapabilirsin.",
+    verifiedDetail: "YTÜ Microsoft hesabınla doğrulandı. \"YTÜ ile giriş\" her zaman çalışır.",
     unverifiedDetail: "YTÜ hesabın bağlı olmadığı için doğrulanmadı ve birincil adres yapılamaz.",
     missingDetail: "YTÜ hesabını bağladığında okul e-postan buraya gelir.",
     verifiedMissingDetail: "YTÜ hesabın bağlı ama okul e-postan henüz gelmedi; bir sonraki YTÜ girişinde gelir.",
@@ -67,8 +67,8 @@ export const emailCopy = {
     title: "Kişisel e-posta",
     description: "Okul dışında kullandığın bir adres. Eklediğin adrese gelen 6 haneli kodu bu sayfada girerek doğrularsın.",
     empty: "Henüz kişisel e-posta eklemedin.",
-    emptyDetail: "Bir kişisel adres eklersen kulüp postalarını oraya yönlendirebilir ve onunla da giriş yapabilirsin.",
-    verifiedDetail: "Kodla doğrulandı. Bu adresle de giriş yapabilirsin.",
+    emptyDetail: "Bir kişisel adres eklersen kulüp postalarını oraya yönlendirebilirsin.",
+    verifiedDetail: "Kodla doğrulandı.",
     unverifiedDetail: "Doğrulanmadı; birincil adres yapılamaz.",
     add: "Kişisel e-posta ekle",
     change: "Değiştir",
@@ -110,13 +110,13 @@ export const emailCopy = {
     exhausted: "Kodu çok kez yanlış girdin; bu kod artık geçersiz. Yeni kod iste.",
     gone: "Bu kodun süresi dolmuş ya da kod artık geçerli değil. Yeni kod iste.",
     expired: "Kodun süresi doldu. Yeni kod iste.",
-    confirmed: (address: string) => `${address} doğrulandı. Artık bu adresle de giriş yapabilirsin.`,
+    confirmed: (address: string) => `${address} doğrulandı.`,
     replaced: (address: string, previous: string) =>
       `${address} doğrulandı; kişisel e-postan artık bu adres. ${previous} ile artık giriş yapamazsın.`,
   },
   primary: {
     title: "Birincil e-posta",
-    description: "Kulüp postaları birincil adrese gider; iki adresle de giriş yapabilirsin.",
+    description: "Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da birincil adresin kullanılır.",
     none: (email: string | null) => email
       ? `Şu anki birincil adresin ${email}; okul ya da kişisel adreslerinden biri değil. Aşağıdan birini seçebilirsin.`
       : "Birincil adresin yok. Aşağıdan birini seçebilirsin.",

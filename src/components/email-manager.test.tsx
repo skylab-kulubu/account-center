@@ -160,7 +160,7 @@ describe("EmailManager", () => {
     expect(within(primary).getByRole("radio", { name: /Okul e-postası/ })).toBeChecked();
     expect(within(primary).getByRole("radio", { name: /Kişisel e-posta/ })).not.toBeChecked();
     expect(within(primary).getByRole("radio", { name: /Kişisel e-posta/ })).toBeEnabled();
-    expect(screen.getByText("Kulüp postaları birincil adrese gider; iki adresle de giriş yapabilirsin.")).toBeInTheDocument();
+    expect(screen.getByText("Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da birincil adresin kullanılır.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Birincil adresi kaydet" })).toBeDisabled();
 
     expect(api.spy).toHaveBeenCalledWith("/api/account/email", { cache: "no-store", credentials: "same-origin" });
@@ -255,7 +255,7 @@ describe("EmailManager", () => {
       expect(input).toHaveAttribute("inputmode", "numeric");
       enterCode(form, "123 456");
 
-      const notice = await findNotice("new.address@example.com doğrulandı. Artık bu adresle de giriş yapabilirsin.");
+      const notice = await findNotice("new.address@example.com doğrulandı.");
       await waitFor(() => expect(notice).toHaveFocus());
       const confirmed = api.of("confirm")[0]!;
       expect(confirmed.init).toMatchObject({ method: "POST", headers: { "x-csrf-token": csrfToken } });
@@ -462,7 +462,7 @@ describe("EmailManager", () => {
       expect(sudo.ensureSudo).not.toHaveBeenCalled();
 
       enterCode(form, "654321");
-      await findNotice("new@example.com doğrulandı. Artık bu adresle de giriş yapabilirsin.");
+      await findNotice("new@example.com doğrulandı.");
       expect(api.of("confirm")[0]!.body).toEqual({ code: "654321" });
       // Only the first load asks what is waiting.
       expect(api.of("pending")).toHaveLength(1);

@@ -243,7 +243,7 @@ test("add → code → confirm → primary switch → remove, with the identity 
   await page.getByRole("navigation", { name: "Hesap ayarları" }).getByRole("link", { name: "E-posta ve giriş" }).click();
   await expect(page).toHaveURL(`${baseUrl}/email`);
   await expect(page.getByRole("heading", { level: 1, name: "E-posta ve giriş" })).toBeVisible();
-  await expect(page.getByText("Kulüp postaları birincil adrese gider; iki adresle de giriş yapabilirsin.").first()).toBeVisible();
+  await expect(page.getByText("Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da birincil adresin kullanılır.").first()).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // Add: the address, Sudo mode, then the code panel in the same page.
@@ -258,7 +258,7 @@ test("add → code → confirm → primary switch → remove, with the identity 
   await codeInput.fill(`${mailedCode.slice(0, 3)} ${mailedCode.slice(3)}`);
   await codeForm.getByRole("button", { name: "Doğrula" }).click();
   const added = page.getByRole("status").filter({ hasText: "İşlem tamamlandı" });
-  await expect(added).toContainText(`${personalEmail} doğrulandı. Artık bu adresle de giriş yapabilirsin.`);
+  await expect(added).toContainText(`${personalEmail} doğrulandı.`);
   await expect(added).toBeFocused();
   await expect(codeForm).toBeHidden();
   await expect(page.getByText(personalEmail, { exact: true }).first()).toBeVisible();
