@@ -20,7 +20,13 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 /** A proof method the person completes inside `my.` against the sky-account SPI. */
 export type SudoMethod = "password" | "totp" | "passkey";
-/** Every proof kind the vault records; `reauth` is the Microsoft fallback and carries no SPI token. */
+/**
+ * Every proof kind the vault records. `reauth` is the Microsoft fallback: the
+ * callback turns the fresh ID token into a sky-account token with
+ * `POST sudo/authentication`, so a `reauth` proof normally carries SPI
+ * material like the other three. Only when that call fails does it fall back
+ * to a token-less proof, which satisfies `my.`-local gates alone.
+ */
 export type SudoProofMethod = SudoMethod | "reauth";
 export type SudoRequirementReason = "missing" | "expired";
 
@@ -33,7 +39,8 @@ export function isSudoMethod(value: unknown): value is SudoMethod {
 
 /**
  * A fresh sudo proof. `sudoToken` is the opaque sky-account token for
- * `X-Sky-Sudo`, or `null` for a Microsoft re-authentication, which satisfies
+ * `X-Sky-Sudo`, or `null` for a Microsoft re-authentication whose
+ * `POST sudo/authentication` call did not succeed: such a proof satisfies
  * `my.`-local gates but cannot be presented to the SPI.
  */
 export type SudoProof = {
@@ -85,7 +92,8 @@ function validEnvelope(value: unknown): value is SudoEnvelope {
   if (typeof value !== "object" || value === null) return false;
   const envelope = value as Record<string, unknown>;
   if (typeof envelope.method !== "string" || !sudoProofMethods.has(envelope.method)) return false;
-  if (envelope.method === "reauth") return envelope.sudoToken === null;
+  // Only the Microsoft fallback may lack a token, and only when the SPI refused to issue one.
+  if (envelope.method === "reauth" && envelope.sudoToken === null) return true;
   return typeof envelope.sudoToken === "string" && COMPACT_JWS.test(envelope.sudoToken);
 }
 
@@ -112,13 +120,18 @@ export class SudoVault {
     if (!stored) throw new SudoSessionInactiveError();
   }
 
-  /** Records a sky-account sudo grant proven with `method` inside `my.`. */
-  async storeSudo(sessionId: string, sudoToken: string, expiresAt: Date, method: SudoMethod) {
+  /**
+   * Records a sky-account sudo grant. `method` is the proof the SPI accepted:
+   * one the person completed inside `my.`, or `reauth` for the grant the
+   * callback obtained with `POST sudo/authentication` from a fresh Microsoft
+   * login. The deadline is the SPI's, still bounded by the local maximum.
+   */
+  async storeSudo(sessionId: string, sudoToken: string, expiresAt: Date, method: SudoProofMethod) {
     if (!SESSION_ID.test(sessionId)) throw new Error("Invalid session record for sudo storage.");
     if (typeof sudoToken !== "string" || !COMPACT_JWS.test(sudoToken)) {
       throw new Error("Invalid sudo token material.");
     }
-    if (!isSudoMethod(method)) throw new Error("Invalid sudo proof method.");
+    if (!sudoProofMethods.has(method)) throw new Error("Invalid sudo proof method.");
     const now = this.clock();
     const expiresAtMs = expiresAt.getTime();
     if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now.getTime()) {
@@ -129,8 +142,10 @@ export class SudoVault {
 
   /**
    * Records a Microsoft re-authentication as a token-less proof that lasts
-   * five minutes from the signed `auth_time` the callback verified. A fresh
-   * sky-account proof is worth more (it can be presented to the SPI) and is
+   * five minutes from the signed `auth_time` the callback verified. This is
+   * the fallback of the fallback: the callback writes it only when
+   * `POST sudo/authentication` could not turn the same login into a real
+   * sudo token. A fresh proof that carries SPI material is worth more and is
    * never replaced; the method then returns `false`.
    */
   async storeReauthenticationProof(sessionId: string, authenticatedAt: Date): Promise<boolean> {

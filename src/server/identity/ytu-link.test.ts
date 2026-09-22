@@ -19,6 +19,7 @@ const routeMocks = vi.hoisted(() => ({
   consumeKey: vi.fn(),
   beginYtuLink: vi.fn(),
   requireFreshSudo: vi.fn(),
+  clearSudo: vi.fn(),
   config: { appUrl: new URL("https://my.yildizskylab.com") },
 }));
 
@@ -36,7 +37,7 @@ vi.mock("@/server/auth/services", () => ({
     skyAccount: { identity: routeMocks.identity },
     anonymousRateLimit: { consumeKey: routeMocks.consumeKey },
     oidc: { beginYtuLink: routeMocks.beginYtuLink },
-    sudo: { requireFreshSudo: routeMocks.requireFreshSudo },
+    sudo: { requireFreshSudo: routeMocks.requireFreshSudo, clearSudo: routeMocks.clearSudo },
   }),
 }));
 
@@ -88,6 +89,7 @@ describe("POST /api/account/identity/ytu-link", () => {
     routeMocks.accessToken.mockResolvedValue("server-held-user-token");
     routeMocks.identity.mockResolvedValue(unverified);
     routeMocks.consumeKey.mockResolvedValue({ allowed: true, count: 1, retryAfterSeconds: 900 });
+    routeMocks.clearSudo.mockResolvedValue(undefined);
     routeMocks.beginYtuLink.mockResolvedValue({ authorizationUrl: new URL(authorizationUrl), browserBinding: "b".repeat(43) });
     routeMocks.requireFreshSudo.mockResolvedValue(proof);
   });
@@ -145,6 +147,8 @@ describe("POST /api/account/identity/ytu-link", () => {
       fallback: "microsoft",
     });
     expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
+    // The proof is useless for the SPI, so it is dropped and the next attempt offers the fallback again.
+    expect(routeMocks.clearSudo).toHaveBeenCalledWith(activeSession.id);
     expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "spi_token_required" }));
   });
 

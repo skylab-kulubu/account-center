@@ -47,6 +47,9 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 - Hassas işlemlerden önce ürün içi "kimliğini doğrula" adımı (Sudo modu):
   parola, passkey ya da doğrulama kodu ile beş dakikalık, sunucuda şifreli
   saklanan yeniden doğrulama; hiçbiri yoksa Microsoft ile yeniden giriş.
+  Dönüşte BFF, taze ID token'ı sky-account `POST sudo/authentication` ucuna
+  sunar ve aldığı sudo token'ı aynı beş dakikalık pencere için saklar, böylece
+  ürün içi yöntemi olmayan kişi de güvenlik sayfasındaki işlemleri yapabilir.
 - Giriş ve güvenlik sayfası tamamen `my.` içinde: parola değiştirme ya da
   belirleme (realm parola politikası geri bildirimiyle, isteğe bağlı olarak
   diğer cihazlardaki oturumları kapatarak), doğrulama uygulaması (TOTP)

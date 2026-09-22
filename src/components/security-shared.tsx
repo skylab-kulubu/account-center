@@ -41,7 +41,7 @@ export const sharedCopy = {
   locked: "Hesabın geçici olarak kilitlendi.",
   waitPrefix: "Yeniden denemek için bekle:",
   sudoCancelled: "Kimliğini doğrulamadığın için değişiklik yapılmadı.",
-  spiTokenRequired: "Hesabında parola, passkey ya da doğrulama uygulaması olmadığı için bu değişiklik şu an yapılamıyor. Microsoft doğrulaması bu sayfadaki işlemler için yakında yeterli olacak; o zamana kadar yönetim ekibiyle iletişime geçebilirsin.",
+  spiTokenRequired: "Doğrulaman tamamlandı ama güvenlik işlemi için ek doğrulama gerekiyor; tekrar dene.",
   sudoStale: "Doğrulamanın süresi doldu ve yeniden doğrulama tamamlanmadı. Yeniden dene.",
 } as const;
 

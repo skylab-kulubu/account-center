@@ -16,13 +16,15 @@ const baseUrl = "https://127.0.0.1:3100";
 const sessionCookieName = "__Host-sky-account";
 const csrfToken = "e2e-sudo-csrf";
 const secretPassword = "hunter2-correct-horse-staple";
+const firstPassword = "correct horse battery staple";
 const requestEvent = "account-center:sudo-request";
 const resultEvent = "account-center:sudo-result";
 
 type MethodsBody = {
   methods: Array<"password" | "passkey" | "totp">;
   fallback: "microsoft" | null;
-  active: null;
+  /** What the server reports about the current proof; the sudo token itself never leaves the BFF. */
+  active: { method: "password" | "passkey" | "totp" | "reauth"; expiresAt: string } | null;
   csrfToken: string;
 };
 
@@ -276,6 +278,59 @@ test("the Microsoft re-authentication return is announced, stripped from the add
   await gotoAuthenticatedPage(page, "/security?sudo=method_available");
   await expect(page.getByRole("status").filter({ hasText: "Microsoft ile doğrulama gerekmiyor" })).toBeVisible();
   await expect(page).toHaveURL(`${baseUrl}/security`);
+});
+
+test("the sudo token the Microsoft return earned carries a security change through without a second challenge", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `sudo-spi-token-${testInfo.retry}`);
+  const errors = failOnPageErrors(page);
+  // The callback turned the fresh ID token into a sky-account sudo token
+  // (`POST sudo/authentication`), so the server holds a `reauth` proof that carries SPI
+  // material. The browser only ever learns its method and deadline.
+  const expiresAt = new Date(Date.now() + 4 * 60_000).toISOString();
+  const active = { method: "reauth", expiresAt } as const;
+  await page.route("**/api/account/security", (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill({
+      json: {
+        password: false,
+        totp: [],
+        passkeys: [],
+        sudo: { methods: [], fallback: "microsoft", active },
+        csrfToken,
+      },
+    });
+  });
+  await mockMethods(page, { methods: [], fallback: "microsoft", active, csrfToken });
+  const changes: Array<{ headers: Record<string, string>; body: unknown }> = [];
+  await page.route("**/api/account/security/password", async (route) => {
+    changes.push({ headers: await route.request().allHeaders(), body: route.request().postDataJSON() });
+    // The gate found SPI material on the proof, forwarded it as `X-Sky-Sudo` and the SPI accepted it.
+    await route.fulfill({ status: 204 });
+  });
+
+  await gotoAuthenticatedPage(page, "/security?sudo=confirmed");
+  await expect(page.getByRole("status").filter({ hasText: "Kimliğin doğrulandı" })).toBeVisible();
+  await expect(page).toHaveURL(`${baseUrl}/security`);
+
+  // A person with no in-product method sets a first password straight after the Microsoft return.
+  await page.getByRole("button", { name: "Parola belirle" }).click();
+  const form = page.getByRole("form", { name: "Parola belirle" });
+  await expect(form).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await form.getByLabel("Yeni parola", { exact: true }).fill(firstPassword);
+  await form.getByLabel("Yeni parola (tekrar)").fill(firstPassword);
+  await form.getByRole("button", { name: "Parolayı kaydet" }).click();
+
+  const notice = page.getByRole("status").filter({ hasText: "İşlem tamamlandı" });
+  await expect(notice).toContainText("Parola belirlendi.");
+  // No second challenge: the mutation was sent once and no dialog was ever needed.
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(changes).toHaveLength(1);
+  expect(changes[0]?.body).toEqual({ newPassword: firstPassword, logoutOtherSessions: true });
+  expect(changes[0]?.headers["x-csrf-token"]).toBe(csrfToken);
+  expect(await page.content()).not.toContain(firstPassword);
+  expect(errors).toEqual([]);
 });
 
 test("passkey sudo converts the relayed options for the platform API and posts the serialized assertion", async ({ context, page }, testInfo) => {

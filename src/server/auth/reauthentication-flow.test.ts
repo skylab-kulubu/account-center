@@ -179,9 +179,12 @@ describe("Account Center forced re-authentication", () => {
       sudoReauthentication: "success",
       session: activeSession,
       authenticatedAt: now,
+      freshIdToken: "fresh-server-id-token",
       returnTo: "/security",
     });
-    expect(JSON.stringify(result)).not.toContain("fresh-server");
+    // Only the ID token travels on (the proof for `POST sudo/authentication`); the rest stays encrypted.
+    expect(JSON.stringify(result)).not.toContain("fresh-server-access-token");
+    expect(JSON.stringify(result)).not.toContain("fresh-server-refresh-token");
     expect(protocol.exchanged).toMatchObject({ forceReauthentication: true });
     expect(sessions.replaceTokens).toHaveBeenCalledWith(
       activeSession.id,

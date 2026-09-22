@@ -145,8 +145,9 @@ export class OidcFlowService {
   /**
    * Sudo mode fallback for a person without password, passkey or TOTP: the
    * same forced re-authentication as account deletion, returning to the page
-   * that asked for sudo. The callback stores a five-minute proof bound to
-   * the signed `auth_time`; no sky-account token exists for this path.
+   * that asked for sudo. The callback verifies the signed `auth_time` and
+   * hands the fresh ID token to `POST sudo/authentication`, which turns it
+   * into a sudo token for the same five-minute window.
    */
   async beginSudoReauthentication(session: ActiveSession, returnTo?: string | null) {
     const proof = {
@@ -328,6 +329,8 @@ export class OidcFlowService {
       sudoReauthentication: "success" as const,
       session,
       authenticatedAt: authorization.authenticatedAt,
+      // The proof the caller presents to `POST sudo/authentication`; it stays on the server.
+      freshIdToken: authorization.tokens.idToken,
       returnTo: transaction.returnTo,
     };
   }

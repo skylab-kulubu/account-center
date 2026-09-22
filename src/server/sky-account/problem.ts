@@ -11,6 +11,8 @@ export const skyAccountProblemStatuses = {
   unauthorized: [401],
   sudo_required: [401],
   sudo_expired: [401],
+  /** `sudo/authentication`: the ID token verified but the login (`auth_time`) is older than 300 seconds. */
+  authentication_stale: [401],
   invalid_credentials: [401],
   user_temporarily_locked: [401],
   user_disabled: [401],

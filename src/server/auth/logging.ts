@@ -39,6 +39,7 @@ type AuthLog = {
     | "sudo_attempt"
     | "sudo_reauthentication_started"
     | "sudo_reauthentication_completed"
+    | "sudo_authentication_failed"
     | "ytu_link_started"
     | "ytu_link_completed"
     | "token_audience_legacy";
@@ -78,6 +79,11 @@ type AuthLog = {
     | "method_unavailable"
     | "method_available"
     | "sudo_storage_failed"
+    /** `sudo_authentication_failed`: why `POST sudo/authentication` did not yield a sudo token. */
+    | "stale"
+    | "refused"
+    | "unavailable"
+    | "contract"
     | "sudo_required"
     | "spi_token_required"
     | "sudo_rejected_upstream"
