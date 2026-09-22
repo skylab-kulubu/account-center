@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { join } from "node:path";
@@ -14,6 +14,8 @@ import { join } from "node:path";
  */
 
 const MAX_PICTURE_BYTES = 5 * 1_024 * 1_024;
+const REAUTH_MAX_AGE_SECONDS = 5 * 60;
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{43}$/;
 const patchableFields = ["firstName", "lastName", "linkedin", "university", "faculty", "department"];
 
 function problem(response, status, title) {
@@ -26,17 +28,61 @@ function json(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
-function decodeBearer(header) {
+function decodeBearer(header, audience = "core") {
   const match = /^Bearer ([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(header ?? "");
   if (!match) return null;
   try {
     const claims = JSON.parse(Buffer.from(match[2], "base64url").toString("utf8"));
     const audiences = typeof claims.aud === "string" ? [claims.aud] : Array.isArray(claims.aud) ? claims.aud : [];
-    if (typeof claims.sub !== "string" || !audiences.includes("core")) return null;
+    if (typeof claims.sub !== "string" || !audiences.includes(audience)) return null;
     return claims;
   } catch {
     return null;
   }
+}
+
+function decodeJwtClaims(token) {
+  const parts = /^([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(token ?? "");
+  if (!parts) return null;
+  try {
+    return JSON.parse(Buffer.from(parts[2], "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The ID token core demands next to the bearer: same subject, this client as
+ * the single audience, a non-empty `sid` and an `auth_time` inside the
+ * five-minute window. A stale or mismatched proof is the whole point of the
+ * check, so it answers `401` exactly as core does.
+ */
+function reauthenticationProves(subject, header, clientId) {
+  const claims = decodeJwtClaims(header);
+  const now = Math.floor(Date.now() / 1_000);
+  return Boolean(
+    claims &&
+    claims.sub === subject &&
+    claims.aud === clientId &&
+    typeof claims.sid === "string" && claims.sid.trim() !== "" &&
+    Number.isSafeInteger(claims.exp) && claims.exp > now &&
+    Number.isSafeInteger(claims.auth_time) &&
+    claims.auth_time <= now + 5 &&
+    claims.auth_time >= now - REAUTH_MAX_AGE_SECONDS,
+  );
+}
+
+function deletionView(record, { withReceipt }) {
+  return {
+    ...(withReceipt ? { receipt: record.receipt } : {}),
+    status: record.status,
+    partial: record.partial,
+    platformBlocked: true,
+    requestedAt: record.requestedAt,
+    updatedAt: record.updatedAt,
+    completedAt: null,
+    receiptExpiresAt: record.receiptExpiresAt,
+  };
 }
 
 function readBody(request) {
@@ -82,9 +128,19 @@ function sniff(bytes) {
   return null;
 }
 
-export function startMockCore({ port, host = "127.0.0.1", keyFile, certificateFile, pictureBase }) {
+export function startMockCore({
+  port,
+  host = "127.0.0.1",
+  keyFile,
+  certificateFile,
+  pictureBase,
+  clientId = process.env.OIDC_CLIENT_ID ?? "account-center",
+}) {
   const fixture = JSON.parse(readFileSync(join(process.cwd(), "tests", "fixtures", "core-users-me.json"), "utf8"));
   const users = new Map();
+  /** receipt → lifecycle record, plus the idempotency index the intake reuses. */
+  const deletions = new Map();
+  const deletionKeys = new Map();
   const pictureUrl = (id) => `${pictureBase}/skylab.svg?picture=${encodeURIComponent(id)}`;
 
   function userFor(sub) {
@@ -100,6 +156,49 @@ export function startMockCore({ port, host = "127.0.0.1", keyFile, certificateFi
     return user;
   }
 
+  function accountDeletion(request, response, url, body) {
+    if (url.pathname === "/v1/account-deletion-requests/self" && request.method === "POST") {
+      const bearer = decodeBearer(request.headers.authorization, "account");
+      if (!bearer) return problem(response, 401, "Unauthorized");
+      if (!reauthenticationProves(bearer.sub, request.headers["x-account-reauth-token"], clientId)) {
+        return problem(response, 401, "Unauthorized");
+      }
+      const key = request.headers["idempotency-key"];
+      if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key) || body.length > 0) {
+        return problem(response, 400, "Bad Request");
+      }
+      const indexed = `${bearer.sub}\u0000${key}`;
+      const existing = deletions.get(deletionKeys.get(indexed) ?? "");
+      if (existing) return json(response, 202, deletionView(existing, { withReceipt: true }));
+      const requestedAt = new Date();
+      const record = {
+        receipt: `adr_${randomBytes(32).toString("base64url")}`,
+        subject: bearer.sub,
+        status: "pending",
+        partial: false,
+        requestedAt: requestedAt.toISOString(),
+        updatedAt: requestedAt.toISOString(),
+        receiptExpiresAt: new Date(requestedAt.getTime() + 90 * 24 * 60 * 60 * 1_000).toISOString(),
+      };
+      deletions.set(record.receipt, record);
+      deletionKeys.set(indexed, record.receipt);
+      return json(response, 202, deletionView(record, { withReceipt: true }));
+    }
+
+    const receipt = /^DeletionReceipt (adr_[A-Za-z0-9_-]{43})$/.exec(request.headers.authorization ?? "")?.[1];
+    const record = receipt ? deletions.get(receipt) : undefined;
+    if (!record) return problem(response, 404, "Not Found");
+    if (url.pathname === "/v1/account-deletion-requests/status" && request.method === "GET") {
+      return json(response, 200, deletionView(record, { withReceipt: false }));
+    }
+    if (url.pathname === "/v1/account-deletion-requests/status/retry" && request.method === "POST") {
+      record.status = "pending";
+      record.updatedAt = new Date().toISOString();
+      return json(response, 202, deletionView(record, { withReceipt: false }));
+    }
+    return problem(response, 404, "Not Found");
+  }
+
   const server = createServer(
     { key: readFileSync(keyFile), cert: readFileSync(certificateFile) },
     async (request, response) => {
@@ -113,6 +212,10 @@ export function startMockCore({ port, host = "127.0.0.1", keyFile, certificateFi
           requests: user.requests,
           pictures: user.pictures.map(({ id, contentType, bytes }) => ({ id, contentType, byteLength: bytes.length, base64: bytes.toString("base64") })),
         });
+      }
+
+      if (url.pathname.startsWith("/v1/account-deletion-requests")) {
+        return accountDeletion(request, response, url, await readBody(request));
       }
 
       const claims = decodeBearer(request.headers.authorization);

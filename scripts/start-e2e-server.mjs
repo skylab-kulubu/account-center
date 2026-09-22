@@ -5,6 +5,9 @@ import { startMockCore } from "./e2e-mock-core.mjs";
 
 const { keyFile, certificateFile } = ensureE2eCertificate();
 
+/** The default browser-test server; `start-e2e-erasure-server.mjs` runs a second one beside it. */
+const port = process.env.E2E_PORT ?? "3100";
+
 /**
  * Unless the environment points at a core of its own, the browser tests run
  * against the loopback mock core on the same self-signed certificate as the
@@ -19,7 +22,7 @@ const mockCore = process.env.CORE_API_URL
       port: Number(process.env.E2E_MOCK_CORE_PORT ?? "3101"),
       keyFile,
       certificateFile,
-      pictureBase: process.env.APP_URL ?? "https://127.0.0.1:3100",
+      pictureBase: process.env.APP_URL ?? `https://127.0.0.1:${port}`,
     });
 
 const env = mockCore ? { ...process.env, CORE_API_URL: mockCore.origin } : process.env;
@@ -31,7 +34,7 @@ const child = spawn(
     "dev",
     "--webpack",
     "--port",
-    "3100",
+    port,
     "--experimental-https",
     "--experimental-https-key",
     keyFile,

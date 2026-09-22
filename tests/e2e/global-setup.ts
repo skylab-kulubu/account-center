@@ -52,9 +52,36 @@ const mutations = [
   "/api/account/security/passkeys/options",
   "/api/account/security/passkeys/register",
   "/api/account/deletion",
+  "/api/account/deletion/prepare",
   "/api/account/deletion/reauthenticate",
   "/api/account/club-profile/picture",
 ];
+
+/** The erasure-mode server compiles the same routes again; only the deletion flow runs there. */
+const erasurePages = ["/delete-account", "/account-deletion", "/api/account/deletion/status"];
+const erasureMutations = [
+  "/api/account/deletion",
+  "/api/account/deletion/prepare",
+  "/api/account/deletion/reauthenticate",
+  "/api/account/sudo/methods",
+];
+
+async function warmErasureServer(config: FullConfig) {
+  const baseURL = config.projects
+    .find(({ name }) => name === "account-deletion-enforce")?.use.baseURL;
+  if (!baseURL) return;
+  const context = await request.newContext({ baseURL, ignoreHTTPSErrors: true });
+  try {
+    for (const path of erasurePages) {
+      await context.get(path, { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
+    }
+    for (const path of erasureMutations) {
+      await context.post(path, { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
+    }
+  } finally {
+    await context.dispose();
+  }
+}
 
 export default async function globalSetup(config: FullConfig) {
   const baseURL = config.projects[0]?.use.baseURL ?? "https://127.0.0.1:3100";
@@ -72,4 +99,5 @@ export default async function globalSetup(config: FullConfig) {
   } finally {
     await context.dispose();
   }
+  await warmErasureServer(config);
 }

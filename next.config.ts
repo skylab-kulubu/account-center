@@ -12,6 +12,12 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // A development server keeps its lock inside its own build directory, so a
+  // second `next dev` can only run beside the first one from another one. The
+  // browser tests use it for the account-erasure server (a nested path, so it
+  // stays inside the ignored `.next`); nothing else sets it and the build
+  // directory stays `.next`.
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   allowedDevOrigins: ["127.0.0.1"],
   output: "standalone",
   poweredByHeader: false,
