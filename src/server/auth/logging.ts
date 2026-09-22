@@ -42,6 +42,7 @@ type AuthLog = {
     | "sudo_authentication_failed"
     | "ytu_link_started"
     | "ytu_link_completed"
+    | "email_action"
     | "token_audience_legacy";
   requestId: string;
   outcome: "success" | "failure";
@@ -58,6 +59,11 @@ type AuthLog = {
     | "credential_delete";
   /** Which identity-page action ran; never a name or username. */
   identityAction?: "name" | "username";
+  /**
+   * Which e-mail-page action ran; never an address or a code. (Named so that
+   * the redaction below, which blanks every key mentioning e-mail, keeps it.)
+   */
+  addressAction?: "change_request" | "confirm" | "primary" | "remove";
   reason?:
     | "invalid_transaction"
     | "provider_unavailable"
@@ -107,7 +113,15 @@ type AuthLog = {
     | "link_cancelled"
     | "link_failed"
     | "link_unverified"
-    | "token_replace_failed";
+    | "token_replace_failed"
+    | "invalid_address"
+    /** `email_action`: a wrong code that used the last attempt; a new code is needed. */
+    | "code_exhausted"
+    | "no_pending_change"
+    | "email_taken"
+    | "email_not_verified"
+    | "no_fallback_email"
+    | "email_not_sent";
 };
 
 export function logAuthEvent(entry: AuthLog) {

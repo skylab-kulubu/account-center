@@ -13,4 +13,18 @@ describe("authentication log redaction", () => {
       nested: { refreshToken: "[REDACTED]", email: "[REDACTED]" },
     });
   });
+
+  it("keeps the e-mail page's action kind while any e-mail-named key is blanked", () => {
+    expect(redactAuthMaterial({
+      event: "email_action",
+      addressAction: "confirm",
+      reason: "code_exhausted",
+      emailAction: "would-be-redacted",
+    })).toEqual({
+      event: "email_action",
+      addressAction: "confirm",
+      reason: "code_exhausted",
+      emailAction: "[REDACTED]",
+    });
+  });
 });

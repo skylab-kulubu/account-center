@@ -20,16 +20,21 @@ export type AnonymousAuthRateLimitScope =
   | "sudo_options"
   | "security_mutation"
   | "totp_confirm"
-  | "identity_mutation";
+  | "identity_mutation"
+  | "email_mutation"
+  | "email_confirm";
 
 /**
- * `sudo`, `sudo_options`, `security_mutation`, `totp_confirm` and
- * `identity_mutation` are keyed by the local session id (`consumeKey`) and
- * mirror the sky-account budgets (10 proofs, 30 option requests, 30
- * credential mutations, 10 TOTP confirmations per fixed 15-minute window;
- * name and username changes share the SPI's 30-wide `mutation` budget with
- * the credential routes, so they get a tighter 10) so a session cannot burn
- * the person's upstream budget or the realm brute-force counter from this side.
+ * `sudo`, `sudo_options`, `security_mutation`, `totp_confirm`,
+ * `identity_mutation`, `email_mutation` and `email_confirm` are keyed by the
+ * local session id (`consumeKey`) and mirror the sky-account budgets (10
+ * proofs, 30 option requests, 30 credential mutations, 10 TOTP confirmations
+ * per fixed 15-minute window; name and username changes share the SPI's
+ * 30-wide `mutation` budget with the credential routes, so they get a tighter
+ * 10, and so do the e-mail page's changes and its code confirmations — the
+ * SPI itself mails at most 3 codes an hour and lets 5 wrong codes kill one)
+ * so a session cannot burn the person's upstream budget or the realm
+ * brute-force counter from this side.
  */
 const policies: Record<AnonymousAuthRateLimitScope, { limit: number; windowSeconds: number }> = {
   login: { limit: 10, windowSeconds: 60 },
@@ -42,6 +47,8 @@ const policies: Record<AnonymousAuthRateLimitScope, { limit: number; windowSecon
   security_mutation: { limit: 30, windowSeconds: 15 * 60 },
   totp_confirm: { limit: 10, windowSeconds: 15 * 60 },
   identity_mutation: { limit: 10, windowSeconds: 15 * 60 },
+  email_mutation: { limit: 10, windowSeconds: 15 * 60 },
+  email_confirm: { limit: 10, windowSeconds: 15 * 60 },
 };
 
 /**

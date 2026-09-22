@@ -300,7 +300,8 @@ type MutationAuthorization =
   | { ok: true; value: BrowserSession }
   | { ok: false; response: NextResponse };
 
-async function authenticateMutation(request: NextRequest, services: Services): Promise<MutationAuthorization> {
+/** Exact `Origin`, then the session-bound CSRF proof, the access gate and the session; shared with the e-mail routes. */
+export async function authenticateMutation(request: NextRequest, services: Services): Promise<MutationAuthorization> {
   if (!sessionMutationHasExactOrigin(request, services.config)) return { ok: false, response: forbiddenResponse() };
   const authorization = await services.sessionAccess.authenticateMutation(
     request.cookies.get(SESSION_COOKIE)?.value,
@@ -314,7 +315,8 @@ async function authenticateMutation(request: NextRequest, services: Services): P
   return { ok: true, value: authorization.value };
 }
 
-async function readJsonBody(request: NextRequest): Promise<Record<string, unknown>> {
+/** A small JSON object body (≤ 4 KB); anything else is answered `400` / `413 invalid_request` by `failureResponse`. */
+export async function readJsonBody(request: NextRequest): Promise<Record<string, unknown>> {
   let text: string;
   try {
     text = await readUtf8Body(request, { maxBytes: MAX_BODY_BYTES, exactContentType: JSON_CONTENT_TYPE });
