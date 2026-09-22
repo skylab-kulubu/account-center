@@ -100,6 +100,9 @@ describe("Account REST-backed pages", () => {
     expect(identity).toHaveAttribute("href", "/identity");
     expect(identity).toHaveTextContent("Adını, kullanıcı adını ve YTÜ hesabının durumunu yönet.");
     expect(screen.queryByRole("link", { name: /Kişisel bilgiler/ })).not.toBeInTheDocument();
+    const email = screen.getByRole("link", { name: /E-posta ve giriş/ });
+    expect(email).toHaveAttribute("href", "/email");
+    expect(email).toHaveTextContent("Kişisel e-posta ekle, birincil adresini seç.");
     expect(screen.getByRole("link", { name: /Yetkilerim/ })).toHaveAttribute("href", "/permissions");
     expect(screen.getByRole("link", { name: /Kulüp profili/ })).toHaveAttribute("href", "/club-profile");
     const security = screen.getByRole("link", { name: /Giriş ve güvenlik/ });

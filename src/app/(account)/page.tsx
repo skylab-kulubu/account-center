@@ -2,6 +2,7 @@ import {
   CircleUserRound,
   IdCard,
   KeyRound,
+  Mail,
   MonitorSmartphone,
   ShieldCheck,
   Trash2,
@@ -45,6 +46,12 @@ export default async function OverviewPage() {
           icon={<CircleUserRound aria-hidden="true" size={19} />}
           title="Kimlik"
           description="Adını, kullanıcı adını ve YTÜ hesabının durumunu yönet."
+        />
+        <SettingsRow
+          href="/email"
+          icon={<Mail aria-hidden="true" size={19} />}
+          title="E-posta ve giriş"
+          description="Kişisel e-posta ekle, birincil adresini seç."
         />
         <SettingsRow
           href="/club-profile"
