@@ -8,6 +8,7 @@ const baseUrl = "https://127.0.0.1:3100";
 const routes = [
   { href: "/", heading: "Hesabın, tek ve güvenli bir merkezde." },
   { href: "/personal-information", heading: "Kişisel bilgiler" },
+  { href: "/club-profile", heading: "Kulüp profili" },
   { href: "/security", heading: "Giriş ve güvenlik" },
   { href: "/sessions", heading: "Oturumlar ve cihazlar" },
   { href: "/permissions", heading: "Yetkilerim" },
@@ -57,7 +58,7 @@ function collectPageErrors(page: Page) {
   return errors;
 }
 
-test("all six account routes remain accessible and responsive in the browser matrix", async ({
+test("all seven account routes remain accessible and responsive in the browser matrix", async ({
   browser,
 }, testInfo) => {
   test.setTimeout(120_000);

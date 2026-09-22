@@ -182,6 +182,19 @@ test("permits an explicit off mode without Redis credentials", () => {
   assert.doesNotThrow(() => validateEnvironment(environment));
 });
 
+test("validates the optional profile picture origin whenever it is present", () => {
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, PROFILE_PICTURE_ORIGIN: "https://media.yildizskylab.com" }));
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, PROFILE_PICTURE_ORIGIN: "" }));
+  for (const invalid of [
+    "http://media.yildizskylab.com",
+    "https://media.yildizskylab.com/media/",
+    "https://user:secret@media.yildizskylab.com",
+    "https://<cdn-origin>",
+  ]) {
+    assert.throws(() => validateEnvironment({ ...valid, PROFILE_PICTURE_ORIGIN: invalid }), /PROFILE_PICTURE_ORIGIN/);
+  }
+});
+
 test("validates the optional club-profile Core origin whenever it is present", () => {
   assert.doesNotThrow(() => validateEnvironment({ ...valid, CORE_API_URL: "https://api.yildizskylab.com" }));
   assert.throws(

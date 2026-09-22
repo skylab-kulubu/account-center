@@ -132,9 +132,10 @@ describe("Account REST-backed pages", () => {
     expect(screen.queryByText(/görüntüle ve yönet/i)).not.toBeInTheDocument();
   });
 
-  it("links the overview to the read-only Permissions view", async () => {
+  it("links the overview to the read-only Permissions view and the club profile", async () => {
     render(await OverviewPage());
     expect(screen.getByRole("link", { name: /Yetkilerim/ })).toHaveAttribute("href", "/permissions");
+    expect(screen.getByRole("link", { name: /Kulüp profili/ })).toHaveAttribute("href", "/club-profile");
   });
 
   it("renders teams, privilege level and application permissions in human language", async () => {

@@ -154,6 +154,13 @@ function validateCoreApiEnvironment(env) {
   requireHttpsOrigin("CORE_API_URL", value);
 }
 
+function validateProfilePictureOriginEnvironment(env) {
+  const value = env.PROFILE_PICTURE_ORIGIN?.trim();
+  if (!value) return;
+  if (placeholderPattern.test(value)) throw new Error("PROFILE_PICTURE_ORIGIN contains a placeholder value.");
+  requireHttpsOrigin("PROFILE_PICTURE_ORIGIN", value);
+}
+
 function validateAccountErasureEnvironment(env) {
   const mode = env.ACCOUNT_ERASURE_MODE?.trim() || "off";
   if (mode !== "off" && mode !== "enforce") {
@@ -262,6 +269,7 @@ export function validateEnvironment(env) {
   requireOidcIssuer(values.OIDC_ISSUER);
   validateAccountAccessEnvironment(env, values.OIDC_ISSUER);
   validateCoreApiEnvironment(env);
+  validateProfilePictureOriginEnvironment(env);
   validateAccountErasureEnvironment(env);
   validateDatabaseEnvironment(env);
 }

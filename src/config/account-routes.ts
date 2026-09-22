@@ -1,5 +1,6 @@
 import {
   CircleUserRound,
+  IdCard,
   KeyRound,
   LayoutDashboard,
   MonitorSmartphone,
@@ -11,6 +12,7 @@ import type { LucideIcon } from "lucide-react";
 export type AccountRoutePath =
   | "/"
   | "/personal-information"
+  | "/club-profile"
   | "/security"
   | "/sessions"
   | "/permissions"
@@ -45,6 +47,15 @@ export const accountRoutes = [
     title: "Kişisel bilgiler",
     description: "SKY LAB kimliğindeki adını ve birincil e-posta adresini yalnızca görüntüleyebilirsin.",
     icon: CircleUserRound,
+    tone: "default",
+  },
+  {
+    href: "/club-profile",
+    navigationLabel: "Kulüp profili",
+    documentTitle: "Kulüp profili",
+    title: "Kulüp profili",
+    description: "SKY numaran, öğrenci kartı durumun ve telefonun burada görünür; üniversite, fakülte, bölüm, LinkedIn bağlantını ve profil fotoğrafını buradan düzenleyebilirsin.",
+    icon: IdCard,
     tone: "default",
   },
   {

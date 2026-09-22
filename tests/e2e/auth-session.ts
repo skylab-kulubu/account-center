@@ -113,16 +113,41 @@ function encryptedTokenFixture(
   });
 }
 
+/**
+ * An unsigned but contract-shaped Account Center user token for `subject`:
+ * the BFF validates claims only (issuer, subject, client, scope, exact
+ * audience set, Account REST roles, expiry) before forwarding the bearer to
+ * the loopback mock core, so the signature can be random.
+ */
+function contractShapedAccessToken(subject: string) {
+  const base64url = (value: unknown) => Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+  const issuedAt = Math.floor(Date.now() / 1_000);
+  const header = base64url({ alg: "RS256", typ: "JWT" });
+  const payload = base64url({
+    iss: process.env.OIDC_ISSUER ?? accountAccessIssuer,
+    sub: subject,
+    azp: process.env.OIDC_CLIENT_ID ?? "account-center",
+    scope: "openid",
+    aud: ["account", "core"],
+    resource_access: { account: { roles: ["manage-account", "view-profile"] } },
+    iat: issuedAt,
+    exp: issuedAt + 60 * 60,
+  });
+  return `${header}.${payload}.${randomBytes(32).toString("base64url")}`;
+}
+
 export async function seedAuthenticatedSession(
   label: string,
-  options: { includeRefreshToken?: boolean } = {},
+  options: { includeRefreshToken?: boolean; contractToken?: boolean } = {},
 ) {
   await ensureAccessGateContract();
   const sessionId = randomUUID();
   const subject = `e2e-${label}-${sessionId}`;
   const handle = randomBytes(32).toString("base64url");
   const generatedCanaries = {
-    accessToken: `e2e-access-${randomBytes(16).toString("base64url")}`,
+    accessToken: options.contractToken
+      ? contractShapedAccessToken(subject)
+      : `e2e-access-${randomBytes(16).toString("base64url")}`,
     refreshToken: `e2e-refresh-${randomBytes(16).toString("base64url")}`,
     idToken: `e2e-id-${randomBytes(16).toString("base64url")}`,
   };

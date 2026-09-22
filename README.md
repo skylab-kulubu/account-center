@@ -44,8 +44,14 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 - Bu sürüm v2 sözleşmelerini, istemcilerini ve Sudo modunu taşır
   (genişletilmiş token sözleşmesi, sky-account SPI istemcisi, core kulüp
   profili istemcisi, şifreli sudo saklama ve doğrulama diyaloğu). Kullanıcı
-  adı, e-posta, kulüp profili ve ürün içi güvenlik yüzeyleri A1–A5 işleriyle
-  gelir; bu sürümde arayüzde yer almaz.
+  adı, e-posta ve ürün içi güvenlik yüzeyleri A1–A5 işleriyle gelir; bu
+  sürümde arayüzde yer almaz.
+- Kulüp profili: SKY numarası, öğrenci kartı durumu, okul e-postası ve kendi
+  telefonun salt okunur; üniversite, fakülte, bölüm ve LinkedIn bağlantısı
+  düzenlenebilir; profil fotoğrafı önizlemeyle yüklenir, değiştirilir veya
+  kaldırılır. Veriler core `/v1/users/me` uçlarından aynı kullanıcı
+  token'ıyla okunup yazılır; `CORE_API_URL` tanımsız ortamlarda sayfa
+  kapalı olduğunu söyler ve kimlik özetini yine gösterir.
 - Açık cihaz ve tarayıcı oturumlarını görüntüleme, tek tek kapatma veya mevcut
   cihaz dışındaki tüm oturumları sonlandırma.
 - Yetkilerim: takımlar, liderlik ve yetki seviyesi (Yönetim/Denetim) ile
@@ -132,7 +138,11 @@ Ortam değişkenlerinin tam listesi ve güvenli örnek değerleri
 [`.env.example`](.env.example) dosyasındadır. Gerçek gizli bilgiler repoya
 eklenmez. `CORE_API_URL` isteğe bağlıdır: tanımlıysa kulüp profili çağrıları
 için canonical, credential'sız bir HTTPS origin olmak zorundadır; tanımsızsa
-kulüp profili özellikleri kapalı kalır. Yeni bir gizli değer gerekmez;
+kulüp profili özellikleri kapalı kalır. `PROFILE_PICTURE_ORIGIN` de isteğe
+bağlıdır: core'un profil fotoğraflarını yayımladığı origin'dir, Content
+Security Policy `img-src` yalnız bu origin'i ek olarak tanır; tanımsızsa
+`https://cdn.yildizskylab.com` kullanılır, tanımlıysa credential'sız,
+canonical bir HTTPS origin olmak zorundadır. Yeni bir gizli değer gerekmez;
 sudo proof'ları mevcut `TOKEN_ENCRYPTION_KEY` ile oturum kaydında şifrelenir.
 
 Sürüm geçişi: bu sürüm Keycloak kullanıcı token'ında K2 geçişi boyunca
