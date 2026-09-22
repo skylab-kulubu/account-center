@@ -15,6 +15,7 @@ import {
 } from "@/server/access-gate/authorization";
 import { logAuthEvent } from "@/server/auth/logging";
 import { OidcProviderStageError } from "@/server/auth/oidc-protocol";
+import { UpstreamSessionExpiredError } from "@/server/auth/sessions";
 import {
   SkyAccountContractError,
   SkyAccountProblem,
@@ -219,6 +220,27 @@ describe("authentication routes", () => {
       providerStage: "authorization_response",
     });
     expect(JSON.stringify(vi.mocked(logAuthEvent).mock.calls)).not.toContain("secret-code");
+  });
+
+  it("names an expired upstream session instead of blaming the provider", async () => {
+    authMocks.callback.mockRejectedValue(new UpstreamSessionExpiredError());
+    const request = new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    );
+
+    const response = await callbackRoute(request);
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/login?error=unavailable",
+    );
+    expect(logAuthEvent).toHaveBeenCalledWith({
+      event: "oidc_login_failed",
+      requestId: "request-id",
+      outcome: "failure",
+      reason: "upstream_session_expired",
+    });
   });
 
   it("replaces the old local session only after a successful callback", async () => {

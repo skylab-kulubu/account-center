@@ -268,4 +268,19 @@ describe("Account Center forced re-authentication", () => {
       expect(current.sessions.replaceTokens).not.toHaveBeenCalled();
     }
   });
+
+  it("keeps demanding a fresh sudo login when Keycloak repeats a native bridge's old app auth_time", async () => {
+    // A native handoff copies the app's original auth_time onto the web session;
+    // widening that session's lifetime must not make it count as a fresh login.
+    const { flow, protocol, sessions } = fixture();
+    const started = await flow.beginSudoReauthentication(activeSession, "/security");
+    protocol.authorization.authenticatedAt = new Date("2026-09-01T09:00:00Z");
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("code", "authorization-code");
+    callback.searchParams.set("state", protocol.proof!.state);
+
+    await expect(flow.callback(callback, started.browserBinding, handle))
+      .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+    expect(sessions.replaceTokens).not.toHaveBeenCalled();
+  });
 });
