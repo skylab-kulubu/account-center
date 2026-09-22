@@ -1,8 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { describeCooldown, IdentityManager, parseIdentityPayload } from "@/components/identity-manager";
+import {
+  authorizationUrlOf,
+  describeCooldown,
+  IdentityManager,
+  parseIdentityPayload,
+  ytuLinkNotice,
+} from "@/components/identity-manager";
 
-const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+const navigation = vi.hoisted(() => ({ replace: vi.fn(), search: "" }));
 const sudo = vi.hoisted(() => ({
   ensureSudo: vi.fn<(options?: { challenged?: boolean }) => Promise<boolean>>(),
   invalidateSudo: vi.fn(),
@@ -10,6 +16,8 @@ const sudo = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: navigation.replace }),
+  usePathname: () => "/identity",
+  useSearchParams: () => new URLSearchParams(navigation.search),
 }));
 
 vi.mock("@/components/sudo-provider", () => ({
@@ -17,6 +25,7 @@ vi.mock("@/components/sudo-provider", () => ({
 }));
 
 const csrfToken = "session-bound-csrf";
+const keycloakOrigin = "https://e.yildizskylab.com";
 
 function payload(overrides: Record<string, unknown> = {}) {
   return {
@@ -82,6 +91,7 @@ beforeEach(() => {
   sudo.ensureSudo.mockResolvedValue(true);
   sudo.invalidateSudo.mockReset();
   navigation.replace.mockReset();
+  navigation.search = "";
 });
 
 afterEach(() => {
@@ -93,7 +103,7 @@ afterEach(() => {
 describe("IdentityManager", () => {
   it("locks the name of a Verified YTÜ account and shows the YTÜ and e-mail rows without leaking the CSRF proof", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload()));
-    const { container } = render(<IdentityManager />);
+    const { container } = render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
 
     expect(await screen.findByRole("heading", { level: 2, name: "Ad soyad" })).toBeInTheDocument();
     expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
@@ -121,17 +131,19 @@ describe("IdentityManager", () => {
     expect(container.querySelector("a[href='/email']")).toBeNull();
   });
 
-  it("offers the name form and the disabled YTÜ link for an unverified account", async () => {
+  it("offers the name form and the YTÜ link for an unverified account", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload(unlocked)));
-    render(<IdentityManager />);
+    render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
     expect(await screen.findByRole("button", { name: "Adı düzenle" })).toBeEnabled();
     expect(screen.queryByText("YTÜ kaydından")).not.toBeInTheDocument();
     expect(screen.getByText("YTÜ hesabın bağlı değil")).toBeInTheDocument();
-    const link = screen.getByRole("button", { name: "YTÜ hesabımı bağla" });
-    expect(link).toBeDisabled();
-    expect(link).toHaveAccessibleDescription("YTÜ hesabını bağlama yakında bu sayfaya gelecek.");
-    expect(screen.getAllByText("Yakında").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("YTÜ Microsoft hesabını bağladığında adın ve okul e-postan YTÜ kaydından gelir ve kilitlenir.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+    // Only the e-mail settings are still "yakında".
+    expect(screen.getAllByText("Yakında")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "E-posta ayarları" })).toBeDisabled();
     expect(screen.getByText("Kayıtlı değil · YTÜ hesabından gelir; buradan değiştirilemez.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("shows a retryable card when the identity cannot be read and redirects on 401", async () => {
@@ -139,7 +151,7 @@ describe("IdentityManager", () => {
       .mockResolvedValueOnce(json({ error: "unavailable", detail: "Kimlik hizmetine şu anda ulaşılamıyor." }, 503))
       .mockResolvedValueOnce(json({ username: 42 }))
       .mockResolvedValueOnce(json({ error: "authentication_required" }, 401));
-    render(<IdentityManager />);
+    render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Kimlik bilgileri yüklenemedi");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Kimlik bilgileri güvenle durduruldu");
@@ -154,7 +166,7 @@ describe("IdentityManager", () => {
         .mockResolvedValueOnce(json(payload(unlocked)))
         .mockResolvedValueOnce(json({ coreSync: "synced" }))
         .mockResolvedValueOnce(json(payload({ ...unlocked, firstName: "Augusta Ada", lastName: "King" })));
-      render(<IdentityManager />);
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const form = await openNameForm();
       const first = within(form).getByLabelText("Ad");
       const last = within(form).getByLabelText("Soyad");
@@ -166,7 +178,7 @@ describe("IdentityManager", () => {
       fireEvent.click(within(form).getByRole("button", { name: "Adı kaydet" }));
 
       const notice = await findNotice("Adın güncellendi.");
-      expect(notice).toHaveFocus();
+      await waitFor(() => expect(notice).toHaveFocus());
       expect(screen.queryByText("Kulüp profilindeki adın daha sonra eşitlenecek.")).not.toBeInTheDocument();
       expect(sudo.ensureSudo).not.toHaveBeenCalled();
       const patched = recorded(request.mock.calls[1]!);
@@ -188,7 +200,7 @@ describe("IdentityManager", () => {
         .mockResolvedValueOnce(json(payload(unlocked)))
         .mockResolvedValueOnce(json({ coreSync: "failed" }))
         .mockResolvedValueOnce(json(payload({ ...unlocked, lastName: "Byron" })));
-      render(<IdentityManager />);
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const form = await openNameForm();
       fireEvent.change(within(form).getByLabelText("Soyad"), { target: { value: "Byron" } });
       fireEvent.click(within(form).getByRole("button", { name: "Adı kaydet" }));
@@ -199,7 +211,7 @@ describe("IdentityManager", () => {
 
     it("refuses invisible characters, empty fields and an unchanged name before any request", async () => {
       const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload(unlocked)));
-      render(<IdentityManager />);
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const form = await openNameForm();
       const first = within(form).getByLabelText("Ad");
       fireEvent.change(first, { target: { value: "Ada​Augusta" } });
@@ -224,12 +236,12 @@ describe("IdentityManager", () => {
         .mockResolvedValueOnce(json({ error: "invalid_name", detail: "Soyad boş olamaz.", field: "lastName" }, 400))
         .mockResolvedValueOnce(json({ error: "name_locked", detail: "Doğrulanmış YTÜ hesabının adı YTÜ kaydından gelir ve değiştirilemez." }, 403))
         .mockResolvedValueOnce(json(payload()));
-      render(<IdentityManager />);
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const form = await openNameForm();
       fireEvent.change(within(form).getByLabelText("Soyad"), { target: { value: "Byron" } });
       fireEvent.click(within(form).getByRole("button", { name: "Adı kaydet" }));
       expect(await within(form).findByRole("alert")).toHaveTextContent("Soyad boş olamaz.");
-      expect(within(form).getByLabelText("Soyad")).toHaveFocus();
+      await waitFor(() => expect(within(form).getByLabelText("Soyad")).toHaveFocus());
 
       fireEvent.click(within(form).getByRole("button", { name: "Adı kaydet" }));
       const notice = await findNotice("Doğrulanmış YTÜ hesabının adı YTÜ kaydından gelir ve değiştirilemez.");
@@ -244,7 +256,7 @@ describe("IdentityManager", () => {
         .mockResolvedValueOnce(json({ error: "forbidden" }, 403))
         .mockResolvedValueOnce(json(payload({ ...unlocked, csrfToken: "renewed-csrf" })))
         .mockResolvedValueOnce(json({ error: "rate_limited", detail: "Çok fazla deneme yaptın.", retryAfter: 90 }, 429));
-      render(<IdentityManager />);
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const form = await openNameForm();
       fireEvent.change(within(form).getByLabelText("Soyad"), { target: { value: "Byron" } });
       fireEvent.click(within(form).getByRole("button", { name: "Adı kaydet" }));
@@ -264,7 +276,7 @@ describe("IdentityManager", () => {
         .mockResolvedValueOnce(json(challenge, 428))
         .mockResolvedValueOnce(noContent())
         .mockResolvedValueOnce(json(payload({ username: "ada.lovelace" })));
-      const { container } = render(<IdentityManager />);
+      const { container } = render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const form = await openUsernameForm();
       const input = within(form).getByLabelText("Yeni kullanıcı adı");
       expect(input).toHaveAttribute("autocapitalize", "none");
@@ -291,7 +303,7 @@ describe("IdentityManager", () => {
       fireEvent.click(within(form).getByRole("button", { name: "Devam et" }));
       fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Onayla ve doğrula" }));
       const notice = await findNotice("Kullanıcı adın ada.lovelace olarak değiştirildi. Bundan sonra giriş yaparken bu adı kullan.");
-      expect(notice).toHaveFocus();
+      await waitFor(() => expect(notice).toHaveFocus());
       expect(sudo.ensureSudo).toHaveBeenCalledWith({ challenged: true });
       const posts = request.mock.calls.filter((call) => call[0] === "/api/account/identity/username").map(recorded);
       expect(posts).toHaveLength(2);
@@ -309,7 +321,7 @@ describe("IdentityManager", () => {
       const request = vi.spyOn(globalThis, "fetch")
         .mockResolvedValueOnce(json(payload({ username: "ada.lovelace" })))
         .mockResolvedValueOnce(json({ error: "username_taken", detail: "Bu kullanıcı adı kullanılıyor.", field: "username" }, 409));
-      render(<IdentityManager />);
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const form = await openUsernameForm();
       const input = within(form).getByLabelText("Yeni kullanıcı adı");
       fireEvent.change(input, { target: { value: "ab" } });
@@ -331,7 +343,7 @@ describe("IdentityManager", () => {
       fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Onayla ve doğrula" }));
       expect(await within(form).findByRole("alert")).toHaveTextContent("Bu kullanıcı adı kullanılıyor.");
       expect(input).toHaveAttribute("aria-invalid", "true");
-      expect(input).toHaveFocus();
+      await waitFor(() => expect(input).toHaveFocus());
       expect(screen.queryByText(/olarak değiştirildi/)).not.toBeInTheDocument();
     });
 
@@ -345,7 +357,7 @@ describe("IdentityManager", () => {
           availableAt: "2099-09-28T13:10:41.000Z",
         }, 409))
         .mockResolvedValueOnce(json(challenge, 428));
-      render(<IdentityManager />);
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const form = await requestUsernameChange("ada.lovelace");
       const alert = await within(form).findByRole("alert");
       expect(alert).toHaveTextContent("Kullanıcı adını 14 günde bir değiştirebilirsin.");
@@ -360,10 +372,257 @@ describe("IdentityManager", () => {
     it("disables the change while the server reports a running cooldown", async () => {
       const availableAt = new Date(Date.now() + 3 * 24 * 60 * 60_000).toISOString();
       vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload({ usernameChangeAvailableAt: availableAt })));
-      render(<IdentityManager />);
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
       const button = await screen.findByRole("button", { name: "Kullanıcı adını değiştir" });
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleDescription(/Kullanıcı adını en erken .* tarihinde yeniden değiştirebilirsin \(3 gün sonra\)\./);
+    });
+  });
+
+  describe("YTÜ link", () => {
+    const authorizationUrl = "https://e.yildizskylab.com/realms/e-skylab/protocol/openid-connect/auth?client_id=account-center&request_uri=urn%3Apar%3Aytu";
+
+    const originalLocation = Object.getOwnPropertyDescriptor(window, "location")!;
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", originalLocation);
+    });
+
+    /** jsdom cannot navigate: `location.assign` becomes a spy on a stand-in that keeps the address parts. */
+    function stubNavigation() {
+      const assign = vi.fn();
+      const original = window.location;
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { assign, href: original.href, search: original.search, pathname: original.pathname, origin: original.origin },
+      });
+      return assign;
+    }
+
+    async function openYtuDialog() {
+      fireEvent.click(await screen.findByRole("button", { name: "YTÜ hesabımı bağla" }));
+      return screen.findByRole("dialog", { name: "YTÜ hesabın bağlansın mı?" });
+    }
+
+    it("explains the consequences, starts the link with the CSRF proof and navigates to the address the BFF answered", async () => {
+      const assign = stubNavigation();
+      const request = vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json({ authorizationUrl }));
+      const { container } = render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const dialog = await openYtuDialog();
+      expect(dialog).toHaveTextContent("Microsoft ile YTÜ hesabına giriş yapacaksın. Devam etmeden önce şunları bil:");
+      expect(dialog).toHaveTextContent("Bağlandıktan sonra adın ve okul e-postan YTÜ kaydından gelir ve buradan değiştirilemez.");
+      expect(dialog).toHaveTextContent("Okul e-postan, giriş yaptığın YTÜ Microsoft hesabındaki adres olur.");
+      expect(dialog).toHaveTextContent("Bağlantı kalıcıdır; buradan kaldırılamaz.");
+      expect(dialog).toHaveTextContent("Onayladıktan sonra kimliğini doğrulaman istenir");
+      expect(dialog).toHaveTextContent("e.yildizskylab.com ve Microsoft sayfalarına gideceksin");
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Adı düzenle" })).toBeDisabled();
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Onayla ve devam et" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizationUrl));
+      // A fresh proof was already known, so the dialog did not have to open again.
+      expect(sudo.ensureSudo).not.toHaveBeenCalled();
+      const started = recorded(request.mock.calls[1]!);
+      expect(started.url).toBe("/api/account/identity/ytu-link");
+      expect(started.init).toMatchObject({
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        redirect: "error",
+        headers: { "x-csrf-token": csrfToken },
+      });
+      expect(started.init.body).toBeUndefined();
+      // The dialog stays busy while the browser leaves; nothing is re-read or announced here.
+      expect(dialog).toHaveAttribute("aria-busy", "true");
+      expect(within(dialog).getByRole("button", { name: "Vazgeç" })).toBeDisabled();
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(container.innerHTML).not.toContain(csrfToken);
+    });
+
+    it("cancels from the dialog without any request and refuses an address off the Keycloak origin", async () => {
+      const assign = stubNavigation();
+      const request = vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json({ authorizationUrl: "http://e.yildizskylab.com/realms/e-skylab/protocol/openid-connect/auth" }))
+        .mockResolvedValueOnce(json({ authorizationUrl: "https://attacker.invalid/realms/e-skylab/protocol/openid-connect/auth" }));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const dialog = await openYtuDialog();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Vazgeç" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "YTÜ hesabımı bağla" })).toHaveFocus();
+      expect(request).toHaveBeenCalledTimes(1);
+
+      const reopened = await openYtuDialog();
+      const proceed = () => fireEvent.click(within(reopened).getByRole("button", { name: "Onayla ve devam et" }));
+      proceed();
+      expect(await within(reopened).findByRole("alert")).toHaveTextContent("Yönlendirme adresi alınamadı. Yeniden dene.");
+      proceed();
+      await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+      expect(await within(reopened).findByRole("alert")).toHaveTextContent("Yönlendirme adresi alınamadı. Yeniden dene.");
+      expect(assign).not.toHaveBeenCalled();
+      expect(within(reopened).getByRole("button", { name: "Onayla ve devam et" })).toBeEnabled();
+    });
+
+    it("opens the Sudo mode dialog on 428 and retries the start once, and gives up when it is dismissed", async () => {
+      const assign = stubNavigation();
+      const request = vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json(challenge, 428))
+        .mockResolvedValueOnce(json({ authorizationUrl }));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const dialog = await openYtuDialog();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Onayla ve devam et" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizationUrl));
+      expect(sudo.ensureSudo).toHaveBeenCalledWith({ challenged: true });
+      expect(request).toHaveBeenCalledTimes(3);
+      expect(recorded(request.mock.calls[2]!).url).toBe("/api/account/identity/ytu-link");
+
+      cleanup();
+      assign.mockClear();
+      sudo.ensureSudo.mockResolvedValue(false);
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json(challenge, 428));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const second = await openYtuDialog();
+      fireEvent.click(within(second).getByRole("button", { name: "Onayla ve devam et" }));
+      expect(await within(second).findByRole("alert")).toHaveTextContent("Kimliğini doğrulamadığın için değişiklik yapılmadı.");
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("re-reads the identity when the account is already linked and shows the lock", async () => {
+      stubNavigation();
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json({ error: "already_linked", detail: "YTÜ hesabın zaten bağlı." }, 409))
+        .mockResolvedValueOnce(json(payload()));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const dialog = await openYtuDialog();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Onayla ve devam et" }));
+      const notice = await findNotice("Adın ve okul e-postan YTÜ kaydından geliyor; yeniden bağlaman gerekmez.");
+      expect(notice).toHaveTextContent("YTÜ hesabın zaten bağlı");
+      await waitFor(() => expect(notice).toHaveFocus());
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(await screen.findByText("Doğrulanmış YTÜ hesabı")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "YTÜ hesabımı bağla" })).not.toBeInTheDocument();
+      expect(screen.getByText("YTÜ kaydından")).toBeInTheDocument();
+    });
+
+    it("keeps the dialog open with the outage, reloads the proof after a 403 and counts a rate limit down", async () => {
+      const assign = stubNavigation();
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json({ error: "unavailable", detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden dene." }, 503, { "retry-after": "3" }))
+        .mockResolvedValueOnce(json({ error: "forbidden" }, 403))
+        .mockResolvedValueOnce(json(payload({ ...unlocked, csrfToken: "renewed-csrf" })))
+        .mockResolvedValueOnce(json({ error: "rate_limited", detail: "Çok fazla deneme yaptın.", retryAfter: 120 }, 429));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const dialog = await openYtuDialog();
+      const proceed = () => fireEvent.click(within(dialog).getByRole("button", { name: "Onayla ve devam et" }));
+      proceed();
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("Kimlik hizmetine şu anda ulaşılamıyor.");
+      expect(within(dialog).getByRole("button", { name: "Onayla ve devam et" })).toBeEnabled();
+
+      proceed();
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("Oturum bilgin yenilendi. Lütfen yeniden dene.");
+      await waitFor(() => expect(sudo.invalidateSudo).toHaveBeenCalled());
+
+      proceed();
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(/Çok fazla deneme yaptın\. Yeniden denemek için bekle: 2 dakika\./);
+      expect(within(dialog).getByRole("button", { name: "Onayla ve devam et" })).toBeDisabled();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("sends the person to login on 401 and reports a network failure", async () => {
+      stubNavigation();
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockRejectedValueOnce(new TypeError("network"))
+        .mockResolvedValueOnce(json({ error: "authentication_required" }, 401));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const dialog = await openYtuDialog();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Onayla ve devam et" }));
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("Bağlantı kurulamadı. Kısa bir süre sonra yeniden dene.");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Onayla ve devam et" }));
+      await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login?returnTo=%2Fidentity"));
+    });
+
+    it("announces the linked return once, strips it from the address and shows the locked state", async () => {
+      navigation.search = "ytu=linked&tab=x";
+      const replaceState = vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload()));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const notice = await findNotice("Adın ve okul e-postan artık YTÜ kaydından gelir ve buradan değiştirilemez.");
+      expect(notice).toHaveTextContent("YTÜ hesabın bağlandı");
+      expect(notice.querySelector("[data-tone='positive']")).not.toBeNull();
+      await waitFor(() => expect(notice).toHaveFocus());
+      expect(replaceState).toHaveBeenCalledWith(null, "", "/identity?tab=x");
+      expect(screen.getByText("Doğrulanmış YTÜ hesabı")).toBeInTheDocument();
+      expect(screen.getByText("YTÜ kaydından")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "YTÜ hesabımı bağla" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Adı düzenle" })).not.toBeInTheDocument();
+    });
+
+    it("says nothing when a crafted address claims a link the identity does not show", async () => {
+      navigation.search = "ytu=linked";
+      const replaceState = vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload(unlocked)));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      expect(await screen.findByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+      expect(screen.getByText("YTÜ hesabın bağlı değil")).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.queryByText("YTÜ hesabın bağlandı")).not.toBeInTheDocument();
+      // The address is still cleaned up so a reload cannot replay the claim.
+      expect(replaceState).toHaveBeenCalledWith(null, "", "/identity");
+    });
+
+    it.each([
+      ["cancelled", "Bağlama tamamlanmadı", "Hesabında değişiklik yapılmadı. İstediğinde yeniden deneyebilirsin."],
+      ["error", "YTÜ hesabı bağlanamadı", "YTÜ girişi tamamlanamadı ya da bu Microsoft hesabı başka bir SKY LAB hesabına bağlı."],
+      ["unverified", "Bağlantı doğrulanamadı", "Microsoft girişi tamamlandı ama hesabında YTÜ bağlantısı görünmüyor."],
+    ])("announces the %s return and keeps the link available", async (outcome, title, detail) => {
+      navigation.search = `ytu=${outcome}`;
+      vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload(unlocked)));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      const notice = (await screen.findByText(title)).closest<HTMLElement>("[role='status']")!;
+      expect(notice).toHaveTextContent(detail);
+      expect(await screen.findByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+      expect(window.history.replaceState).toHaveBeenCalledWith(null, "", "/identity");
+    });
+
+    it("ignores unknown return values and clears the notice when a change starts", async () => {
+      navigation.search = "ytu=owned";
+      const replaceState = vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload(unlocked)));
+      render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
+      expect(await screen.findByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(replaceState).not.toHaveBeenCalled();
+      expect(ytuLinkNotice("owned")).toBeNull();
+      expect(ytuLinkNotice("constructor")).toBeNull();
+      expect(ytuLinkNotice("already_linked")).toBeNull();
+      expect(ytuLinkNotice("unavailable")).toBeNull();
+      expect(ytuLinkNotice(null)).toBeNull();
+      expect(ytuLinkNotice("linked")).toMatchObject({ tone: "positive", assertsLink: true });
+    });
+
+    it("accepts only an absolute HTTPS address on the configured Keycloak origin", () => {
+      expect(authorizationUrlOf({ authorizationUrl }, keycloakOrigin)).toBe(authorizationUrl);
+      for (const broken of [
+        null,
+        {},
+        { authorizationUrl: 42 },
+        { authorizationUrl: "http://e.yildizskylab.com/auth" },
+        { authorizationUrl: "https://attacker.invalid/auth" },
+        { authorizationUrl: "https://e.yildizskylab.com.attacker.invalid/auth" },
+        { authorizationUrl: "https://e.yildizskylab.com:8443/auth" },
+        { authorizationUrl: "javascript:alert(1)" },
+        { authorizationUrl: "/api/auth/login" },
+        { authorizationUrl: `https://e.yildizskylab.com/${"x".repeat(5_000)}` },
+      ]) expect(authorizationUrlOf(broken, keycloakOrigin)).toBeNull();
     });
   });
 

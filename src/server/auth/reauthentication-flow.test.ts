@@ -99,7 +99,7 @@ function fixture() {
     ),
     sessions,
     accountAccess,
-    () => now,
+    { ytuIdpAlias: "OBS", clock: () => now },
   );
   return { flow, protocol, sessions, accountAccess };
 }

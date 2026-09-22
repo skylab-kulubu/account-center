@@ -2,9 +2,18 @@ import "server-only";
 
 import * as oauth from "oauth4webapi";
 import type { AuthConfig } from "@/server/auth/config";
-import { oidcRedirectUri } from "@/server/auth/config";
+import { oidcRedirectUri, YTU_IDP_ALIAS_PATTERN } from "@/server/auth/config";
 import type { OidcTokenSet } from "@/server/auth/types";
 import { validateAccountAccessToken } from "@/server/keycloak-account/access-token";
+
+/**
+ * The one Keycloak application-initiated action Account Center still requests:
+ * `kc_action=idp_link` with `kc_action_parameter=<YTÜ IdP alias>`, which links
+ * the person's YTÜ Microsoft account. Linking needs a login at Microsoft, so it
+ * cannot run inside `my.`; every other account action goes through the
+ * sky-account SPI and is refused here before any request leaves.
+ */
+export type OidcAccountAction = { action: "idp_link"; parameter: string };
 
 export type BeginAuthorizationInput = {
   state: string;
@@ -13,6 +22,8 @@ export type BeginAuthorizationInput = {
   nativeBridgeCode?: string;
   /** `prompt=login&max_age=0`: the Microsoft re-authentication used by Sudo mode's fallback and account deletion. */
   forceReauthentication?: boolean;
+  /** Only the YTÜ link (`idp_link` for the configured alias); never combined with the bridge or a forced login. */
+  accountAction?: OidcAccountAction;
 };
 
 export type ExchangeAuthorizationInput = BeginAuthorizationInput & {
@@ -151,6 +162,21 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
     if (input.nativeBridgeCode !== undefined && input.forceReauthentication === true) {
       throw new OidcContractError("OIDC native handoff cannot request a forced re-authentication.");
     }
+    // The YTÜ link is the only account action, for the configured alias only,
+    // and stands alone: linking re-authenticates at Microsoft by itself, so no
+    // `prompt=login` is added, and a bridge login never carries an action.
+    if (
+      input.accountAction !== undefined &&
+      (
+        input.accountAction.action !== "idp_link" ||
+        !YTU_IDP_ALIAS_PATTERN.test(input.accountAction.parameter) ||
+        input.accountAction.parameter !== this.config.ytuIdpAlias ||
+        input.nativeBridgeCode !== undefined ||
+        input.forceReauthentication === true
+      )
+    ) {
+      throw new OidcContractError("OIDC account action is outside the YTÜ link allowlist.");
+    }
     const authorizationServer = await this.#authorizationServer();
     const codeChallenge = await oauth.calculatePKCECodeChallenge(input.codeVerifier);
     const parameters = new URLSearchParams({
@@ -167,6 +193,10 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
     if (input.forceReauthentication) {
       parameters.set("max_age", "0");
       parameters.set("prompt", "login");
+    }
+    if (input.accountAction) {
+      parameters.set("kc_action", input.accountAction.action);
+      parameters.set("kc_action_parameter", input.accountAction.parameter);
     }
     const response = await oauth.pushedAuthorizationRequest(
       authorizationServer,

@@ -161,6 +161,15 @@ function validateProfilePictureOriginEnvironment(env) {
   requireHttpsOrigin("PROFILE_PICTURE_ORIGIN", value);
 }
 
+function validateYtuIdpAliasEnvironment(env) {
+  const value = env.YTU_IDP_ALIAS?.trim();
+  if (!value) return;
+  if (placeholderPattern.test(value)) throw new Error("YTU_IDP_ALIAS contains a placeholder value.");
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(value)) {
+    throw new Error("YTU_IDP_ALIAS must be a Keycloak identity provider alias of 1-64 URL-safe characters.");
+  }
+}
+
 function validateAccountErasureEnvironment(env) {
   const mode = env.ACCOUNT_ERASURE_MODE?.trim() || "off";
   if (mode !== "off" && mode !== "enforce") {
@@ -270,6 +279,7 @@ export function validateEnvironment(env) {
   validateAccountAccessEnvironment(env, values.OIDC_ISSUER);
   validateCoreApiEnvironment(env);
   validateProfilePictureOriginEnvironment(env);
+  validateYtuIdpAliasEnvironment(env);
   validateAccountErasureEnvironment(env);
   validateDatabaseEnvironment(env);
 }

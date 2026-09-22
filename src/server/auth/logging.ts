@@ -39,6 +39,8 @@ type AuthLog = {
     | "sudo_attempt"
     | "sudo_reauthentication_started"
     | "sudo_reauthentication_completed"
+    | "ytu_link_started"
+    | "ytu_link_completed"
     | "token_audience_legacy";
   requestId: string;
   outcome: "success" | "failure";
@@ -92,7 +94,12 @@ type AuthLog = {
     | "username_taken"
     | "username_cooldown"
     | "core_disabled"
-    | "core_rejected";
+    | "core_rejected"
+    | "already_linked"
+    | "link_cancelled"
+    | "link_failed"
+    | "link_unverified"
+    | "token_replace_failed";
 };
 
 export function logAuthEvent(entry: AuthLog) {

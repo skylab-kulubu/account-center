@@ -25,7 +25,8 @@ function validTransactionPayload(payload: OidcTransactionPayload) {
   if (!validCoreProof(payload)) return false;
   if (
     payload.purpose === "account-deletion-reauthentication" ||
-    payload.purpose === "sudo-reauthentication"
+    payload.purpose === "sudo-reauthentication" ||
+    payload.purpose === "ytu-link"
   ) {
     return (
       typeof payload.expectedSubject === "string" &&
@@ -33,7 +34,9 @@ function validTransactionPayload(payload: OidcTransactionPayload) {
       payload.expectedSubject.length <= 255 &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
         .test(payload.expectedSessionId) &&
-      validIsoDate(payload.initiatedAt)
+      validIsoDate(payload.initiatedAt) &&
+      // The YTÜ link always lands on the identity page; no other return path is stored.
+      (payload.purpose !== "ytu-link" || payload.returnTo === "/identity")
     );
   }
   if (payload.purpose !== undefined && payload.purpose !== "login") return false;

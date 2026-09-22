@@ -211,6 +211,16 @@ test("validates the optional club-profile Core origin whenever it is present", (
   );
 });
 
+test("validates the optional YTÜ identity provider alias whenever it is present", () => {
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, YTU_IDP_ALIAS: "OBS" }));
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, YTU_IDP_ALIAS: "obs-sandbox_2" }));
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, YTU_IDP_ALIAS: "" }));
+  for (const invalid of ["OBS/link", "OBS OBS", "a".repeat(65), "OBS?x=1", "ÖBS"]) {
+    assert.throws(() => validateEnvironment({ ...valid, YTU_IDP_ALIAS: invalid }), /YTU_IDP_ALIAS/);
+  }
+  assert.throws(() => validateEnvironment({ ...valid, YTU_IDP_ALIAS: "<idp-alias>" }), /placeholder/);
+});
+
 test("keeps account erasure default-off and requires the exact Core origin when enabled", () => {
   assert.doesNotThrow(() => validateEnvironment(valid));
   assert.doesNotThrow(() => validateEnvironment({ ...valid, ACCOUNT_ERASURE_MODE: "off" }));

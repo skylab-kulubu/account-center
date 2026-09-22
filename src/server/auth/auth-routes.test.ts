@@ -23,6 +23,8 @@ const authMocks = vi.hoisted(() => ({
   rateLimitConsume: vi.fn(),
   createDeletionIntent: vi.fn(),
   storeReauthenticationProof: vi.fn(),
+  accessToken: vi.fn(),
+  identity: vi.fn(),
 }));
 
 vi.mock("@/server/auth/logging", () => ({
@@ -38,6 +40,8 @@ vi.mock("@/server/auth/services", () => ({
     accountDeletion: { createReauthenticatedIntent: authMocks.createDeletionIntent },
     anonymousRateLimit: { consume: authMocks.rateLimitConsume },
     sudo: { storeReauthenticationProof: authMocks.storeReauthenticationProof },
+    account: { accessToken: authMocks.accessToken },
+    skyAccount: { identity: authMocks.identity },
   }),
 }));
 
@@ -274,6 +278,53 @@ describe("authentication routes", () => {
     ));
     expect(cancelled.headers.get("location")).toBe("https://my.yildizskylab.com/security?sudo=cancelled");
     expect(authMocks.storeReauthenticationProof).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns the YTÜ link outcome to the identity page only after re-reading the identity", async () => {
+    const activeSession = {
+      id: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
+      subject: "linking-user",
+      keycloakSid: "rotated-sid",
+      createdAt: new Date("2026-09-22T08:00:00Z"),
+      lastSeenAt: new Date("2026-09-22T09:00:00Z"),
+      idleExpiresAt: new Date("2026-09-22T09:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-22T16:00:00Z"),
+    };
+    const callback = (query: string) => callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?${query}&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${SESSION_COOKIE}=${"h".repeat(43)}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    ));
+    authMocks.callback.mockResolvedValue({ ytuLink: "success", session: activeSession, returnTo: "/identity" });
+    authMocks.accessToken.mockResolvedValue("fresh-server-token");
+    authMocks.identity.mockResolvedValue({ verifiedYtu: true });
+
+    const linked = await callback("code=valid&kc_action=idp_link&kc_action_status=success");
+    expect(linked.status).toBe(303);
+    expect(linked.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=linked");
+    expect(linked.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(linked.headers.get("cache-control")).toBe("no-store");
+    expect(linked.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+    expect(linked.cookies.get(SESSION_COOKIE)).toBeUndefined();
+    expect(linked.headers.get("set-cookie")).not.toContain("fresh-server-token");
+    expect(authMocks.accessToken).toHaveBeenCalledWith(activeSession);
+    expect(authMocks.identity).toHaveBeenCalledWith({ accessToken: "fresh-server-token" });
+    expect(authMocks.revokeHandle).not.toHaveBeenCalled();
+    expect(authMocks.storeReauthenticationProof).not.toHaveBeenCalled();
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "ytu_link_completed", outcome: "success" }));
+
+    authMocks.identity.mockResolvedValue({ verifiedYtu: false });
+    const unverified = await callback("code=valid&kc_action=idp_link&kc_action_status=success");
+    expect(unverified.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=unverified");
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "ytu_link_completed", reason: "link_unverified" }));
+
+    authMocks.callback.mockResolvedValue({ ytuLink: "cancelled", session: activeSession, returnTo: "/identity" });
+    const cancelled = await callback("code=valid&kc_action=idp_link&kc_action_status=cancelled");
+    expect(cancelled.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=cancelled");
+    authMocks.callback.mockResolvedValue({ ytuLink: "error", session: activeSession, returnTo: "/identity" });
+    const failed = await callback("code=valid&kc_action=idp_link&kc_action_status=error");
+    expect(failed.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=error");
+    expect(failed.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+    expect(authMocks.identity).toHaveBeenCalledTimes(2);
   });
 
   it("returns deletion cancellation to the page without creating a receipt", async () => {

@@ -151,7 +151,7 @@ describe("SecurityManager", () => {
 
       const status = await findNotice();
       expect(status).toHaveTextContent("Parolan değiştirildi. Diğer cihazlardaki oturumlar kapatıldı.");
-      expect(status).toHaveFocus();
+      await waitFor(() => expect(status).toHaveFocus());
       const posted = recorded(request.mock.calls[1]!);
       expect(posted.url).toBe("/api/account/security/password");
       expect(posted.init).toMatchObject({

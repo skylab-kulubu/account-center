@@ -92,7 +92,7 @@ function fixture(decision: "active" | "blocked" | "unavailable" = "active") {
     sessions,
   );
   return {
-    flow: new OidcFlowService(protocol, transactions, sessions, accountAccess),
+    flow: new OidcFlowService(protocol, transactions, sessions, accountAccess, { ytuIdpAlias: "OBS" }),
     protocol,
     repository,
   };

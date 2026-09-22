@@ -39,10 +39,25 @@ export type SudoReauthenticationTransactionPayload = OidcTransactionBase & {
   initiatedAt: string;
 };
 
+/**
+ * The YTÜ account link: a `kc_action=idp_link` round trip bound to the current
+ * BFF session that returns to the identity page. No forced login: Keycloak
+ * sends the person to Microsoft, and the callback proves the link by reading
+ * the identity again rather than by trusting `kc_action_status`.
+ */
+export type YtuLinkTransactionPayload = OidcTransactionBase & {
+  purpose: "ytu-link";
+  returnTo: "/identity";
+  expectedSubject: string;
+  expectedSessionId: string;
+  initiatedAt: string;
+};
+
 export type OidcTransactionPayload =
   | LoginOidcTransactionPayload
   | AccountDeletionReauthenticationTransactionPayload
-  | SudoReauthenticationTransactionPayload;
+  | SudoReauthenticationTransactionPayload
+  | YtuLinkTransactionPayload;
 
 export type StoredOidcTransaction = {
   id: string;

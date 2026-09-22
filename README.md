@@ -39,8 +39,11 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
   SPI'ye yazılır ve core'daki kulüp profili gölgesi aynı işlemde eşitlenir),
   kullanıcı adı değişikliği (benzersizlik ve 14 günlük bekleme SPI'de,
   sonuçları anlatan onay penceresi ve Sudo modu), YTÜ durumu ve birincil /
-  okul e-postası satırları. `/personal-information` kalıcı olarak
-  `/identity` adresine yönlenir.
+  okul e-postası satırları. Doğrulanmamış hesap "YTÜ hesabımı bağla" ile
+  sonuçları anlatan bir onay penceresi ve Sudo modundan sonra Keycloak'ın
+  `idp_link` işlemine gider (Microsoft girişi; dönüşte bağlantı `GET identity`
+  ile doğrulanır, ad ve okul e-postası kilitlenir; bağlantı kaldırma yoktur).
+  `/personal-information` kalıcı olarak `/identity` adresine yönlenir.
 - Hassas işlemlerden önce ürün içi "kimliğini doğrula" adımı (Sudo modu):
   parola, passkey ya da doğrulama kodu ile beş dakikalık, sunucuda şifreli
   saklanan yeniden doğrulama; hiçbiri yoksa Microsoft ile yeniden giriş.
@@ -53,9 +56,9 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
   Keycloak'a yönlendirme yoktur.
 - Bu sürüm v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş token
   sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi, şifreli
-  sudo saklama ve doğrulama diyaloğu). Kişisel e-posta ekleme, birincil adres
-  seçimi ve YTÜ hesabı bağlama sonraki işlerle gelir; kimlik sayfası bunları
-  "yakında" olarak gösterir.
+  sudo saklama ve doğrulama diyaloğu). Kişisel e-posta ekleme ve birincil
+  adres seçimi sonraki işle gelir; kimlik sayfası bunları "yakında" olarak
+  gösterir.
 - Kulüp profili: SKY numarası, öğrenci kartı durumu, okul e-postası ve kendi
   telefonun salt okunur; üniversite, fakülte, bölüm ve LinkedIn bağlantısı
   düzenlenebilir; profil fotoğrafı önizlemeyle yüklenir, değiştirilir veya
@@ -99,6 +102,12 @@ AES-256-GCM ile şifrelenir.
   kullanan sky-account uzantısıyla yapılır; BFF beş dakikalık, şifreli saklanan
   bir Sudo modu kanıtı olmadan hiçbir değişikliği iletmez ve parola, kod, sır
   ya da attestation hiçbir log ya da yanıta yazılmaz.
+- Keycloak'a gönderilen tek application-initiated action YTÜ hesabı bağlama
+  (`kc_action=idp_link`, yalnız `YTU_IDP_ALIAS` için) olur; başka hiçbir
+  `kc_action` istek gövdesine giremez. Geri alınamaz bir işlem olduğu için
+  Sudo modu ister, tarayıcı yalnız sunucudan basılan Keycloak origin'ine
+  yönlendirilir ve bağlantı Keycloak'ın "başarılı" demesiyle değil, kimliğin
+  yeniden okunmasıyla doğrulanır.
 - Oturum kapatma işlemlerinde ham Keycloak oturum kimliği tarayıcıya verilmez.
 - Hesap erişim engeli doğrulanamazsa kimlik doğrulanmış işler güvenli biçimde
   `503` ile kapanır; çıkış ve temizlik yolları çalışmaya devam eder.
@@ -154,8 +163,15 @@ kulüp profili özellikleri kapalı kalır. `PROFILE_PICTURE_ORIGIN` de isteğe
 bağlıdır: core'un profil fotoğraflarını yayımladığı origin'dir, Content
 Security Policy `img-src` yalnız bu origin'i ek olarak tanır; tanımsızsa
 `https://cdn.yildizskylab.com` kullanılır, tanımlıysa credential'sız,
-canonical bir HTTPS origin olmak zorundadır. Yeni bir gizli değer gerekmez;
-sudo proof'ları mevcut `TOKEN_ENCRYPTION_KEY` ile oturum kaydında şifrelenir.
+canonical bir HTTPS origin olmak zorundadır. `YTU_IDP_ALIAS` de isteğe
+bağlıdır: YTÜ Microsoft identity provider'ının Keycloak alias'ıdır, tanımsızsa
+`OBS` kullanılır, tanımlıysa 1-64 karakterlik URL-güvenli bir alias olmak
+zorundadır; "YTÜ hesabımı bağla" yalnız bu alias için `kc_action=idp_link`
+ister ve Keycloak tarafında `account-center` istemcisinin
+`account.manage-account-links` scope mapping'ine, kişinin de
+`account.manage-account` rolüne ihtiyaç duyar (K2 reconcile). Yeni bir gizli
+değer gerekmez; sudo proof'ları mevcut `TOKEN_ENCRYPTION_KEY` ile oturum
+kaydında şifrelenir.
 
 Sürüm geçişi: bu sürüm Keycloak kullanıcı token'ında K2 geçişi boyunca
 eski `aud=account` ve güncel `aud=["account","core"]` kümelerinden tam olarak

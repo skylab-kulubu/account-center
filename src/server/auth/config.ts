@@ -22,7 +22,17 @@ export type AuthConfig = {
   accountErasure:
     | { mode: "off" }
     | { mode: "enforce"; coreApiUrl: URL };
+  /**
+   * Keycloak alias of the YTÜ Microsoft identity provider (`YTU_IDP_ALIAS`,
+   * default `OBS`): the only `kc_action_parameter` the `idp_link`
+   * application-initiated action may carry.
+   */
+  ytuIdpAlias: string;
 };
+
+/** A Keycloak identity provider alias as this deployment accepts it: one URL-safe path segment. */
+export const YTU_IDP_ALIAS_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const DEFAULT_YTU_IDP_ALIAS = "OBS";
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -92,6 +102,15 @@ function coreApiUrlConfig(): URL | null {
     throw new Error("CORE_API_URL must be a canonical credential-free HTTPS origin.");
   }
   return coreApiUrl;
+}
+
+function ytuIdpAliasConfig() {
+  const value = process.env.YTU_IDP_ALIAS?.trim();
+  if (!value) return DEFAULT_YTU_IDP_ALIAS;
+  if (!YTU_IDP_ALIAS_PATTERN.test(value)) {
+    throw new Error("YTU_IDP_ALIAS must be a Keycloak identity provider alias of 1–64 URL-safe characters.");
+  }
+  return value;
 }
 
 function accountErasureConfig(coreApiUrl: URL | null): AuthConfig["accountErasure"] {
@@ -167,6 +186,7 @@ export function getAuthConfig(): AuthConfig {
     previousHandleGraceSeconds: 30,
     coreApiUrl,
     accountErasure: accountErasureConfig(coreApiUrl),
+    ytuIdpAlias: ytuIdpAliasConfig(),
   };
 }
 
