@@ -77,7 +77,10 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 - Yerel uygulamalar için tek kullanımlık, mTLS ve HMAC korumalı native SSO
   köprüsü.
 - Dayanıklı, izlenebilir ve yeniden denenebilir hesap silme/anonimleştirme
-  süreci.
+  süreci: niyet onayı, Sudo modu, birebir `HESABIMI SİL` metni ve gönderim.
+  Core intake'i taze bir ID token istediği için, oturumda yeterince yeni bir
+  giriş yoksa araya bugünkü Keycloak doğrulaması girer ve sayfa nedenini
+  söyler.
 - SKY LAB tasarım dili, erişilebilir klavye kullanımı ve mobil uyumlu arayüz.
 
 ## Mimari

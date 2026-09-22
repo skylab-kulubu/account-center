@@ -171,7 +171,7 @@ test("account deletion remains visibly inert while the production rollout flag i
 
   await expect(page.getByRole("heading", { name: "Hesabı sil" })).toBeVisible();
   await expect(page.getByText("Silme akışı henüz etkin değil")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Kimliğimi yeniden doğrula" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Hesabımı silmek istiyorum" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Hesabımı kalıcı olarak sil" })).toHaveCount(0);
 });
 

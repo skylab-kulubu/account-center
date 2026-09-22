@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AccountPageHeader } from "@/components/settings";
 import { AccountDeletionConfirmation } from "@/components/account-deletion-confirmation";
+import type { AccountDeletionError } from "@/components/account-deletion-confirmation";
 import { accountRoute } from "@/config/account-routes";
 import { ACCOUNT_DELETION_PROOF_COOKIE } from "@/server/auth/http";
 import { getAuthServices } from "@/server/auth/services";
@@ -28,11 +29,13 @@ export default async function DeleteAccountPage({
   const authorization = await currentAccountSession();
   if (authorization.status !== "active") redirect("/login");
   const parameters = await searchParams;
-  const deletionError = parameters.deletionError === "proof_expired" ||
-    parameters.deletionError === "reauth_unavailable" ||
-    parameters.deletionError === "deletion_unavailable"
-    ? parameters.deletionError
-    : undefined;
+  const deletionErrors: readonly AccountDeletionError[] = [
+    "proof_expired",
+    "reauth_unavailable",
+    "deletion_unavailable",
+    "sudo_required",
+  ];
+  const deletionError = deletionErrors.find((value) => value === parameters.deletionError);
   const proof = (await cookies()).get(ACCOUNT_DELETION_PROOF_COOKIE)?.value;
   const reauthenticated = typeof proof === "string" && /^[A-Za-z0-9_-]{43}$/.test(proof);
   const csrfToken = services.sessions.csrfToken(authorization.value.session.id);
