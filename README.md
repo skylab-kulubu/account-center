@@ -58,11 +58,13 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
   kaldırma. Her adım Sudo modundan geçer ve sky-account SPI ile yapılır;
   Keycloak'a yönlendirme yoktur.
 - E-posta ve giriş sayfası (`/email`): okul e-postası (salt okunur,
-  doğrulanmış YTÜ hesabında rozetli), kişisel e-posta ekleme (Sudo modu,
-  ardından adrese gönderilen altı haneli kodun aynı sayfada girilmesi; on
-  dakikalık geri sayım, yeni kod isteme, yanlış / tükenmiş / süresi dolmuş
-  kod mesajları) ve kaldırma, birincil adres seçimi (Sudo modu). Kulüp
-  postaları birincil adrese gider; iki adresle de giriş yapılabilir.
+  doğrulanmış YTÜ hesabında rozetli), kişisel e-posta ekleme ve değiştirme
+  (Sudo modu, ardından adrese gönderilen altı haneli kodun aynı sayfada
+  girilmesi; on dakikalık geri sayım, yeni kod isteme, yanlış / tükenmiş /
+  süresi dolmuş kod mesajları; sayfa yenilense ya da posta uygulamasından
+  dönülse de bekleyen kod paneli geri gelir) ve kaldırma, birincil adres
+  seçimi (Sudo modu). Kulüp postaları birincil adrese gider; iki adresle de
+  giriş yapılabilir.
 - Bu sürüm v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş token
   sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi, şifreli
   sudo saklama ve doğrulama diyaloğu).

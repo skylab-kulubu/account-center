@@ -132,6 +132,11 @@ test("all eight account routes remain accessible and responsive in the browser m
           }
           await route.continue();
         });
+        await page.route("**/api/account/email/pending", (route) => route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ pending: null }),
+        }));
         await page.route("**/api/account/security", async (route) => {
           if (route.request().method() === "GET") {
             await route.fulfill({

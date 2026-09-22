@@ -29,6 +29,7 @@ const pages = [
   "/api/account",
   "/api/account/identity",
   "/api/account/email",
+  "/api/account/email/pending",
   "/api/account/sessions",
   "/api/account/security",
   "/api/account/club-profile",

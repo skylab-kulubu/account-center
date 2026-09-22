@@ -90,12 +90,19 @@ function recordRequests(page: Page) {
   };
 }
 
-/** The e-mail read, answered from a mutable record so a re-read after a change shows the server's state. */
-async function mockEmail(page: Page, state: EmailState) {
+type WaitingChange = { address: string; expiresAt: string; attemptsLeft: number };
+
+/**
+ * The e-mail read and the pending-change read, answered from mutable records
+ * so a re-read after a change (or a reload) shows the server's state.
+ */
+async function mockEmail(page: Page, state: EmailState, waiting: { current: WaitingChange | null } = { current: null }) {
   await page.route("**/api/account/email", (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     return route.fulfill({ json: { ...state, csrfToken } });
   });
+  await page.route("**/api/account/email/pending", (route) => route.fulfill({ json: { pending: waiting.current } }));
+  return waiting;
 }
 
 /** The identity read of the same person, so the identity page's summary can be checked against the same record. */
@@ -363,6 +370,128 @@ test("wrong, exhausted, vanished and rate-limited codes each say what happened",
   expect(errors).toEqual([]);
 });
 
+test("a reload between the mail and the code brings the code panel back without a new code", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `email-restore-${testInfo.retry}`);
+  const errors = failOnPageErrors(page);
+  const state: EmailState = { ...verifiedSchoolOnly };
+  const waiting = await mockEmail(page, state);
+  await mockSudo(page);
+  const sends: unknown[] = [];
+  await page.route("**/api/account/email/change-request", async (route) => {
+    const { address } = route.request().postDataJSON() as { address: string };
+    sends.push(address);
+    const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    waiting.current = { address, expiresAt, attemptsLeft: 5 };
+    await route.fulfill({ status: 202, json: { expiresAt } });
+  });
+  const codes: string[] = [];
+  await page.route("**/api/account/email/confirm", async (route) => {
+    const { code } = route.request().postDataJSON() as { code: string };
+    codes.push(code);
+    if (code !== mailedCode) {
+      waiting.current = waiting.current && { ...waiting.current, attemptsLeft: waiting.current.attemptsLeft - 1 };
+      await route.fulfill({
+        status: 400,
+        json: { error: "invalid_code", detail: "Doğrulama kodu yanlış.", attemptsLeft: waiting.current?.attemptsLeft ?? 0 },
+      });
+      return;
+    }
+    state.personalEmail = waiting.current!.address;
+    state.personalEmailVerified = true;
+    waiting.current = null;
+    await route.fulfill({ status: 204 });
+  });
+
+  await gotoEmail(page);
+  await requestCode(page, personalEmail);
+  const form = page.getByRole("form", { name: "Doğrulama kodunu gir" });
+  await form.getByLabel("Doğrulama kodu").fill("000000");
+  await form.getByRole("button", { name: "Doğrula" }).click();
+  await expect(form.getByRole("alert")).toHaveText("Kod yanlış. 4 deneme hakkın kaldı.");
+
+  // The phone switched to the mail app and the browser dropped the page.
+  await gotoEmail(page);
+  const restored = page.getByRole("form", { name: "Doğrulama kodunu gir" });
+  await expect(restored).toBeVisible();
+  await expect(restored).toContainText(`${personalEmail} adresine 6 haneli bir kod gönderdik.`);
+  await expect(restored).toContainText("4 deneme hakkın kaldı.");
+  await expect(restored.getByRole("timer")).toHaveText(/Kalan süre: (?:10:00|9:\d{2})/);
+  await expect(restored.getByLabel("Doğrulama kodu")).toBeFocused();
+  await restored.getByLabel("Doğrulama kodu").fill(mailedCode);
+  await restored.getByRole("button", { name: "Doğrula" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "İşlem tamamlandı" })).toContainText(`${personalEmail} doğrulandı.`);
+
+  // Nothing waits any more: the next load shows no code panel.
+  await gotoEmail(page);
+  await expect(page.getByRole("form", { name: "Doğrulama kodunu gir" })).toHaveCount(0);
+  expect(sends).toEqual([personalEmail]);
+  expect(codes).toEqual(["000000", mailedCode]);
+  expect(errors).toEqual([]);
+});
+
+test("changing the personal address that is primary moves the primary to the new one", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `email-change-${testInfo.retry}`);
+  const errors = failOnPageErrors(page);
+  const newAddress = "ada.new@example.com";
+  const state: EmailState = {
+    email: personalEmail,
+    emailVerified: true,
+    primary: "personal",
+    schoolEmail,
+    verifiedYtu: true,
+    personalEmail,
+    personalEmailVerified: true,
+  };
+  const waiting = await mockEmail(page, state);
+  await mockIdentity(page, state);
+  const proofs = await mockSudo(page);
+  let challenged = false;
+  await page.route("**/api/account/email/change-request", async (route) => {
+    if (!challenged) {
+      challenged = true;
+      await route.fulfill({ status: 428, json: sudoChallenge });
+      return;
+    }
+    const { address } = route.request().postDataJSON() as { address: string };
+    const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    waiting.current = { address, expiresAt, attemptsLeft: 5 };
+    await route.fulfill({ status: 202, json: { expiresAt } });
+  });
+  await page.route("**/api/account/email/confirm", async (route) => {
+    // The SPI moves the primary with a replaced personal address that was primary.
+    const replacedPrimary = state.primary === "personal";
+    state.personalEmail = waiting.current!.address;
+    if (replacedPrimary) state.email = state.personalEmail;
+    waiting.current = null;
+    await route.fulfill({ status: 204 });
+  });
+
+  await gotoEmail(page);
+  await page.getByRole("button", { name: `${personalEmail} — Değiştir` }).click();
+  const form = page.getByRole("form", { name: "Kişisel e-postayı değiştir" });
+  await expect(form).toContainText(`Kodu girene kadar ${personalEmail} kişisel adresin olarak kalır.`);
+  await expect(form).toContainText("Birincil adresin de yeni adrese geçer.");
+  await form.getByLabel("Yeni e-posta adresi").fill(newAddress);
+  await form.getByRole("button", { name: "Kod gönder" }).click();
+  await completeSudoDialog(page);
+  const code = page.getByRole("form", { name: "Doğrulama kodunu gir" });
+  await expect(code).toContainText(`Kodu girdiğinde ${personalEmail} yerine bu adres kişisel e-postan olur.`);
+  await code.getByLabel("Doğrulama kodu").fill(mailedCode);
+  await code.getByRole("button", { name: "Doğrula" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "İşlem tamamlandı" })).toContainText(
+    `${newAddress} doğrulandı; kişisel e-postan artık bu adres. ${personalEmail} ile artık giriş yapamazsın.`,
+  );
+  await expect(page.getByText(newAddress, { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("group", { name: "Birincil e-posta" }).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
+
+  await page.getByRole("navigation", { name: "Hesap ayarları" }).getByRole("link", { name: "Kimlik" }).click();
+  await expect(page.getByText(new RegExp(`^${newAddress.replace(/\./g, "\\.")} · Kulüp postaları bu adrese gelir`))).toBeVisible();
+  expect(proofs).toEqual([{ password: sudoPassword }]);
+  expect(errors).toEqual([]);
+});
+
 test("the ten-minute countdown closes the code input when it runs out", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   await installAuthenticatedSession(context, `email-expiry-${testInfo.retry}`);
@@ -420,7 +549,7 @@ test("an unlinked school address cannot become primary and a primary personal ad
       status: 409,
       json: {
         error: "no_fallback_email",
-        detail: "Kişisel e-postan birincil adresin ve yerine geçebilecek doğrulanmış bir okul e-postan yok; kaldırırsan giriş yapabileceğin bir adres kalmaz. Önce YTÜ hesabını bağla ve okul e-postanı birincil yap.",
+        detail: "Kişisel e-posta şu anda birincil adresin ve yerine geçebilecek, YTÜ hesabıyla kanıtlanmış bir okul e-postan yok; kaldırılırsa giriş yapabileceğin bir adres kalmaz. Önce YTÜ hesabını bağla ya da başka bir kişisel adres ekle.",
       },
     });
   });
@@ -440,7 +569,8 @@ test("an unlinked school address cannot become primary and a primary personal ad
   const dialog = page.getByRole("dialog", { name: "Kişisel e-posta kaldırılsın mı?" });
   await dialog.getByRole("button", { name: "Kaldır" }).click();
   await completeSudoDialog(page);
-  await expect(dialog.getByRole("alert")).toContainText("kaldırırsan giriş yapabileceğin bir adres kalmaz");
+  await expect(dialog.getByRole("alert")).toContainText("kaldırılırsa giriş yapabileceğin bir adres kalmaz");
+  await expect(dialog.getByRole("link", { name: "YTÜ hesabını bağla" })).toHaveAttribute("href", "/identity");
   await expect(dialog).toBeVisible();
   expect(removals).toEqual(["DELETE", "DELETE"]);
   expect(errors).toEqual([]);
