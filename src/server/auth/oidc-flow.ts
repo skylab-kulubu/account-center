@@ -437,6 +437,10 @@ export class OidcFlowService {
       subject: authorization.subject,
       keycloakSid: authorization.keycloakSid,
       authenticatedAt: authorization.authenticatedAt,
+      // Keycloak opened this web session for the native bridge during this login.
+      ...(transaction.expectedAuthenticatedAt !== undefined
+        ? { upstreamSessionStartedAt: this.clock() }
+        : {}),
       tokens: authorization.tokens,
     });
     return { ...session, returnTo: transaction.returnTo };

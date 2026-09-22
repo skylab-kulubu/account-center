@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import type { SessionRepository, SessionUseOutcome, UseSessionInput } from "@/server/auth/repositories";
 import type { NewSessionRecord } from "@/server/auth/types";
-import { DeletedSessionTokenDecryptError, SessionManager } from "@/server/auth/sessions";
+import {
+  DeletedSessionTokenDecryptError,
+  SessionManager,
+  UpstreamSessionExpiredError,
+} from "@/server/auth/sessions";
 
 class MemorySessions implements SessionRepository {
   record?: NewSessionRecord & {
@@ -173,7 +177,42 @@ describe("SessionManager", () => {
         authenticatedAt: new Date("2026-09-19T20:00:00Z"),
         tokens,
       }),
-    ).rejects.toThrow(/upstream.*expired/i);
+    ).rejects.toBeInstanceOf(UpstreamSessionExpiredError);
+  });
+
+  it("bounds a native bridge session by the web session's start, not the app's original login", async () => {
+    const now = new Date("2026-09-20T01:00:00Z");
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 9)),
+      Buffer.alloc(32, 8),
+      {
+        absoluteTtlSeconds: 8 * 60 * 60,
+        upstreamSessionMaxSeconds: 8 * 60 * 60,
+        idleTtlSeconds: 600,
+        rotationSeconds: 60,
+        previousHandleGraceSeconds: 30,
+      },
+      () => now,
+    );
+
+    await manager.create({
+      subject: "native-user",
+      authenticatedAt: new Date("2026-09-01T09:00:00Z"),
+      upstreamSessionStartedAt: now,
+      tokens,
+    });
+    expect(repository.record?.absoluteExpiresAt).toEqual(new Date("2026-09-20T09:00:00Z"));
+
+    await expect(
+      manager.create({
+        subject: "native-user",
+        authenticatedAt: new Date("2026-09-01T09:00:00Z"),
+        upstreamSessionStartedAt: new Date("2026-09-20T01:00:06Z"),
+        tokens,
+      }),
+    ).rejects.toThrow(/upstream session start/i);
   });
 
   it("stores only a handle hash, encrypts tokens, and rotates due handles", async () => {
