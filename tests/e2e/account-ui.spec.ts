@@ -10,6 +10,7 @@ const routes = [
   { href: "/personal-information", heading: "Kişisel bilgiler" },
   { href: "/security", heading: "Giriş ve güvenlik" },
   { href: "/sessions", heading: "Oturumlar ve cihazlar" },
+  { href: "/permissions", heading: "Yetkilerim" },
   { href: "/delete-account", heading: "Hesabı sil" },
 ] as const;
 
@@ -56,7 +57,7 @@ function collectPageErrors(page: Page) {
   return errors;
 }
 
-test("all five account routes remain accessible and responsive in the browser matrix", async ({
+test("all six account routes remain accessible and responsive in the browser matrix", async ({
   browser,
 }, testInfo) => {
   test.setTimeout(120_000);

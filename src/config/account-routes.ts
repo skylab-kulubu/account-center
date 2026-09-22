@@ -3,6 +3,7 @@ import {
   KeyRound,
   LayoutDashboard,
   MonitorSmartphone,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -12,6 +13,7 @@ export type AccountRoutePath =
   | "/personal-information"
   | "/security"
   | "/sessions"
+  | "/permissions"
   | "/delete-account";
 
 export type AccountRoute = Readonly<{
@@ -61,6 +63,15 @@ export const accountRoutes = [
     title: "Oturumlar ve cihazlar",
     description: "Hesabının açık olduğu cihazları gör ve tanımadığın oturumların erişimini kaldır.",
     icon: MonitorSmartphone,
+    tone: "default",
+  },
+  {
+    href: "/permissions",
+    navigationLabel: "Yetkilerim",
+    documentTitle: "Yetkilerim",
+    title: "Yetkilerim",
+    description: "Takımlarını, yetki seviyeni ve SKY LAB uygulamalarında neler yapabildiğini burada görebilirsin. Bu görünüm salt okunurdur.",
+    icon: ShieldCheck,
     tone: "default",
   },
   {

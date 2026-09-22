@@ -57,6 +57,12 @@ export default async function OverviewPage() {
           title="Oturumlar ve cihazlar"
           description="Hesabının açık olduğu cihazları denetle."
         />
+        <SettingsRow
+          href="/permissions"
+          icon={<ShieldCheck aria-hidden="true" size={19} />}
+          title="Yetkilerim"
+          description="Takımlarını, yetki seviyeni ve uygulama yetkilerini gör."
+        />
       </SettingsGroup>
 
       <aside className="security-note">

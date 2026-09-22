@@ -43,6 +43,10 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
   güvenlik yüzeyleri A1–A5 işleriyle gelir; bu sürümde arayüzde yer almaz.
 - Açık cihaz ve tarayıcı oturumlarını görüntüleme, tek tek kapatma veya mevcut
   cihaz dışındaki tüm oturumları sonlandırma.
+- Yetkilerim: takımlar, liderlik ve yetki seviyesi (Yönetim/Denetim) ile
+  uygulama yetkilerinin salt okunur, Türkçe görünümü; ham rol kodları ve grup
+  yolları yalnız katlanmış "Teknik ayrıntılar" bölümünde, realm rolleri hiç
+  gösterilmez.
 - Yerel uygulamalar için tek kullanımlık, mTLS ve HMAC korumalı native SSO
   köprüsü.
 - Dayanıklı, izlenebilir ve yeniden denenebilir hesap silme/anonimleştirme

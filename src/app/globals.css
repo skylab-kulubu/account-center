@@ -641,6 +641,164 @@ a.settings-row:hover .settings-row__chevron {
   line-height: 1.6;
 }
 
+.permission-badges {
+  display: flex;
+  max-width: 320px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.permissions-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px 15px;
+  border: 1px solid rgba(251, 191, 36, 0.17);
+  border-radius: 10px;
+  color: var(--ink-muted);
+  background: rgba(245, 158, 11, 0.06);
+  font-size: 0.69rem;
+  line-height: 1.5;
+}
+
+.permissions-notice strong {
+  color: var(--ink);
+  font-size: 0.73rem;
+  font-weight: 620;
+}
+
+.permissions-notice a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.permission-app + .permission-app {
+  margin-top: 12px;
+}
+
+.permission-app__header {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.permission-app__header h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.permission-app__header small {
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.permission-app__note {
+  margin: 0;
+  padding: 11px 16px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--ink-faint);
+  font-size: 0.69rem;
+  line-height: 1.5;
+}
+
+.technical-details {
+  margin-top: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-card);
+}
+
+.technical-details summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 550;
+  list-style: none;
+}
+
+.technical-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.technical-details summary svg:first-child {
+  color: var(--accent);
+}
+
+.technical-details summary svg:last-child {
+  margin-left: auto;
+  color: var(--ink-faint);
+  transition: rotate 150ms ease;
+}
+
+.technical-details[open] summary svg:last-child {
+  rotate: 180deg;
+}
+
+.technical-details__body {
+  padding: 2px 16px 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.technical-details__body p {
+  margin: 12px 0 0;
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.technical-details__body h3 {
+  margin: 16px 0 7px;
+  color: var(--ink-muted);
+  font-size: 0.66rem;
+  font-weight: 620;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.technical-details__body ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.technical-details__body li {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-faint);
+  font-size: 0.68rem;
+}
+
+.technical-details__body code {
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--ink-muted);
+  background: rgba(255, 255, 255, 0.03);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+
 .state-card {
   display: flex;
   flex-direction: column;
@@ -653,6 +811,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .state-card h2,
+.state-card h3,
 .danger-card h2 {
   margin: 17px 0 0;
   color: var(--ink);
