@@ -193,23 +193,6 @@ export async function sessionExists(sessionId: string) {
   }
 }
 
-export async function seedAccountActionResult(sessionId: string) {
-  const reference = randomBytes(32).toString("base64url");
-  const client = new pg.Client({ connectionString: testDatabaseUrl() });
-  await client.connect();
-  try {
-    await client.query(
-      `INSERT INTO account_action_results
-        (result_hash, session_id, action, outcome, created_at, expires_at)
-       VALUES ($1, $2, 'otp', 'success', now(), now() + interval '5 minutes')`,
-      [createHash("sha256").update(reference, "utf8").digest(), sessionId],
-    );
-  } finally {
-    await client.end();
-  }
-  return reference;
-}
-
 export async function sessionState(sessionId: string) {
   const client = new pg.Client({ connectionString: testDatabaseUrl() });
   await client.connect();

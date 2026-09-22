@@ -1,7 +1,8 @@
 /**
- * Browser-side WebAuthn plumbing for Sudo mode. The ceremony runs on `my.`
- * with options produced by the sky-account SPI and relayed by the BFF; this
- * module only converts between the SPI's base64url JSON and the
+ * Browser-side WebAuthn plumbing for Sudo mode (assertion, `get`) and passkey
+ * registration on the security page (attestation, `create`). Both ceremonies
+ * run on `my.` with options produced by the sky-account SPI and relayed by
+ * the BFF; this module only converts between the SPI's base64url JSON and the
  * `ArrayBuffer`s the platform API uses (`docs/sky-account-api.md`, "Passkey
  * ceremony akışı"). No third-party WebAuthn library is involved.
  */
@@ -36,6 +37,42 @@ export type AssertionJson = {
     signature: string;
     userHandle?: string;
   };
+};
+
+/** JSON shape of `POST credentials/webauthn/options` as relayed by `POST /api/account/security/passkeys/options`. */
+export type CreationOptionsJson = {
+  rp: { id: string; name: string };
+  user: { id: string; name: string; displayName: string };
+  challenge: string;
+  pubKeyCredParams: Array<{ type: "public-key"; alg: number }>;
+  timeout?: number;
+  excludeCredentials: Array<{ type: "public-key"; id: string; transports?: string[] }>;
+  authenticatorSelection: {
+    authenticatorAttachment?: "platform" | "cross-platform";
+    residentKey?: "required" | "preferred" | "discouraged";
+    requireResidentKey?: boolean;
+    userVerification?: "required" | "preferred" | "discouraged";
+  };
+  attestation?: "none" | "indirect" | "direct" | "enterprise";
+  extensions?: { credProps?: boolean };
+};
+
+/**
+ * JSON shape `POST /api/account/security/passkeys/register` accepts under
+ * `attestation`: the registration contract's members. `transports` and the
+ * attachment are the browser's own report (Keycloak stores and checks them);
+ * client extension results are page data and are not sent.
+ */
+export type AttestationJson = {
+  id: string;
+  rawId: string;
+  type: "public-key";
+  response: {
+    clientDataJSON: string;
+    attestationObject: string;
+    transports?: string[];
+  };
+  authenticatorAttachment?: "platform" | "cross-platform";
 };
 
 /** Unpadded RFC 4648 §5 encoding of a buffer or view. */
@@ -103,6 +140,36 @@ export function toPublicKeyRequestOptions(options: AssertionOptionsJson): Public
   };
 }
 
+/** Converts the SPI's creation options into `PublicKeyCredentialCreationOptions`. */
+export function toPublicKeyCreationOptions(options: CreationOptionsJson): PublicKeyCredentialCreationOptions {
+  return {
+    rp: { id: options.rp.id, name: options.rp.name },
+    user: {
+      id: base64UrlToBuffer(options.user.id),
+      name: options.user.name,
+      displayName: options.user.displayName,
+    },
+    challenge: base64UrlToBuffer(options.challenge),
+    pubKeyCredParams: options.pubKeyCredParams.map((parameter) => ({
+      type: "public-key" as const,
+      alg: parameter.alg,
+    })),
+    excludeCredentials: options.excludeCredentials.map((credential) => ({
+      type: "public-key" as const,
+      id: base64UrlToBuffer(credential.id),
+      ...(credential.transports
+        ? { transports: credential.transports as AuthenticatorTransport[] }
+        : {}),
+    })),
+    authenticatorSelection: { ...options.authenticatorSelection },
+    ...(options.timeout !== undefined ? { timeout: options.timeout } : {}),
+    ...(options.attestation !== undefined ? { attestation: options.attestation } : {}),
+    ...(options.extensions?.credProps !== undefined
+      ? { extensions: { credProps: options.extensions.credProps } }
+      : {}),
+  };
+}
+
 function isBinary(value: unknown): value is ArrayBuffer | ArrayBufferView {
   return Object.prototype.toString.call(value) === "[object ArrayBuffer]" || ArrayBuffer.isView(value);
 }
@@ -137,10 +204,66 @@ export function serializeAssertion(credential: PublicKeyCredential): AssertionJs
   };
 }
 
-/** Whether this browser can run the passkey ceremony at all. */
+function isAttestationResponse(value: unknown): value is AuthenticatorAttestationResponse {
+  if (typeof value !== "object" || value === null) return false;
+  const response = value as Record<string, unknown>;
+  return isBinary(response.clientDataJSON) && isBinary(response.attestationObject);
+}
+
+const TRANSPORT = /^[a-z][a-z0-9-]{0,31}$/;
+
+function reportedTransports(response: AuthenticatorAttestationResponse): string[] | undefined {
+  const getTransports = (response as { getTransports?: unknown }).getTransports;
+  if (typeof getTransports !== "function") return undefined;
+  let reported: unknown;
+  try {
+    reported = getTransports.call(response);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(reported)) return undefined;
+  const transports = reported.filter((item): item is string => typeof item === "string" && TRANSPORT.test(item));
+  return transports.length > 0 ? transports.slice(0, 8) : undefined;
+}
+
+/**
+ * Serializes the `PublicKeyCredential` returned by `navigator.credentials.create()`
+ * into the JSON the SPI registers. Built by hand rather than through
+ * `PublicKeyCredential.toJSON()` so the shape does not depend on the browser.
+ */
+export function serializeAttestation(credential: PublicKeyCredential): AttestationJson {
+  if (credential.type !== "public-key") throw new Error("Not a public-key credential.");
+  const rawId = bufferToBase64Url(credential.rawId);
+  if (credential.id !== rawId) throw new Error("Credential id and rawId disagree.");
+  const response: unknown = credential.response;
+  if (!isAttestationResponse(response)) throw new Error("Not an attestation response.");
+  const transports = reportedTransports(response);
+  const attachment = credential.authenticatorAttachment;
+  return {
+    id: credential.id,
+    rawId,
+    type: "public-key",
+    response: {
+      clientDataJSON: bufferToBase64Url(response.clientDataJSON),
+      attestationObject: bufferToBase64Url(response.attestationObject),
+      ...(transports ? { transports } : {}),
+    },
+    ...(attachment === "platform" || attachment === "cross-platform" ? { authenticatorAttachment: attachment } : {}),
+  };
+}
+
+/** Whether this browser can run the passkey assertion ceremony (Sudo mode) at all. */
 export function webauthnSupported() {
   return typeof window !== "undefined" &&
     typeof window.PublicKeyCredential === "function" &&
     typeof navigator !== "undefined" &&
     typeof navigator.credentials?.get === "function";
+}
+
+/** Whether this browser can register a passkey (`navigator.credentials.create()`). */
+export function webauthnCreateSupported() {
+  return typeof window !== "undefined" &&
+    typeof window.PublicKeyCredential === "function" &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.credentials?.create === "function";
 }

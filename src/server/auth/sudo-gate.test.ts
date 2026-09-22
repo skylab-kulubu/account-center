@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   requireFreshSudoOrChallenge,
+  requireSpiSudoOrChallenge,
   SUDO_REQUIRED_STATUS,
   sudoRequiredResponse,
 } from "@/server/auth/sudo-gate";
@@ -71,6 +72,38 @@ describe("requireFreshSudoOrChallenge", () => {
     const reauth: SudoProof = { method: "reauth", sudoToken: null, expiresAt: proof.expiresAt };
     const { deps } = gate(reauth);
     await expect(requireFreshSudoOrChallenge(session, deps)).resolves.toEqual({ ok: true, proof: reauth });
+  });
+
+  it("refuses a Microsoft re-authentication proof for SPI calls with 428 spi_token_required", async () => {
+    const reauth: SudoProof = { method: "reauth", sudoToken: null, expiresAt: proof.expiresAt };
+    const { deps, resolveMethods } = gate(reauth, { methods: [], fallback: "microsoft" });
+    const outcome = await requireSpiSudoOrChallenge(session, deps, { requestId: "request-id" });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.response.status).toBe(428);
+    expect(outcome.response.headers.get("cache-control")).toBe("no-store");
+    await expect(outcome.response.json()).resolves.toEqual({
+      error: "sudo_required",
+      reason: "spi_token_required",
+      methods: [],
+      fallback: "microsoft",
+    });
+    expect(resolveMethods).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands SPI callers a proof whose token is guaranteed and keeps the ordinary challenges", async () => {
+    const { deps, resolveMethods } = gate(proof);
+    const outcome = await requireSpiSudoOrChallenge(session, deps);
+    expect(outcome).toEqual({ ok: true, proof });
+    if (!outcome.ok) throw new Error("unreachable");
+    const token: string = outcome.proof.sudoToken;
+    expect(token).toBe(proof.sudoToken);
+    expect(resolveMethods).not.toHaveBeenCalled();
+
+    const expired = gate(new SudoRequiredError("expired", null));
+    const challenge = await requireSpiSudoOrChallenge(session, expired.deps);
+    if (challenge.ok) throw new Error("unreachable");
+    await expect(challenge.response.json()).resolves.toMatchObject({ reason: "expired" });
   });
 
   it("propagates identity lookup failures instead of inventing an empty method list", async () => {

@@ -56,7 +56,7 @@ export default async function OverviewPage() {
           href="/security"
           icon={<KeyRound aria-hidden="true" size={19} />}
           title="Giriş ve güvenlik"
-          description="Şifre, passkey ve iki adımlı doğrulama."
+          description="Parola, passkey ve doğrulama uygulamasını buradan yönet."
         />
         <SettingsRow
           href="/sessions"

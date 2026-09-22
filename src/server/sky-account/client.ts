@@ -13,12 +13,15 @@ import {
   parseTotpSetup,
   parseWebauthnAssertion,
   parseWebauthnAssertionOptions,
+  parseWebauthnAttestation,
+  parseWebauthnRegistrationOptions,
 } from "@/server/sky-account/schema";
 import type {
   BearerAuthorization,
   ChangePasswordInput,
   ChangeUsernameInput,
   PatchNameInput,
+  RegisterPasskeyInput,
   SkyAccountClient,
   SudoAuthorization,
   SudoPasswordInput,
@@ -39,7 +42,7 @@ export type {
   SkyAccountProblemDetails,
   SkyAccountProblemStatus,
 } from "@/server/sky-account/problem";
-export { parseWebauthnAssertion } from "@/server/sky-account/schema";
+export { parseWebauthnAssertion, parseWebauthnAttestation } from "@/server/sky-account/schema";
 export type * from "@/server/sky-account/types";
 
 /** The sky-account API generation this client is written against. */
@@ -48,7 +51,7 @@ export const SKY_ACCOUNT_API_VERSION = "v1";
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 64 * 1_024;
 const MAX_REQUEST_BYTES = 8 * 1_024;
-/** Passkey ceremony bodies (`sudo/webauthn/verify`) may carry up to 64 KB (contract, Uç noktalar). */
+/** Passkey ceremony bodies (`credentials/webauthn/register`, `sudo/webauthn/verify`) may carry up to 64 KB (contract, Uç noktalar). */
 const MAX_CEREMONY_REQUEST_BYTES = 64 * 1_024;
 const SUDO_HEADER = "x-sky-sudo";
 /** Contract limits (`docs/sky-account-api.md`): names ≤ 64 characters after normalization, username `^[a-z0-9._]{3,30}$`. */
@@ -322,6 +325,30 @@ export class SkyAccountHttpClient implements SkyAccountClient {
         code: requireCode(input.code, "code"),
         label: requireText(input.label, "label", MAX_LABEL_LENGTH),
       },
+      expectedStatus: 201,
+    }));
+  }
+
+  async webauthnRegistrationOptions(auth: SudoAuthorization) {
+    return parseWebauthnRegistrationOptions(await this.#call({
+      method: "POST",
+      path: "credentials/webauthn/options",
+      auth,
+      sudo: auth.sudoToken,
+      expectedStatus: 200,
+    }));
+  }
+
+  async registerPasskey(auth: SudoAuthorization, input: RegisterPasskeyInput) {
+    const validated = parseWebauthnAttestation(input.attestation);
+    if (!validated) throw new SkyAccountInvalidInputError("attestation");
+    return parseCredential(await this.#call({
+      method: "POST",
+      path: "credentials/webauthn/register",
+      auth,
+      sudo: auth.sudoToken,
+      body: { ...validated, label: requireText(input.label, "label", MAX_LABEL_LENGTH) },
+      maxRequestBytes: MAX_CEREMONY_REQUEST_BYTES,
       expectedStatus: 201,
     }));
   }

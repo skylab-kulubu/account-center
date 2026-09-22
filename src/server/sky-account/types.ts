@@ -11,6 +11,8 @@ export type SkyAccountCredential = {
   type: SkyAccountCredentialType;
   label: string | null;
   createdAt: string | null;
+  /** Transports the browser reported at registration (passkeys only; ordered, absent when the SPI omits them). */
+  transports?: string[];
 };
 
 export type SkyAccountPrimaryEmail = "school" | "personal" | "none";
@@ -77,6 +79,53 @@ export type WebauthnAssertion = {
   };
 };
 
+/**
+ * `POST credentials/webauthn/options`: the creation options the browser hands
+ * to `navigator.credentials.create()` after base64url → `ArrayBuffer`
+ * conversion (`challenge`, `user.id`, `excludeCredentials[].id`). Produced by
+ * the realm passwordless policy; the BFF relays it unchanged.
+ */
+export type WebauthnRegistrationOptions = {
+  rp: { id: string; name: string };
+  user: { id: string; name: string; displayName: string };
+  challenge: string;
+  pubKeyCredParams: Array<{ type: "public-key"; alg: number }>;
+  timeout?: number;
+  excludeCredentials: Array<{
+    type: "public-key";
+    id: string;
+    transports?: string[];
+  }>;
+  authenticatorSelection: {
+    authenticatorAttachment?: "platform" | "cross-platform";
+    residentKey?: "required" | "preferred" | "discouraged";
+    requireResidentKey?: boolean;
+    userVerification?: "required" | "preferred" | "discouraged";
+  };
+  attestation?: "none" | "indirect" | "direct" | "enterprise";
+  extensions: { credProps: true };
+};
+
+/**
+ * `POST credentials/webauthn/register` body without `label`: the
+ * `PublicKeyCredential` JSON the browser produced for the creation ceremony
+ * (base64url members, `id == rawId`). `transports` and
+ * `authenticatorAttachment` are the browser's own report and are forwarded
+ * because Keycloak stores and checks them; free-form client extension
+ * results are never forwarded.
+ */
+export type WebauthnAttestation = {
+  id: string;
+  rawId: string;
+  type: "public-key";
+  response: {
+    clientDataJSON: string;
+    attestationObject: string;
+    transports?: string[];
+  };
+  authenticatorAttachment?: "platform" | "cross-platform";
+};
+
 export type TotpSetup = {
   setupHandle: string;
   secret: string;
@@ -106,6 +155,7 @@ export type SudoPasswordInput = { password: string };
 export type SudoTotpInput = { code: string };
 export type ChangePasswordInput = { newPassword: string; logoutOtherSessions: boolean };
 export type TotpConfirmInput = { setupHandle: string; code: string; label: string };
+export type RegisterPasskeyInput = { attestation: WebauthnAttestation; label: string };
 
 export interface SkyAccountClient {
   identity(auth: BearerAuthorization): Promise<SkyAccountIdentity>;
@@ -118,5 +168,7 @@ export interface SkyAccountClient {
   changePassword(auth: SudoAuthorization, input: ChangePasswordInput): Promise<void>;
   totpSetup(auth: SudoAuthorization): Promise<TotpSetup>;
   totpConfirm(auth: SudoAuthorization, input: TotpConfirmInput): Promise<SkyAccountCredential>;
+  webauthnRegistrationOptions(auth: SudoAuthorization): Promise<WebauthnRegistrationOptions>;
+  registerPasskey(auth: SudoAuthorization, input: RegisterPasskeyInput): Promise<SkyAccountCredential>;
   deleteCredential(auth: SudoAuthorization, credentialId: string): Promise<void>;
 }

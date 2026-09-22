@@ -89,6 +89,23 @@ test("all seven account routes remain accessible and responsive in the browser m
           }
           await route.continue();
         });
+        await page.route("**/api/account/security", async (route) => {
+          if (route.request().method() === "GET") {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                password: true,
+                totp: [{ reference: "t".repeat(43), label: "Telefon", createdAt: "2026-09-21T13:10:41.130Z" }],
+                passkeys: [{ reference: "p".repeat(43), label: "MacBook", createdAt: "2026-09-01T08:00:00.000Z", transports: ["internal"] }],
+                sudo: { methods: ["password", "passkey", "totp"], fallback: null, active: null },
+                csrfToken: "session-bound-csrf",
+              }),
+            });
+            return;
+          }
+          await route.continue();
+        });
 
         for (const route of routes) {
           await test.step(`${profile.name} ${route.href}`, async () => {

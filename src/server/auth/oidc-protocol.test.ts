@@ -81,41 +81,7 @@ describe("OAuth4WebApiProtocol", () => {
     expect(result.authorizationUrl.href).not.toContain("opaque-bridge-hint");
   });
 
-  it("keeps an allowlisted account action inside PAR and forces fresh authentication", async () => {
-    const requests: Array<{ url: string; body?: string }> = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = input instanceof Request ? input.url : String(input);
-      requests.push({ url, ...(init?.body ? { body: String(init.body) } : {}) });
-      if (url.includes(".well-known")) return Response.json(discovery);
-      return Response.json(
-        { request_uri: "urn:ietf:params:oauth:request_uri:action", expires_in: 45 },
-        { status: 201 },
-      );
-    }));
-
-    const result = await new OAuth4WebApiProtocol(config).begin({
-      state: "state-value",
-      nonce: "nonce-value",
-      codeVerifier: "v".repeat(43),
-      accountAction: "delete_credential:owned-credential-id",
-      forceReauthentication: true,
-    });
-
-    const pushed = requests.find(({ url }) => url === discovery.pushed_authorization_request_endpoint);
-    const parameters = new URLSearchParams(pushed?.body);
-    expect(parameters.get("kc_action")).toBe("delete_credential:owned-credential-id");
-    expect(parameters.get("max_age")).toBe("0");
-    expect(parameters.get("prompt")).toBe("login");
-    expect(parameters.get("scope")).toBe("openid");
-    expect(result.authorizationUrl.href).not.toContain("delete_credential");
-    expect(result.authorizationUrl.href).not.toContain("owned-credential-id");
-    expect([...result.authorizationUrl.searchParams.keys()].sort()).toEqual([
-      "client_id",
-      "request_uri",
-    ]);
-  });
-
-  it("forces fresh authentication for account deletion without requesting Keycloak DELETE_ACCOUNT", async () => {
+  it("forces fresh authentication without any Keycloak account action", async () => {
     const requests: Array<{ url: string; body?: string }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input instanceof Request ? input.url : String(input);
@@ -138,11 +104,16 @@ describe("OAuth4WebApiProtocol", () => {
     const parameters = new URLSearchParams(pushed?.body);
     expect(parameters.get("prompt")).toBe("login");
     expect(parameters.get("max_age")).toBe("0");
-    expect(parameters.get("kc_action")).toBeNull();
+    expect(parameters.get("scope")).toBe("openid");
+    expect([...parameters.keys()].sort()).toEqual([
+      "client_id", "code_challenge", "code_challenge_method", "max_age", "nonce", "prompt",
+      "redirect_uri", "response_type", "scope", "state",
+    ]);
+    expect(pushed?.body).not.toContain("kc_action");
     expect(pushed?.body).not.toContain("DELETE_ACCOUNT");
   });
 
-  it("rejects arbitrary, parameterless, or mixed account actions before PAR", async () => {
+  it("never mixes a native bridge login with a forced re-authentication", async () => {
     const request = vi.fn(async (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.includes(".well-known")) return Response.json(discovery);
@@ -151,20 +122,13 @@ describe("OAuth4WebApiProtocol", () => {
     vi.stubGlobal("fetch", request);
     const protocol = new OAuth4WebApiProtocol(config);
 
-    for (const input of [
-      { accountAction: "DELETE_ACCOUNT", forceReauthentication: true },
-      { accountAction: "delete_credential", forceReauthentication: true },
-      { accountAction: "delete_credential:id:extra", forceReauthentication: true },
-      { accountAction: "UPDATE_PASSWORD" },
-      { accountAction: "CONFIGURE_TOTP", forceReauthentication: true, nativeBridgeCode: "bridge" },
-    ]) {
-      await expect(protocol.begin({
-        state: "state-value",
-        nonce: "nonce-value",
-        codeVerifier: "v".repeat(43),
-        ...input,
-      })).rejects.toBeInstanceOf(OidcContractError);
-    }
+    await expect(protocol.begin({
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+      forceReauthentication: true,
+      nativeBridgeCode: "bridge",
+    })).rejects.toBeInstanceOf(OidcContractError);
     expect(request).not.toHaveBeenCalled();
   });
 

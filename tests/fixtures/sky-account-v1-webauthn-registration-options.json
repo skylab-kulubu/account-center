@@ -1,0 +1,28 @@
+{
+  "rp": { "id": "yildizskylab.com", "name": "SKY LAB" },
+  "user": {
+    "id": "MTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTEx",
+    "name": "account-fixture",
+    "displayName": "Ada Lovelace"
+  },
+  "challenge": "nzwein1bSixuHw07WnyeL0ttigwuT2qLDB0-X3qbDC0",
+  "pubKeyCredParams": [
+    { "type": "public-key", "alg": -7 },
+    { "type": "public-key", "alg": -257 }
+  ],
+  "timeout": 90000,
+  "excludeCredentials": [
+    {
+      "type": "public-key",
+      "id": "PaGGIS6jqmHYGpXjzLHHz6h2xihNMIYS7T_fqm6zELE",
+      "transports": ["internal", "hybrid"]
+    }
+  ],
+  "authenticatorSelection": {
+    "residentKey": "required",
+    "requireResidentKey": true,
+    "userVerification": "required"
+  },
+  "attestation": "none",
+  "extensions": { "credProps": true }
+}

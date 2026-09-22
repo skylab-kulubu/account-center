@@ -6,8 +6,11 @@ import problemsFixture from "../../../tests/fixtures/sky-account-v1-problems.jso
 import sudoGrantFixture from "../../../tests/fixtures/sky-account-v1-sudo-grant.json";
 import totpCredentialFixture from "../../../tests/fixtures/sky-account-v1-totp-credential.json";
 import totpSetupFixture from "../../../tests/fixtures/sky-account-v1-totp-setup.json";
+import passkeyCredentialFixture from "../../../tests/fixtures/sky-account-v1-passkey-credential.json";
 import assertionJson from "../../../tests/fixtures/sky-account-v1-webauthn-assertion.json";
 import assertionOptionsFixture from "../../../tests/fixtures/sky-account-v1-webauthn-assertion-options.json";
+import attestationJson from "../../../tests/fixtures/sky-account-v1-webauthn-attestation.json";
+import registrationOptionsFixture from "../../../tests/fixtures/sky-account-v1-webauthn-registration-options.json";
 import {
   SkyAccountContractError,
   SkyAccountHttpClient,
@@ -16,12 +19,13 @@ import {
   SkyAccountUnavailableError,
   SKY_ACCOUNT_API_VERSION,
 } from "@/server/sky-account/client";
-import type { SkyAccountProblemCode, WebauthnAssertion } from "@/server/sky-account/client";
+import type { SkyAccountProblemCode, WebauthnAssertion, WebauthnAttestation } from "@/server/sky-account/client";
 
 const issuer = new URL("https://e.yildizskylab.com/realms/e-skylab");
 const base = "https://e.yildizskylab.com/realms/e-skylab/sky-account/v1";
 const bearer = { accessToken: "server-held-user-token" };
 const assertionFixture = assertionJson as WebauthnAssertion;
+const attestationFixture = attestationJson as WebauthnAttestation & { clientExtensionResults: unknown };
 const sudo = { accessToken: "server-held-user-token", sudoToken: "opaque-sudo-token" };
 
 type Recorded = { url: string; method: string; headers: Headers; body: string | null };
@@ -221,6 +225,131 @@ describe("SkyAccountHttpClient", () => {
     expect(Buffer.byteLength(String(request.mock.calls[1]?.[1]?.body), "utf8")).toBeLessThanOrEqual(64 * 1_024);
   });
 
+  it("relays passkey creation options under sudo and registers the browser attestation with its label", async () => {
+    const { client, calls } = transport((recorded) => {
+      if (recorded.url.endsWith("/credentials/webauthn/options")) return json(registrationOptionsFixture);
+      if (recorded.url.endsWith("/credentials/webauthn/register")) return json(passkeyCredentialFixture, 201);
+      throw new Error(`unexpected ${recorded.url}`);
+    });
+    const options = await client.webauthnRegistrationOptions(sudo);
+    expect(options).toEqual(registrationOptionsFixture);
+    const credential = await client.registerPasskey(sudo, { attestation: attestationFixture, label: " iPhone " });
+    expect(credential).toEqual({
+      id: "2f0c5b4a-8d3e-4c1b-9a7f-000000000005",
+      type: "webauthn-passwordless",
+      label: "iPhone",
+      createdAt: "2026-09-21T13:12:00.000Z",
+      transports: ["internal", "hybrid"],
+    });
+    expect(calls.map((call) => [call.method, call.url.replace(base, "")])).toEqual([
+      ["POST", "/credentials/webauthn/options"],
+      ["POST", "/credentials/webauthn/register"],
+    ]);
+    expect(calls[0]?.body).toBeNull();
+    expect(calls[0]?.headers.get("content-type")).toBeNull();
+    // Exactly the registration contract's members plus the label: no client extension results.
+    const body = JSON.parse(calls[1]!.body!);
+    expect(body).toEqual({
+      id: attestationFixture.id,
+      rawId: attestationFixture.rawId,
+      type: "public-key",
+      response: {
+        clientDataJSON: attestationFixture.response.clientDataJSON,
+        attestationObject: attestationFixture.response.attestationObject,
+        transports: ["internal", "hybrid"],
+      },
+      authenticatorAttachment: "platform",
+      label: "iPhone",
+    });
+    expect(Object.keys(body)).toEqual(["id", "rawId", "type", "response", "authenticatorAttachment", "label"]);
+    expect(calls[1]!.body).not.toContain("credProps");
+    for (const call of calls) {
+      expect(call.headers.get("x-sky-sudo")).toBe("opaque-sudo-token");
+      expect(call.headers.get("authorization")).toBe("Bearer server-held-user-token");
+    }
+  });
+
+  it("forwards a minimal attestation without transports or attachment and bounds the ceremony body", async () => {
+    const { client, calls } = transport(() => json(passkeyCredentialFixture, 201));
+    const minimal = {
+      id: attestationFixture.id,
+      rawId: attestationFixture.rawId,
+      type: "public-key" as const,
+      response: {
+        clientDataJSON: attestationFixture.response.clientDataJSON,
+        attestationObject: "A".repeat(40_000),
+      },
+      authenticatorAttachment: null,
+    };
+    await client.registerPasskey(sudo, { attestation: minimal as never, label: "Anahtar" });
+    const body = JSON.parse(calls[0]!.body!);
+    expect(Object.keys(body)).toEqual(["id", "rawId", "type", "response", "label"]);
+    expect(Object.keys(body.response)).toEqual(["clientDataJSON", "attestationObject"]);
+    expect(Buffer.byteLength(calls[0]!.body!, "utf8")).toBeGreaterThan(8 * 1_024);
+  });
+
+  it("rejects malformed browser attestations and labels before contacting the extension", async () => {
+    const { client, request } = transport(() => json(passkeyCredentialFixture, 201));
+    const malformed: Array<[unknown, string]> = [
+      [{ ...attestationFixture, rawId: "different" }, "iPhone"],
+      [{ ...attestationFixture, type: "public-key-credential" }, "iPhone"],
+      [{ ...attestationFixture, response: { ...attestationFixture.response, attestationObject: "" } }, "iPhone"],
+      [{ ...attestationFixture, response: { ...attestationFixture.response, attestationObject: "not base64url!" } }, "iPhone"],
+      [{ ...attestationFixture, response: { ...attestationFixture.response, attestationObject: "A".repeat(48_001) } }, "iPhone"],
+      [{ ...attestationFixture, response: { ...attestationFixture.response, transports: ["Internal!"] } }, "iPhone"],
+      [{ ...attestationFixture, response: { ...attestationFixture.response, transports: "internal" } }, "iPhone"],
+      [{ ...attestationFixture, authenticatorAttachment: "roaming" }, "iPhone"],
+      [{ ...attestationFixture, response: null }, "iPhone"],
+      ["attestation", "iPhone"],
+      [attestationFixture, ""],
+      [attestationFixture, " ".repeat(4)],
+      [attestationFixture, "x".repeat(65)],
+    ];
+    for (const [attestation, label] of malformed) {
+      await expect(client.registerPasskey(sudo, { attestation: attestation as never, label }))
+        .rejects.toBeInstanceOf(SkyAccountInvalidInputError);
+    }
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on creation options that drift from the contract and ignores additive members", async () => {
+    const excluded = registrationOptionsFixture.excludeCredentials[0]!;
+    const drifted: unknown[] = [
+      { ...registrationOptionsFixture, challenge: "" },
+      { ...registrationOptionsFixture, rp: { id: "", name: "SKY LAB" } },
+      { ...registrationOptionsFixture, user: { ...registrationOptionsFixture.user, id: "not base64url!" } },
+      { ...registrationOptionsFixture, pubKeyCredParams: [] },
+      { ...registrationOptionsFixture, pubKeyCredParams: [{ type: "public-key", alg: "ES256" }] },
+      { ...registrationOptionsFixture, timeout: 0 },
+      { ...registrationOptionsFixture, excludeCredentials: [excluded, excluded] },
+      { ...registrationOptionsFixture, excludeCredentials: [{ ...excluded, transports: ["Internal!"] }] },
+      { ...registrationOptionsFixture, authenticatorSelection: { residentKey: "always" } },
+      { ...registrationOptionsFixture, authenticatorSelection: null },
+      { ...registrationOptionsFixture, attestation: "unknown" },
+      { ...registrationOptionsFixture, extensions: { credProps: false } },
+      Object.fromEntries(Object.entries(registrationOptionsFixture).filter(([key]) => key !== "extensions")),
+      Object.fromEntries(Object.entries(registrationOptionsFixture).filter(([key]) => key !== "user")),
+    ];
+    for (const body of drifted) {
+      const { client } = transport(() => json(body));
+      await expect(client.webauthnRegistrationOptions(sudo)).rejects.toBeInstanceOf(SkyAccountContractError);
+    }
+    const { client } = transport(() => json({
+      ...registrationOptionsFixture,
+      hints: ["client-device"],
+      excludeCredentials: [{ ...excluded, aaguid: "00000000-0000-0000-0000-000000000000" }],
+      authenticatorSelection: { ...registrationOptionsFixture.authenticatorSelection, legacy: true },
+    }));
+    await expect(client.webauthnRegistrationOptions(sudo)).resolves.toEqual(registrationOptionsFixture);
+    const { timeout: _timeout, attestation: _attestation, ...optional } = registrationOptionsFixture;
+    void _timeout;
+    void _attestation;
+    const bare = transport(() => json(optional));
+    const parsed = await bare.client.webauthnRegistrationOptions(sudo);
+    expect("timeout" in parsed).toBe(false);
+    expect("attestation" in parsed).toBe(false);
+  });
+
   it("rejects malformed browser assertions before contacting the extension", async () => {
     const { client, request } = transport(() => json(sudoGrantFixture));
     const malformed: unknown[] = [
@@ -413,13 +542,32 @@ describe("SkyAccountHttpClient", () => {
       type: "webauthn-passwordless",
       label: "MacBook",
       createdAt: passkey.createdAt,
+      transports: ["internal", "hybrid"],
     }]);
     expect(Object.keys(identity).sort()).toEqual([
       "credentials", "email", "emailVerified", "firstName", "lastName", "nameLocked", "personalEmail",
       "primary", "schoolEmail", "sub", "username", "usernameChangeAvailableAt", "verifiedYtu",
     ]);
     expect(Object.keys(identity.credentials).sort()).toEqual(["passkeys", "password", "totp"]);
-    expect(JSON.stringify(identity)).not.toContain("transports");
+    expect(JSON.stringify(identity)).not.toContain("aaguid");
+    expect(JSON.stringify(identity)).not.toContain("webauthnPolicy");
+  });
+
+  it("keeps passkey transports strict and never copies them onto OTP rows", async () => {
+    const passkey = identityFixture.credentials.passkeys[0]!;
+    const totp = identityFixture.credentials.totp[0]!;
+    const invalid = transport(() => json({
+      ...identityFixture,
+      credentials: { ...identityFixture.credentials, passkeys: [{ ...passkey, transports: ["USB!"] }] },
+    }));
+    await expect(invalid.client.identity(bearer)).rejects.toBeInstanceOf(SkyAccountContractError);
+    const otp = transport(() => json({
+      ...identityFixture,
+      credentials: { ...identityFixture.credentials, totp: [{ ...totp, transports: ["internal"] }] },
+    }));
+    const identity = await otp.client.identity(bearer);
+    expect(identity.credentials.totp[0]).toEqual({ id: totp.id, type: "otp", label: "Telefon", createdAt: totp.createdAt });
+    expect(identity.credentials.passkeys[0]).not.toHaveProperty("transports");
   });
 
   it("fails closed on sudo grants and TOTP setups that drift from the contract", async () => {
