@@ -13,7 +13,9 @@ import {
   setAccountDeletionReceiptCookie,
 } from "@/server/auth/http";
 import { readUrlEncodedBody, RequestBodyError } from "@/server/auth/request-body";
+import { requestCorrelationId } from "@/server/auth/logging";
 import { getAuthServices } from "@/server/auth/services";
+import { requireAccountSudo } from "@/server/auth/sudo-gate";
 import {
   accountAccessUnavailableResponse,
   authenticationRequiredResponse,
@@ -27,6 +29,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const services = getAuthServices();
+  const requestId = requestCorrelationId(request);
   const htmlNavigation = requestWantsHtmlNavigation(request);
   if (!mutationHasExactOrigin(request, services.config)) {
     return noStore(NextResponse.json({ error: "forbidden" }, { status: 403 }));
@@ -73,6 +76,35 @@ export async function POST(request: NextRequest) {
     return noStore(response);
   }
   if (authorization.status === "blocked") return authenticationRequiredResponse(true);
+
+  // Sudo mode is the person's re-authentication for this flow, so the last
+  // irreversible step refuses to run on a proof that has meanwhile expired.
+  try {
+    const sudo = await requireAccountSudo(services, authorization.value.session, { requestId });
+    if (!sudo.ok) {
+      if (!htmlNavigation) return sudo.response;
+      const response = NextResponse.redirect(
+        new URL("/delete-account?deletionError=sudo_required", services.config.appUrl),
+        303,
+      );
+      response.headers.set("Referrer-Policy", "no-referrer");
+      return noStore(response);
+    }
+  } catch {
+    if (!htmlNavigation) {
+      return noStore(NextResponse.json({ error: "unavailable" }, {
+        status: 503,
+        headers: { "Retry-After": "3" },
+      }));
+    }
+    const response = NextResponse.redirect(
+      new URL("/delete-account?deletionError=deletion_unavailable", services.config.appUrl),
+      303,
+    );
+    response.headers.set("Referrer-Policy", "no-referrer");
+    response.headers.set("Retry-After", "3");
+    return noStore(response);
+  }
 
   try {
     const result = await services.accountDeletion.submit({

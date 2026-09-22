@@ -86,24 +86,13 @@ export async function setSubjectGateMarker(subject: string, value: string) {
   });
 }
 
-function encryptedTokenFixture(
-  sessionId: string,
-  tokenCanaries: { accessToken: string; refreshToken?: string; idToken: string },
-) {
+/** The AES-256-GCM envelope `AesGcmSecretCipher` writes, built with the same key and associated data. */
+function encryptedFixture(value: unknown, associatedData: string) {
   const key = encryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
-  cipher.setAAD(Buffer.from(`session:${sessionId}`, "utf8"));
-  const ciphertext = Buffer.concat([
-    cipher.update(
-      JSON.stringify({
-        ...tokenCanaries,
-        tokenType: "bearer",
-      }),
-      "utf8",
-    ),
-    cipher.final(),
-  ]);
+  cipher.setAAD(Buffer.from(associatedData, "utf8"));
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(value), "utf8"), cipher.final()]);
   return JSON.stringify({
     v: 1,
     kid: createHash("sha256").update(key).digest("base64url").slice(0, 12),
@@ -111,6 +100,13 @@ function encryptedTokenFixture(
     ciphertext: ciphertext.toString("base64url"),
     tag: cipher.getAuthTag().toString("base64url"),
   });
+}
+
+function encryptedTokenFixture(
+  sessionId: string,
+  tokenCanaries: { accessToken: string; refreshToken?: string; idToken: string },
+) {
+  return encryptedFixture({ ...tokenCanaries, tokenType: "bearer" }, `session:${sessionId}`);
 }
 
 /**
@@ -136,20 +132,80 @@ function contractShapedAccessToken(subject: string) {
   return `${header}.${payload}.${randomBytes(32).toString("base64url")}`;
 }
 
+function base64urlJson(value: unknown) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+/**
+ * An unsigned but contract-shaped ID token: the same claims core verifies on
+ * the self-delete intake (`aud` exactly the client, matching subject,
+ * non-empty `sid`, integer `auth_time`). `authenticatedAt` decides whether
+ * the BFF sees a fresh authentication or has to ask for the Keycloak hop.
+ */
+function contractShapedIdToken(subject: string, sid: string, authenticatedAt: Date) {
+  const issuedAt = Math.floor(Date.now() / 1_000);
+  return [
+    base64urlJson({ alg: "RS256", typ: "JWT" }),
+    base64urlJson({
+      iss: process.env.OIDC_ISSUER ?? accountAccessIssuer,
+      sub: subject,
+      aud: process.env.OIDC_CLIENT_ID ?? "account-center",
+      sid,
+      auth_time: Math.floor(authenticatedAt.getTime() / 1_000),
+      iat: issuedAt,
+      exp: issuedAt + 60 * 60,
+    }),
+    randomBytes(32).toString("base64url"),
+  ].join(".");
+}
+
+/**
+ * Records a Sudo mode proof for a seeded session the way the Microsoft
+ * fallback does when the sky-account call could not issue a token: a
+ * token-less `reauth` envelope, which is exactly what the account deletion
+ * gate accepts (it never presents `X-Sky-Sudo` to the SPI).
+ */
+export async function seedSudoProof(sessionId: string, options: { expiresInSeconds?: number } = {}) {
+  const expiresAt = new Date(Date.now() + (options.expiresInSeconds ?? 5 * 60) * 1_000);
+  const client = new pg.Client({ connectionString: testDatabaseUrl() });
+  await client.connect();
+  try {
+    await client.query(
+      "UPDATE account_sessions SET sudo_token_ciphertext = $2, sudo_expires_at = $3 WHERE id = $1",
+      [
+        sessionId,
+        encryptedFixture({ sudoToken: null, method: "reauth" }, `session:${sessionId}:sudo`),
+        expiresAt,
+      ],
+    );
+  } finally {
+    await client.end();
+  }
+  return { expiresAt };
+}
+
 export async function seedAuthenticatedSession(
   label: string,
-  options: { includeRefreshToken?: boolean; contractToken?: boolean } = {},
+  options: {
+    includeRefreshToken?: boolean;
+    contractToken?: boolean;
+    /** When set, the stored ID token is contract-shaped and signs this authentication time. */
+    idTokenAuthenticatedAt?: Date;
+  } = {},
 ) {
   await ensureAccessGateContract();
   const sessionId = randomUUID();
   const subject = `e2e-${label}-${sessionId}`;
   const handle = randomBytes(32).toString("base64url");
+  const keycloakSid = `e2e-sid-${sessionId}`;
   const generatedCanaries = {
     accessToken: options.contractToken
       ? contractShapedAccessToken(subject)
       : `e2e-access-${randomBytes(16).toString("base64url")}`,
     refreshToken: `e2e-refresh-${randomBytes(16).toString("base64url")}`,
-    idToken: `e2e-id-${randomBytes(16).toString("base64url")}`,
+    idToken: options.idTokenAuthenticatedAt
+      ? contractShapedIdToken(subject, keycloakSid, options.idTokenAuthenticatedAt)
+      : `e2e-id-${randomBytes(16).toString("base64url")}`,
   };
   const tokenCanaries = {
     accessToken: generatedCanaries.accessToken,
@@ -171,7 +227,7 @@ export async function seedAuthenticatedSession(
       [
         sessionId,
         subject,
-        `e2e-sid-${sessionId}`,
+        keycloakSid,
         createHash("sha256").update(handle, "utf8").digest(),
         encryptedTokenFixture(sessionId, tokenCanaries),
       ],
