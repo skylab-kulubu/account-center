@@ -57,11 +57,15 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
   ekleme WebAuthn ceremony'si `my.` üzerinde çalışarak ve kimlik bilgisi
   kaldırma. Her adım Sudo modundan geçer ve sky-account SPI ile yapılır;
   Keycloak'a yönlendirme yoktur.
+- E-posta ve giriş sayfası (`/email`): okul e-postası (salt okunur,
+  doğrulanmış YTÜ hesabında rozetli), kişisel e-posta ekleme (Sudo modu,
+  ardından adrese gönderilen altı haneli kodun aynı sayfada girilmesi; on
+  dakikalık geri sayım, yeni kod isteme, yanlış / tükenmiş / süresi dolmuş
+  kod mesajları) ve kaldırma, birincil adres seçimi (Sudo modu). Kulüp
+  postaları birincil adrese gider; iki adresle de giriş yapılabilir.
 - Bu sürüm v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş token
   sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi, şifreli
-  sudo saklama ve doğrulama diyaloğu). Kişisel e-posta ekleme ve birincil
-  adres seçimi sonraki işle gelir; kimlik sayfası bunları "yakında" olarak
-  gösterir.
+  sudo saklama ve doğrulama diyaloğu).
 - Kulüp profili: SKY numarası, öğrenci kartı durumu, okul e-postası ve kendi
   telefonun salt okunur; üniversite, fakülte, bölüm ve LinkedIn bağlantısı
   düzenlenebilir; profil fotoğrafı önizlemeyle yüklenir, değiştirilir veya

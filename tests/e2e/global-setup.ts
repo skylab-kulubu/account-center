@@ -13,6 +13,7 @@ const pages = [
   "/",
   "/login",
   "/identity",
+  "/email",
   "/security",
   "/sessions",
   "/permissions",
@@ -27,6 +28,7 @@ const pages = [
   "/api/auth/unavailable",
   "/api/account",
   "/api/account/identity",
+  "/api/account/email",
   "/api/account/sessions",
   "/api/account/security",
   "/api/account/club-profile",
@@ -46,6 +48,9 @@ const mutations = [
   "/api/account/sudo/reauthenticate",
   "/api/account/identity/username",
   "/api/account/identity/ytu-link",
+  "/api/account/email/change-request",
+  "/api/account/email/confirm",
+  "/api/account/email/primary",
   "/api/account/security/password",
   "/api/account/security/totp/setup",
   "/api/account/security/totp/confirm",
@@ -95,6 +100,7 @@ export default async function globalSetup(config: FullConfig) {
     }
     await context.patch("/api/account/identity/name", { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
     await context.delete("/api/account/security/credentials/warm-up", { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
+    await context.delete("/api/account/email/personal", { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
     await context.delete(`/api/account/sessions/${"w".repeat(43)}`, { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
   } finally {
     await context.dispose();
