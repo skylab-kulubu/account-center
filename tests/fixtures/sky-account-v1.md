@@ -8,6 +8,12 @@ Account Center consumes, as specified in `docs/sky-account-api.md` (v1):
 - `sky-account-v1-sudo-grant.json`: `POST sudo/password`, `POST sudo/totp` and
   `POST sudo/webauthn/verify`. The token is an opaque, Keycloak-signed JWT; the
   fixture signature is not verifiable and the client never inspects it.
+- `sky-account-v1-sudo-authentication.json`: `POST sudo/authentication`, the
+  grant a fresh Keycloak login (Microsoft) earns for a person with no
+  password, verification app or passkey. Same shape as the other grants, but
+  the window starts at the login (`expiresAt = auth_time + 300`) and the token
+  carries `amr: ["idp"]`. The request body (`{ idToken }`) is never pinned as
+  a fixture: the ID token is session material the BFF holds only for the call.
 - `sky-account-v1-webauthn-assertion-options.json`: `POST sudo/webauthn/options`,
   relayed unchanged to the browser for `navigator.credentials.get()`.
 - `sky-account-v1-webauthn-assertion.json`: the body the BFF forwards to

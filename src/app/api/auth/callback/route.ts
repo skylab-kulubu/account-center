@@ -17,6 +17,7 @@ import {
   OidcProviderStageError,
 } from "@/server/auth/oidc-protocol";
 import { getAuthServices } from "@/server/auth/services";
+import { completeSudoReauthentication } from "@/server/auth/sudo-reauthentication";
 import { completeYtuLink, YTU_LINK_QUERY } from "@/server/identity/ytu-link";
 import {
   AccountAccessBlockedError,
@@ -46,25 +47,13 @@ export async function GET(request: NextRequest) {
       if (result.sudoReauthentication === "cancelled") {
         destination.searchParams.set("sudo", "cancelled");
       } else {
-        try {
-          await services.sudo.storeReauthenticationProof(result.session.id, result.authenticatedAt);
-          destination.searchParams.set("sudo", "confirmed");
-          logAuthEvent({
-            event: "sudo_reauthentication_completed",
-            requestId,
-            outcome: "success",
-            sudoMethod: "reauth",
-          });
-        } catch {
-          destination.searchParams.set("sudo", "unavailable");
-          logAuthEvent({
-            event: "sudo_reauthentication_completed",
-            requestId,
-            outcome: "failure",
-            reason: "sudo_storage_failed",
-            sudoMethod: "reauth",
-          });
-        }
+        // The fresh ID token becomes a sky-account sudo token here and travels no further.
+        destination.searchParams.set("sudo", await completeSudoReauthentication(
+          services,
+          result.session,
+          { authenticatedAt: result.authenticatedAt, idToken: result.freshIdToken },
+          requestId,
+        ));
       }
       const response = NextResponse.redirect(destination, 303);
       clearOidcTransactionCookie(response);

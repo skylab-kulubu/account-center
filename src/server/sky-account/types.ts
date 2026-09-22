@@ -149,6 +149,14 @@ export type SudoAuthorization = BearerAuthorization & {
   sudoToken: string;
 };
 
+/**
+ * `POST sudo/authentication` body: the ID token of a fresh Keycloak login
+ * (`prompt=login&max_age=0`), the proof of a person who has no password,
+ * verification app or passkey. The BFF holds it only for this call; it is
+ * never logged, stored or shown to the browser.
+ */
+export type SudoAuthenticationInput = { idToken: string };
+
 export type PatchNameInput = { firstName: string; lastName: string };
 export type ChangeUsernameInput = { username: string };
 export type SudoPasswordInput = { password: string };
@@ -165,6 +173,7 @@ export interface SkyAccountClient {
   sudoTotp(auth: BearerAuthorization, input: SudoTotpInput): Promise<SudoGrant>;
   sudoWebauthnOptions(auth: BearerAuthorization): Promise<WebauthnAssertionOptions>;
   sudoWebauthnVerify(auth: BearerAuthorization, assertion: WebauthnAssertion): Promise<SudoGrant>;
+  sudoAuthentication(auth: BearerAuthorization, input: SudoAuthenticationInput): Promise<SudoGrant>;
   changePassword(auth: SudoAuthorization, input: ChangePasswordInput): Promise<void>;
   totpSetup(auth: SudoAuthorization): Promise<TotpSetup>;
   totpConfirm(auth: SudoAuthorization, input: TotpConfirmInput): Promise<SkyAccountCredential>;

@@ -20,6 +20,13 @@
     "detail": "Doğrulamanın süresi doldu. Yeniden doğrula.",
     "code": "sudo_expired"
   },
+  "authentication_stale": {
+    "type": "tag:yildizskylab.com,2026:sky-account:authentication_stale",
+    "title": "The verified login is no longer fresh",
+    "status": 401,
+    "detail": "Girişinin üzerinden çok zaman geçti. Yeniden doğrula.",
+    "code": "authentication_stale"
+  },
   "invalid_credentials": {
     "type": "tag:yildizskylab.com,2026:sky-account:invalid_credentials",
     "title": "Invalid password or verification code",

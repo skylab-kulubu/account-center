@@ -13,12 +13,13 @@ export const SUDO_REQUIRED_STATUS = 428;
 /**
  * Why a mutation was refused: no proof (`missing`), a stale one (`expired`),
  * or a fresh Microsoft re-authentication that satisfies `my.`-local gates but
- * carries no sky-account token (`spi_token_required`). The last one is not
- * something the dialog can fix today: a person who re-authenticated with
- * Microsoft has no password, passkey or TOTP to prove with, and the SPI
- * insists on `X-Sky-Sudo`. K3d closes that gap with a Keycloak endpoint that
- * issues a sudo token from the re-authenticated bearer; until then the page
- * explains the situation instead of reopening the dialog.
+ * carries no sky-account token (`spi_token_required`). The last one is rare
+ * now that the callback turns the fresh ID token into a real sudo token
+ * (`POST sudo/authentication`): it is left over from a re-authentication
+ * whose SPI call failed. The person is re-authenticated but holds nothing
+ * `X-Sky-Sudo` accepts, so the useless proof is dropped here and the page
+ * says the step must be repeated — the dialog then offers the Microsoft
+ * fallback again.
  */
 export type SudoChallengeReason = SudoRequirementReason | "spi_token_required";
 
@@ -42,7 +43,7 @@ export type SudoGateOutcome<Proof = SudoProof> =
   | { ok: false; reason: SudoChallengeReason; response: NextResponse };
 
 export type SudoGateDependencies = {
-  sudo: Pick<SudoVault, "requireFreshSudo">;
+  sudo: Pick<SudoVault, "requireFreshSudo" | "clearSudo">;
   /** Resolves the person's available methods; called only when a challenge must be built. */
   methods: () => Promise<SudoMethodAvailability>;
 };
@@ -61,9 +62,9 @@ export function sudoRequiredResponse(challenge: Omit<SudoChallenge, "error">) {
  * Guard for every mutation route that calls a sudo-protected sky-account
  * endpoint. Returns the fresh proof, or a ready `428 sudo_required` response
  * listing the methods the person can use. A `reauth` proof (Microsoft
- * fallback) is fresh but carries no SPI token; callers that must present
- * `X-Sky-Sudo` use `requireSpiSudoOrChallenge` instead, which turns it into
- * a `428 spi_token_required` challenge.
+ * fallback) normally carries an SPI token too; the rare token-less one is
+ * accepted here and refused by `requireSpiSudoOrChallenge`, which callers
+ * that must present `X-Sky-Sudo` use instead.
  *
  * When the identity service cannot be read while building the challenge the
  * error propagates: an empty method list would wrongly tell the person that
@@ -94,7 +95,10 @@ export async function requireFreshSudoOrChallenge(
  * The gate for routes that forward the proof to the SPI: like
  * `requireFreshSudoOrChallenge`, but a token-less Microsoft re-authentication
  * proof is refused with `428 spi_token_required` (methods included), so the
- * proof the caller receives always carries `X-Sky-Sudo` material.
+ * proof the caller receives always carries `X-Sky-Sudo` material. Such a
+ * proof is also discarded: it can never satisfy this gate, and dropping it
+ * turns the next attempt into an ordinary challenge whose dialog offers the
+ * Microsoft fallback again.
  */
 export async function requireSpiSudoOrChallenge(
   session: { id: string },
@@ -105,6 +109,7 @@ export async function requireSpiSudoOrChallenge(
   if (!outcome.ok) return outcome;
   const { proof } = outcome;
   if (proof.sudoToken === null) {
+    await dependencies.sudo.clearSudo(session.id).catch(() => undefined);
     const availability = await dependencies.methods();
     return {
       ok: false,
@@ -117,7 +122,7 @@ export async function requireSpiSudoOrChallenge(
 
 /** Wires the gate to the shared services for a route handler. */
 export function requireAccountSudo(
-  services: SudoMethodsSource & { sudo: Pick<SudoVault, "requireFreshSudo"> },
+  services: SudoMethodsSource & { sudo: SudoGateDependencies["sudo"] },
   session: { id: string; subject: string },
   options: { requestId?: string } = {},
 ) {
@@ -130,7 +135,7 @@ export function requireAccountSudo(
 
 /** Wires the SPI-token gate to the shared services for a route handler that calls a sudo-protected SPI endpoint. */
 export function requireAccountSpiSudo(
-  services: SudoMethodsSource & { sudo: Pick<SudoVault, "requireFreshSudo"> },
+  services: SudoMethodsSource & { sudo: SudoGateDependencies["sudo"] },
   session: { id: string; subject: string },
   options: { requestId?: string } = {},
 ) {

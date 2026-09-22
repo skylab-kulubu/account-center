@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import identityFixture from "../../../tests/fixtures/sky-account-v1-identity.json";
 import problemsFixture from "../../../tests/fixtures/sky-account-v1-problems.json";
 import sudoGrantFixture from "../../../tests/fixtures/sky-account-v1-sudo-grant.json";
+import authenticationGrantFixture from "../../../tests/fixtures/sky-account-v1-sudo-authentication.json";
 import totpCredentialFixture from "../../../tests/fixtures/sky-account-v1-totp-credential.json";
 import totpSetupFixture from "../../../tests/fixtures/sky-account-v1-totp-setup.json";
 import passkeyCredentialFixture from "../../../tests/fixtures/sky-account-v1-passkey-credential.json";
@@ -27,6 +28,8 @@ const bearer = { accessToken: "server-held-user-token" };
 const assertionFixture = assertionJson as WebauthnAssertion;
 const attestationFixture = attestationJson as WebauthnAttestation & { clientExtensionResults: unknown };
 const sudo = { accessToken: "server-held-user-token", sudoToken: "opaque-sudo-token" };
+/** Stands in for the ID token of a fresh Keycloak login; only its compact JWS shape matters here. */
+const freshIdToken = "eyJhbGciOiJSUzI1NiIsImtpZCI6InJlYWxtLWtleSJ9.eyJ0eXAiOiJJRCIsImF6cCI6ImFjY291bnQtY2VudGVyIn0.fresh-login-signature";
 
 type Recorded = { url: string; method: string; headers: Headers; body: string | null };
 
@@ -167,6 +170,69 @@ describe("SkyAccountHttpClient", () => {
       ["/sudo/totp", JSON.stringify({ code: "123456" })],
     ]);
     expect(calls.every((call) => call.headers.get("x-sky-sudo") === null)).toBe(true);
+  });
+
+  it("proves sudo with the ID token of a fresh login and returns the grant that starts at auth_time", async () => {
+    const { client, calls } = transport(() => json(authenticationGrantFixture));
+    const grant = await client.sudoAuthentication(bearer, { idToken: freshIdToken });
+    expect(grant).toEqual({
+      sudoToken: authenticationGrantFixture.sudoToken,
+      expiresAt: new Date("2026-09-21T13:17:00Z"),
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      url: `${base}/sudo/authentication`,
+      method: "POST",
+      body: JSON.stringify({ idToken: freshIdToken }),
+    });
+    expect(calls[0]?.headers.get("authorization")).toBe("Bearer server-held-user-token");
+    expect(calls[0]?.headers.get("content-type")).toBe("application/json");
+    // The proof is the ID token itself; the endpoint is bearer-only and never carries a sudo token.
+    expect(calls[0]?.headers.get("x-sky-sudo")).toBeNull();
+  });
+
+  it.each([
+    ["authentication_stale", 401],
+    ["sudo_required", 401],
+    ["invalid_request", 400],
+    ["rate_limited", 429],
+  ] as const)("maps the %s rejection of sudo/authentication without echoing the ID token", async (code, status) => {
+    const { client } = transport(() => problem(code));
+    const rejection = client.sudoAuthentication(bearer, { idToken: freshIdToken });
+    await expect(rejection).rejects.toBeInstanceOf(SkyAccountProblem);
+    await expect(rejection).rejects.toMatchObject({ code, status, detail: problemsFixture[code].detail });
+    await expect(rejection).rejects.not.toThrow(new RegExp(freshIdToken.slice(0, 16)));
+  });
+
+  it("reports an unreachable extension as unavailable for the authentication proof", async () => {
+    for (const outcome of [new Response(null, { status: 503 }), new Error("socket hang up")]) {
+      const { client } = transport(() => {
+        if (outcome instanceof Error) throw outcome;
+        return outcome;
+      });
+      await expect(client.sudoAuthentication(bearer, { idToken: freshIdToken }))
+        .rejects.toBeInstanceOf(SkyAccountUnavailableError);
+    }
+    const drifted = transport(() => json({ ...authenticationGrantFixture, expiresAt: "2026-09-21 13:17" }));
+    await expect(drifted.client.sudoAuthentication(bearer, { idToken: freshIdToken }))
+      .rejects.toBeInstanceOf(SkyAccountContractError);
+  });
+
+  it("rejects an ID token that is not a compact JWS, or a body above the 8 KB cap, before sending anything", async () => {
+    const { client, request } = transport(() => json(authenticationGrantFixture));
+    const invalid = ["", "not-a-token", "header.payload", `${freshIdToken}.extra`, "a.b.c d", 42];
+    for (const idToken of invalid) {
+      const rejection = client.sudoAuthentication(bearer, { idToken: idToken as never });
+      await expect(rejection).rejects.toBeInstanceOf(SkyAccountInvalidInputError);
+      await expect(rejection).rejects.toMatchObject({ field: "idToken" });
+    }
+    expect(request).not.toHaveBeenCalled();
+    const oversized = `${"A".repeat(2_048)}.${"B".repeat(8_192)}.${"C".repeat(2_048)}`;
+    const capped = client.sudoAuthentication(bearer, { idToken: oversized });
+    await expect(capped).rejects.toBeInstanceOf(SkyAccountInvalidInputError);
+    await expect(capped).rejects.toMatchObject({ field: "body" });
+    await expect(capped).rejects.not.toThrow(/AAAA/);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("relays passkey assertion options and forwards the browser assertion for sudo", async () => {

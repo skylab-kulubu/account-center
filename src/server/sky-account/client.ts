@@ -1,5 +1,6 @@
 import "server-only";
 
+import { COMPACT_JWS } from "@/server/contract-shapes";
 import {
   parseSkyAccountProblem,
   SkyAccountContractError,
@@ -23,6 +24,7 @@ import type {
   PatchNameInput,
   RegisterPasskeyInput,
   SkyAccountClient,
+  SudoAuthenticationInput,
   SudoAuthorization,
   SudoPasswordInput,
   SudoTotpInput,
@@ -282,6 +284,29 @@ export class SkyAccountHttpClient implements SkyAccountClient {
       auth,
       body: validated,
       maxRequestBytes: MAX_CEREMONY_REQUEST_BYTES,
+      expectedStatus: 200,
+    }));
+  }
+
+  /**
+   * Proves sudo with the ID token of a fresh Keycloak login, for a person who
+   * has no password, verification app or passkey. The bearer is the same
+   * session's access token and no `X-Sky-Sudo` is sent; the SPI verifies the
+   * token's signature, its binding to this session (`sub`, `sid`) and its
+   * `auth_time`, and answers the same grant the other proofs return (the
+   * window starts at the login: `expiresAt = auth_time + 300`). A login older
+   * than five minutes is `401 authentication_stale`; every other rejection is
+   * `401 sudo_required`. The ID token is validated locally before it is sent
+   * and never appears in a log, an error message or a thrown message.
+   */
+  async sudoAuthentication(auth: BearerAuthorization, input: SudoAuthenticationInput) {
+    const idToken = typeof input.idToken === "string" ? input.idToken : "";
+    if (!COMPACT_JWS.test(idToken)) throw new SkyAccountInvalidInputError("idToken");
+    return parseSudoGrant(await this.#call({
+      method: "POST",
+      path: "sudo/authentication",
+      auth,
+      body: { idToken },
       expectedStatus: 200,
     }));
   }

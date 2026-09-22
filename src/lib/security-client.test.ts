@@ -52,14 +52,20 @@ describe("runWithSudo", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
-  it("reports the Microsoft-only proof gap instead of reopening the dialog", async () => {
+  it("offers the dialog again when the proof carried no sky-account token, then reports the gap", async () => {
+    // The server dropped the token-less proof, so the reopened dialog shows the Microsoft fallback.
     const ensureSudo = vi.fn(async () => true);
-    const outcome = await runWithSudo(
-      async () => json({ ...challenge, reason: "spi_token_required", methods: [], fallback: "microsoft" }, 428),
-      ensureSudo,
-    );
-    expect(outcome).toEqual({ kind: "spi_token_required" });
-    expect(ensureSudo).not.toHaveBeenCalled();
+    const send = vi.fn()
+      .mockResolvedValueOnce(json({ ...challenge, reason: "spi_token_required", methods: [], fallback: "microsoft" }, 428))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    expect(await runWithSudo(send, ensureSudo)).toMatchObject({ kind: "ok" });
+    expect(ensureSudo).toHaveBeenCalledWith({ challenged: true });
+    expect(send).toHaveBeenCalledTimes(2);
+
+    const dismissed = vi.fn(async () => json({ ...challenge, reason: "spi_token_required", methods: [], fallback: "microsoft" }, 428));
+    expect(await runWithSudo(dismissed, async () => false)).toEqual({ kind: "sudo_cancelled" });
+    expect(dismissed).toHaveBeenCalledTimes(1);
+
     const afterRetry = vi.fn()
       .mockResolvedValueOnce(json(challenge, 428))
       .mockResolvedValueOnce(json({ ...challenge, reason: "spi_token_required" }, 428));

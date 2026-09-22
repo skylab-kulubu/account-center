@@ -18,7 +18,7 @@ export type MutationOutcome =
   | { kind: "error"; response: Response; status: number; body: unknown }
   /** The person dismissed the Sudo mode dialog; nothing was sent again. */
   | { kind: "sudo_cancelled" }
-  /** A Microsoft re-authentication proof exists but the SPI needs a sudo token (K3d); the page explains. */
+  /** The proof still carries no sky-account token after a second attempt; the page asks for another try. */
   | { kind: "spi_token_required" };
 
 export type EnsureSudo = (options?: { challenged?: boolean }) => Promise<boolean>;
@@ -99,12 +99,13 @@ export function securityRequest({ method, path, csrfToken, body }: SecurityReque
  * Sends a mutation and, when the BFF answers `428 sudo_required`, opens the
  * Sudo mode dialog once and retries. A second `428` is reported as an error
  * rather than retried again, so a stale or unusable proof can never loop.
+ * `spi_token_required` takes the same path: the server has dropped the proof
+ * that carried no sky-account token, so the dialog offers the Microsoft
+ * re-authentication again; only a second one ends as that outcome.
  */
 export async function runWithSudo(send: () => Promise<Response>, ensureSudo: EnsureSudo): Promise<MutationOutcome> {
   let response = await send();
   if (response.status === 428) {
-    const challenge = parseSudoChallenge(await responseJson(response));
-    if (challenge?.reason === "spi_token_required") return { kind: "spi_token_required" };
     const verified = await ensureSudo({ challenged: true });
     if (!verified) return { kind: "sudo_cancelled" };
     response = await send();

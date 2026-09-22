@@ -96,6 +96,27 @@ describe("SudoVault", () => {
     await expect(vault.storeReauthenticationProof("not-a-session", now)).rejects.toThrow(/session/);
   });
 
+  it("stores the sky-account token a Microsoft re-authentication earned as a reauth proof", async () => {
+    const { vault, repository, cipher } = fixture();
+    // `POST sudo/authentication` answers `auth_time + 300`; the vault keeps that deadline.
+    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:14:18.000Z"), "reauth");
+
+    const stored = repository.entries.get(sessionId);
+    expect(stored?.expiresAt).toEqual(new Date("2026-09-21T13:14:18.000Z"));
+    expect(cipher.decrypt(stored!.ciphertext, `session:${sessionId}:sudo`)).toEqual({ sudoToken, method: "reauth" });
+    await expect(vault.requireFreshSudo(sessionId)).resolves.toEqual({
+      sudoToken,
+      method: "reauth",
+      expiresAt: new Date("2026-09-21T13:14:18.000Z"),
+    });
+    // Such a proof is real SPI material, so the token-less fallback never overwrites it.
+    await expect(vault.storeReauthenticationProof(sessionId, now)).resolves.toBe(false);
+    await expect(vault.requireFreshSudo(sessionId)).resolves.toMatchObject({ sudoToken, method: "reauth" });
+    expect(JSON.stringify(await vault.currentSudo(sessionId))).not.toContain(sudoToken);
+    await expect(vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:14:18.000Z"), "microsoft" as never))
+      .rejects.toThrow(/method/);
+  });
+
   it("never replaces a fresh sky-account proof with a token-less re-authentication", async () => {
     let current = now;
     const { vault, repository } = fixture(() => current);
@@ -199,7 +220,6 @@ describe("SudoVault", () => {
     await expect(vault.storeSudo(sessionId, "", new Date("2026-09-21T13:15:18.000Z"), "password")).rejects.toThrow(/token/);
     await expect(vault.storeSudo(sessionId, "not a jws", new Date("2026-09-21T13:15:18.000Z"), "password")).rejects.toThrow(/token/);
     await expect(vault.storeSudo("not-a-session", sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password")).rejects.toThrow(/session/);
-    await expect(vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "reauth" as never)).rejects.toThrow(/method/);
     await expect(vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "sms" as never)).rejects.toThrow(/method/);
     expect(repository.writes).toBe(0);
   });
@@ -230,7 +250,7 @@ describe("SudoVault", () => {
       { sudoToken, method: "sms" },
       { sudoToken: null, method: "password" },
       { sudoToken: "not a jws", method: "totp" },
-      { sudoToken, method: "reauth" },
+      { sudoToken: "not a jws", method: "reauth" },
     ]) {
       repository.entries.set(sessionId, {
         ciphertext: cipher.encrypt(envelope, `session:${sessionId}:sudo`),

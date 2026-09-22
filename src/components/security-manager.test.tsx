@@ -207,16 +207,24 @@ describe("SecurityManager", () => {
 
       cleanup();
       vi.restoreAllMocks();
-      vi.spyOn(globalThis, "fetch")
+      // A re-authentication the SPI refused a sudo token for: the dialog is offered once more,
+      // and only a second refusal is reported as the rare failure the person may retry.
+      const spiChallenge = json({ ...challenge, reason: "spi_token_required", methods: [], fallback: "microsoft" }, 428);
+      const spiChallengeAgain = json({ ...challenge, reason: "spi_token_required", methods: [], fallback: "microsoft" }, 428);
+      const retried = vi.spyOn(globalThis, "fetch")
         .mockResolvedValueOnce(json(payload({ password: false, totp: [], passkeys: [], sudo: { methods: [], fallback: "microsoft", active: { method: "reauth", expiresAt: "2026-09-21T13:15:18.000Z" } } })))
-        .mockResolvedValueOnce(json({ ...challenge, reason: "spi_token_required", methods: [], fallback: "microsoft" }, 428));
+        .mockResolvedValueOnce(spiChallenge)
+        .mockResolvedValueOnce(spiChallengeAgain);
       render(<SecurityManager />);
       fireEvent.click(await screen.findByRole("button", { name: "Parola belirle" }));
       const setForm = await screen.findByRole("form", { name: "Parola belirle" });
       fireEvent.change(within(setForm).getByLabelText("Yeni parola"), { target: { value: "correct horse battery" } });
       fireEvent.change(within(setForm).getByLabelText("Yeni parola (tekrar)"), { target: { value: "correct horse battery" } });
       fireEvent.click(within(setForm).getByRole("button", { name: "Parolayı kaydet" }));
-      expect(await within(setForm).findByRole("alert")).toHaveTextContent(/Microsoft doğrulaması bu sayfadaki işlemler için yakında yeterli olacak/);
+      expect(await within(setForm).findByRole("alert"))
+        .toHaveTextContent("Doğrulaman tamamlandı ama güvenlik işlemi için ek doğrulama gerekiyor; tekrar dene.");
+      expect(sudo.ensureSudo).toHaveBeenLastCalledWith({ challenged: true });
+      expect(retried.mock.calls.filter((call) => call[0] === "/api/account/security/password")).toHaveLength(2);
     });
 
     it("keeps the form and the password out of the page after a dismissed sudo dialog", async () => {

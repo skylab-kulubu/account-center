@@ -28,7 +28,13 @@ function gate(
     return outcome;
   });
   const resolveMethods = vi.fn(async () => methods);
-  return { requireFreshSudo, resolveMethods, deps: { sudo: { requireFreshSudo }, methods: resolveMethods } };
+  const clearSudo = vi.fn(async () => undefined);
+  return {
+    requireFreshSudo,
+    resolveMethods,
+    clearSudo,
+    deps: { sudo: { requireFreshSudo, clearSudo }, methods: resolveMethods },
+  };
 }
 
 describe("requireFreshSudoOrChallenge", () => {
@@ -76,7 +82,7 @@ describe("requireFreshSudoOrChallenge", () => {
 
   it("refuses a Microsoft re-authentication proof for SPI calls with 428 spi_token_required", async () => {
     const reauth: SudoProof = { method: "reauth", sudoToken: null, expiresAt: proof.expiresAt };
-    const { deps, resolveMethods } = gate(reauth, { methods: [], fallback: "microsoft" });
+    const { deps, resolveMethods, clearSudo } = gate(reauth, { methods: [], fallback: "microsoft" });
     const outcome = await requireSpiSudoOrChallenge(session, deps, { requestId: "request-id" });
     expect(outcome.ok).toBe(false);
     if (outcome.ok) throw new Error("unreachable");
@@ -89,12 +95,15 @@ describe("requireFreshSudoOrChallenge", () => {
       fallback: "microsoft",
     });
     expect(resolveMethods).toHaveBeenCalledTimes(1);
+    // A proof the SPI can never accept is dropped, so the next attempt offers the Microsoft fallback again.
+    expect(clearSudo).toHaveBeenCalledWith(session.id);
   });
 
   it("hands SPI callers a proof whose token is guaranteed and keeps the ordinary challenges", async () => {
     const { deps, resolveMethods } = gate(proof);
     const outcome = await requireSpiSudoOrChallenge(session, deps);
     expect(outcome).toEqual({ ok: true, proof });
+    expect(deps.sudo.clearSudo).not.toHaveBeenCalled();
     if (!outcome.ok) throw new Error("unreachable");
     const token: string = outcome.proof.sudoToken;
     expect(token).toBe(proof.sudoToken);
@@ -109,7 +118,8 @@ describe("requireFreshSudoOrChallenge", () => {
   it("propagates identity lookup failures instead of inventing an empty method list", async () => {
     const requireFreshSudo = vi.fn(async () => { throw new SudoRequiredError("missing", null); });
     const methods = vi.fn(async () => { throw new SkyAccountUnavailableError(); });
-    await expect(requireFreshSudoOrChallenge(session, { sudo: { requireFreshSudo }, methods }))
+    const clearSudo = vi.fn(async () => undefined);
+    await expect(requireFreshSudoOrChallenge(session, { sudo: { requireFreshSudo, clearSudo }, methods }))
       .rejects.toBeInstanceOf(SkyAccountUnavailableError);
   });
 
