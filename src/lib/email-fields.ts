@@ -38,9 +38,14 @@ export type PendingEmailChange = {
   secondsLeft: number;
 };
 
-/** The trimmed, lower-cased address or `invalid`. */
+/** Trimmed and lower-cased the way the SPI stores it (`Locale.ROOT`), so addresses compare as Keycloak holds them. */
+export function normalizeEmailAddress(value: string) {
+  return value.trim().toLowerCase();
+}
+
+/** The normalised address or `invalid`. */
 export function checkEmailAddress(value: unknown): FieldCheck<"invalid"> {
-  const address = typeof value === "string" ? value.trim().toLowerCase() : "";
+  const address = typeof value === "string" ? normalizeEmailAddress(value) : "";
   if (address.length > MAX_EMAIL_ADDRESS_LENGTH || !EMAIL_ADDRESS_PATTERN.test(address)) {
     return { ok: false, reason: "invalid" };
   }
@@ -55,6 +60,11 @@ export function checkEmailCode(value: unknown): FieldCheck<"invalid"> {
 
 export function isPrimaryEmailChoice(value: unknown): value is PrimaryEmailChoice {
   return value === "school" || value === "personal";
+}
+
+/** Seconds left on a code as the BFF reports them: whole, never more than the code's life. */
+export function isEmailCodeSeconds(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= EMAIL_CODE_LIFETIME_SECONDS;
 }
 
 export function isEmailCodeAttempts(value: unknown): value is number {

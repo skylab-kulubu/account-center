@@ -80,12 +80,18 @@ function mockApi(answers: Partial<Record<Endpoint, Array<Answer | (() => Answer)
 
 const challenge = { status: 428, body: { error: "sudo_required", reason: "missing", methods: ["password"], fallback: null } };
 const done = { status: 204 };
-const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
-const inTenMinutes = () => inMinutes(10);
-const codeSent = () => ({ status: 202, body: { expiresAt: inTenMinutes() } });
-const waiting = (address: string, attemptsLeft: number, minutes = 6) => () => ({
-  body: { pending: { address, expiresAt: inMinutes(minutes), attemptsLeft } },
+/**
+ * The BFF counts `secondsLeft` on its own clock; `expiresAt` is display-only,
+ * so these deadlines deliberately disagree with the test's clock.
+ */
+const codeSent = { status: 202, body: { expiresAt: "2026-09-23T00:10:00.000Z", secondsLeft: 600 } };
+const waiting = (address: string, attemptsLeft: number, secondsLeft = 360, expiresAt = "2026-09-23T00:06:00.000Z") => ({
+  body: { pending: { address, expiresAt, attemptsLeft, secondsLeft } },
 });
+const codeLimit = {
+  status: 429,
+  body: { error: "code_limit", detail: "Bir saatte en fazla üç doğrulama kodu isteyebilirsin.", retryAfter: 1_800 },
+};
 
 async function findNotice(text: string | RegExp) {
   const detail = await screen.findByText(text);
@@ -194,6 +200,15 @@ describe("EmailManager", () => {
     expect(within(onlyPersonal).getAllByRole("radio")).toHaveLength(1);
     expect(within(onlyPersonal).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
     expect(screen.getByText("Kayıtlı değil")).toBeInTheDocument();
+  });
+
+  it("never shows the school badge without a school address", async () => {
+    mockApi({ email: [{ body: payload({ schoolEmail: null, verifiedYtu: true }) }] });
+    render(<EmailManager />);
+    const school = (await screen.findByText("Kayıtlı değil", { selector: "strong" })).closest<HTMLElement>(".settings-row")!;
+    expect(within(school).queryByText("Doğrulandı")).not.toBeInTheDocument();
+    expect(within(school).queryByRole("link")).not.toBeInTheDocument();
+    expect(school).toHaveTextContent("YTÜ hesabın bağlı ama okul e-postan henüz gelmedi; bir sonraki YTÜ girişinde gelir.");
   });
 
   it("redirects to the login on 401 and shows a retryable card when the addresses cannot be read", async () => {
@@ -324,7 +339,7 @@ describe("EmailManager", () => {
       expect(input).toBeDisabled();
     });
 
-    it("counts the ten minutes down and stops accepting the code when they run out", async () => {
+    it("counts the server's seconds down on a monotonic clock and stops accepting the code when they run out", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const api = mockApi({ email: [{ body: payload() }], change: [codeSent] });
       render(<EmailManager />);
@@ -334,6 +349,13 @@ describe("EmailManager", () => {
       expect(timer).toHaveTextContent(/Kalan süre: (?:10:00|9:\d{2})$/);
       // Let the countdown's effect start its interval before the clock jumps.
       await act(async () => {});
+      // The browser's wall clock jumping an hour ahead changes nothing.
+      vi.setSystemTime(Date.now() + 60 * 60_000);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(timer).toHaveTextContent(/Kalan süre: 9:\d{2}$/);
+      expect(within(form).getByLabelText("Doğrulama kodu")).toBeEnabled();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4 * 60_000);
       });
@@ -348,10 +370,10 @@ describe("EmailManager", () => {
       expect(api.of("confirm")).toHaveLength(0);
     });
 
-    it("shows the wait after too many requests for a code or too many tries", async () => {
+    it("says three codes an hour and when to ask again, and keeps the generic wait for too many tries", async () => {
       mockApi({
         email: [{ body: payload() }],
-        change: [codeSent, { status: 429, body: { error: "rate_limited", detail: "Çok fazla deneme yaptın. Biraz sonra yeniden dene.", retryAfter: 1_800 } }],
+        change: [codeSent, codeLimit],
         confirm: [{ status: 429, body: { error: "rate_limited", detail: "Çok fazla deneme yaptın. Biraz sonra yeniden dene.", retryAfter: 120 } }],
       });
       render(<EmailManager />);
@@ -364,8 +386,52 @@ describe("EmailManager", () => {
       expect(within(form).getByRole("button", { name: "Doğrula" })).toBeDisabled();
 
       fireEvent.click(within(form).getByRole("button", { name: "Yeni kod gönder" }));
-      expect(await within(form).findByText(/bekle: 30 dakika/)).toBeInTheDocument();
+      expect(await within(form).findByText(
+        "Bir saatte en fazla üç doğrulama kodu isteyebilirsin. Yeniden denemek için bekle: 30 dakika.",
+      )).toBeInTheDocument();
       expect(within(form).getByRole("button", { name: "Yeni kod gönder" })).toBeDisabled();
+    });
+
+    it("says three codes an hour on the first request too", async () => {
+      mockApi({ email: [{ body: payload() }], change: [codeLimit] });
+      render(<EmailManager />);
+      const form = await sendCode("new@example.com");
+      expect(await within(form).findByRole("alert")).toHaveTextContent(
+        "Bir saatte en fazla üç doğrulama kodu isteyebilirsin. Yeniden denemek için bekle: 30 dakika.",
+      );
+      expect(within(form).getByRole("button", { name: "Kod gönder" })).toBeDisabled();
+    });
+
+    it("goes back to the address when it was taken while the code was on its way, and never mails it again", async () => {
+      const api = mockApi({
+        email: [{ body: payload() }],
+        change: [codeSent],
+        confirm: [{ status: 409, body: { error: "email_taken", detail: "Bu e-posta adresi başka bir hesapta kayıtlı. Başka bir adres dene.", field: "address" } }],
+      });
+      render(<EmailManager />);
+      await sendCode("taken@example.com");
+      enterCode(await codeForm(), "123456");
+
+      const form = await screen.findByRole("form", { name: "Kişisel e-posta ekle" });
+      expect(screen.queryByRole("form", { name: "Doğrulama kodunu gir" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Yeni kod gönder" })).not.toBeInTheDocument();
+      const input = within(form).getByLabelText("E-posta adresi");
+      expect(input).toHaveValue("taken@example.com");
+      expect(input).toHaveAttribute("aria-invalid", "true");
+      expect(within(form).getByRole("alert")).toHaveTextContent("Bu e-posta adresi başka bir hesapta kayıtlı. Başka bir adres dene.");
+      await waitFor(() => expect(input).toHaveFocus());
+
+      fireEvent.click(within(form).getByRole("button", { name: "Kod gönder" }));
+      expect(await within(form).findByRole("alert")).toHaveTextContent("Bu e-posta adresi başka bir hesapta kayıtlı.");
+      fireEvent.change(input, { target: { value: " TAKEN@example.com" } });
+      fireEvent.click(within(form).getByRole("button", { name: "Kod gönder" }));
+      expect(await within(form).findByRole("alert")).toHaveTextContent("Bu e-posta adresi başka bir hesapta kayıtlı.");
+      expect(api.of("change")).toHaveLength(1);
+
+      fireEvent.change(input, { target: { value: "free@example.com" } });
+      fireEvent.click(within(form).getByRole("button", { name: "Kod gönder" }));
+      await codeForm();
+      expect(api.of("change").map(({ body }) => body)).toEqual([{ address: "taken@example.com" }, { address: "free@example.com" }]);
     });
 
     it("leaves the account untouched when Sudo mode is dismissed", async () => {
@@ -389,7 +455,7 @@ describe("EmailManager", () => {
       render(<EmailManager />);
       const form = await codeForm();
       expect(within(form).getByText(/new@example\.com adresine 6 haneli bir kod gönderdik/)).toBeInTheDocument();
-      expect(within(form).getByRole("timer")).toHaveTextContent(/Kalan süre: (?:6:00|5:\d{2})$/);
+      expect(within(form).getByRole("timer")).toHaveTextContent(/Kalan süre: (?:6:00|5:5\d)$/);
       expect(within(form).getByText("3 deneme hakkın kaldı.")).toBeInTheDocument();
       await waitFor(() => expect(within(form).getByLabelText("Doğrulama kodu")).toHaveFocus());
       expect(api.of("change")).toHaveLength(0);
@@ -402,32 +468,66 @@ describe("EmailManager", () => {
       expect(api.of("pending")).toHaveLength(1);
     });
 
-    it("asks again when the person comes back to the page, but never over a form they are using", async () => {
+    it("reopens on return from the mail app, but after Vazgeç only offers the same code", async () => {
+      const first = waiting("new@example.com", 5, 540, "2026-09-23T00:09:00.000Z");
+      const second = waiting("other@example.com", 5, 580, "2026-09-23T00:09:40.000Z");
+      const api = mockApi({ email: [{ body: payload() }], pending: [first, first, first, second] });
+      const returnToPage = () => act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      render(<EmailManager />);
+      const opened = await codeForm();
+      expect(api.of("pending")).toHaveLength(1);
+
+      fireEvent.click(within(opened).getByRole("button", { name: "Vazgeç" }));
+      const offer = await screen.findByRole("button", { name: "Bekleyen bir kod var — gir" });
+      expect(screen.queryByRole("form")).not.toBeInTheDocument();
+
+      returnToPage();
+      await waitFor(() => expect(api.of("pending")).toHaveLength(2));
+      expect(screen.queryByRole("form")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Bekleyen bir kod var — gir" })).toBeInTheDocument();
+
+      fireEvent.click(offer);
+      const reopened = await codeForm();
+      expect(within(reopened).getByText(/new@example\.com adresine 6 haneli bir kod gönderdik/)).toBeInTheDocument();
+      expect(api.of("pending")).toHaveLength(3);
+      expect(screen.queryByRole("button", { name: "Bekleyen bir kod var — gir" })).not.toBeInTheDocument();
+
+      // A different change (asked for elsewhere) is not the one the person closed.
+      fireEvent.click(within(reopened).getByRole("button", { name: "Vazgeç" }));
+      await screen.findByRole("button", { name: "Bekleyen bir kod var — gir" });
+      returnToPage();
+      const other = await codeForm();
+      expect(within(other).getByText(/other@example\.com adresine 6 haneli bir kod gönderdik/)).toBeInTheDocument();
+    });
+
+    it("never opens over a form in use, and drops the offer once nothing waits", async () => {
       const api = mockApi({
         email: [{ body: payload() }],
-        pending: [{ body: { pending: null } }, waiting("new@example.com", 5, 9)],
+        pending: [{ body: { pending: null } }, { body: { pending: null } }],
+        change: [codeSent],
       });
       render(<EmailManager />);
       await screen.findByRole("heading", { level: 2, name: "Kişisel e-posta" });
       await waitFor(() => expect(api.of("pending")).toHaveLength(1));
-      expect(screen.queryByRole("form")).not.toBeInTheDocument();
-
       fireEvent.click(screen.getByRole("button", { name: "Kişisel e-posta ekle" }));
-      const addForm = await screen.findByRole("form", { name: "Kişisel e-posta ekle" });
+      await screen.findByRole("form", { name: "Kişisel e-posta ekle" });
       act(() => {
         document.dispatchEvent(new Event("visibilitychange"));
       });
       expect(api.of("pending")).toHaveLength(1);
-      fireEvent.click(within(addForm).getByRole("button", { name: "Vazgeç" }));
-      await waitFor(() => expect(screen.queryByRole("form")).not.toBeInTheDocument());
 
+      const addForm = screen.getByRole("form", { name: "Kişisel e-posta ekle" });
+      fireEvent.change(within(addForm).getByLabelText("E-posta adresi"), { target: { value: "new@example.com" } });
+      fireEvent.click(within(addForm).getByRole("button", { name: "Kod gönder" }));
+      fireEvent.click(within(await codeForm()).getByRole("button", { name: "Vazgeç" }));
+      await screen.findByRole("button", { name: "Bekleyen bir kod var — gir" });
       act(() => {
         document.dispatchEvent(new Event("visibilitychange"));
       });
-      const form = await codeForm();
-      expect(within(form).getByText(/new@example\.com adresine 6 haneli bir kod gönderdik/)).toBeInTheDocument();
-      expect(within(form).getByText("5 deneme hakkın kaldı.")).toBeInTheDocument();
-      expect(api.of("pending")).toHaveLength(2);
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Bekleyen bir kod var — gir" })).not.toBeInTheDocument());
+      expect(screen.queryByRole("form")).not.toBeInTheDocument();
     });
 
     it("restores a replacement of the existing personal address as a change", async () => {
@@ -540,9 +640,9 @@ describe("EmailManager", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    it("warns when the address is primary and keeps it, with the way to the YTÜ link, when nothing can take over", async () => {
+    it("says the school address takes over when a primary personal address is removed and one can", async () => {
       mockApi({
-        email: [{ body: payload({ ...withPersonal, email: "ada@example.com", primary: "personal", verifiedYtu: false }) }],
+        email: [{ body: payload({ ...withPersonal, email: "ada@example.com", primary: "personal" }) }],
         personal: [{
           status: 409,
           body: {
@@ -555,10 +655,34 @@ describe("EmailManager", () => {
       fireEvent.click(await screen.findByRole("button", { name: "ada@example.com — Kaldır" }));
       const dialog = await screen.findByRole("dialog", { name: "Kişisel e-posta kaldırılsın mı?" });
       expect(dialog).toHaveTextContent("Bu adres birincil adresin; kaldırınca kulüp postaları okul e-postana gider.");
+      // Should the account have changed since the page loaded, the SPI's refusal is shown and nothing is lost.
       fireEvent.click(within(dialog).getByRole("button", { name: "Kaldır" }));
       expect(await within(dialog).findByRole("alert")).toHaveTextContent("kaldırılırsa giriş yapabileceğin bir adres kalmaz");
-      expect(within(dialog).getByRole("link", { name: "YTÜ hesabını bağla" })).toHaveAttribute("href", "/identity");
       expect(dialog).toBeInTheDocument();
+    });
+
+    it("does not offer removing a primary personal address that nothing can replace, and says what to do instead", async () => {
+      const api = mockApi({ email: [{ body: payload({ ...withPersonal, email: "ada@example.com", primary: "personal", verifiedYtu: false }) }] });
+      render(<EmailManager />);
+      const remove = await screen.findByRole("button", { name: "ada@example.com — Kaldır" });
+      expect(remove).toBeDisabled();
+      expect(remove).toHaveAccessibleDescription(
+        "Bu adres birincil adresin ve yerine geçebilecek, YTÜ hesabınla doğrulanmış bir okul e-postan yok; kaldırırsan giriş yapabileceğin bir adres kalmaz. YTÜ hesabını bağlayabilir ya da adresi değiştirebilirsin.",
+      );
+      const personal = screen.getByText("ada@example.com", { selector: "strong" }).closest<HTMLElement>("section")!;
+      expect(within(personal).getByRole("link", { name: "YTÜ hesabını bağla" })).toHaveAttribute("href", "/identity");
+      expect(screen.getByRole("button", { name: "ada@example.com — Değiştir" })).toBeEnabled();
+      fireEvent.click(remove);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(api.of("personal")).toHaveLength(0);
+      cleanup();
+      vi.restoreAllMocks();
+
+      // Linked to YTÜ but without a school address yet: still nothing to fall back to, and no link to offer.
+      mockApi({ email: [{ body: payload({ ...withPersonal, email: "ada@example.com", primary: "personal", schoolEmail: null, verifiedYtu: true }) }] });
+      render(<EmailManager />);
+      expect(await screen.findByRole("button", { name: "ada@example.com — Kaldır" })).toBeDisabled();
+      expect(screen.queryByRole("link", { name: "YTÜ hesabını bağla" })).not.toBeInTheDocument();
     });
   });
 });

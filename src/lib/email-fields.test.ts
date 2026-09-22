@@ -8,6 +8,7 @@ import {
   emailAddressMessage,
   emailCodeMessage,
   isEmailCodeAttempts,
+  isEmailCodeSeconds,
   isPrimaryEmailChoice,
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_EMAIL_CODE_ATTEMPTS,
@@ -61,6 +62,11 @@ describe("seconds left on a code", () => {
     expect(secondsLeftUntil("2026-09-23T00:04:00Z", now)).toBe(240);
     expect(secondsLeftUntil("2026-09-23T00:00:00Z", now)).toBe(0);
     expect(secondsLeftUntil("2026-09-22T23:59:00Z", now)).toBe(0);
+  });
+
+  it("accepts only whole seconds within the code's life as the BFF reports them", () => {
+    expect([0, 1, 600].every(isEmailCodeSeconds)).toBe(true);
+    expect([-1, 601, 1.5, "600", null].some(isEmailCodeSeconds)).toBe(false);
   });
 
   it("never reports more than the ten minutes a code lives, nor anything for a malformed instant", () => {

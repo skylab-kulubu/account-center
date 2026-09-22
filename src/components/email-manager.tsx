@@ -11,25 +11,29 @@ import type { Feedback } from "@/components/security-shared";
 import { SettingsGroup, StatusBadge } from "@/components/settings";
 import { useSudo } from "@/components/sudo-provider";
 import { ActionProgress, RetryableError } from "@/components/ui-states";
+import {
+  checkEmailAddress,
+  checkEmailCode,
+  EMAIL_CODE_LIFETIME_SECONDS,
+  emailAddressMessage,
+  isEmailCodeAttempts,
+  isEmailCodeSeconds,
+  MAX_EMAIL_ADDRESS_LENGTH,
+  normalizeEmailAddress,
+} from "@/lib/email-fields";
+import type { PendingEmailChange, PrimaryEmailChoice } from "@/lib/email-fields";
 import { detailOf, errorOf, isObject, responseJson, runWithSudo, securityRequest } from "@/lib/security-client";
 import type { EnsureSudo, MutationOutcome } from "@/lib/security-client";
 
 const RETURN_TO = "/email";
 /** Where "YTÜ hesabını bağla" already lives: the identity page's YTÜ section. */
 const YTU_LINK_PAGE = "/identity";
-/** The SPI keeps a pending change for ten minutes; the countdown never shows more. */
-const CODE_LIFETIME_MS = 10 * 60_000;
-const MAX_ADDRESS_LENGTH = 254;
-const ADDRESS_SHAPE = /^[^\s@]+@[^\s@]+$/;
-const EMAIL_CODE = /^\d{6}$/;
-
-type PrimaryChoice = "school" | "personal";
 
 /** Browser-side copy of `EmailPayload` (`src/server/email/view.ts`). */
 export type EmailPayload = {
   email: string | null;
   emailVerified: boolean;
-  primary: PrimaryChoice | "none";
+  primary: PrimaryEmailChoice | "none";
   schoolEmail: string | null;
   verifiedYtu: boolean;
   personalEmail: string | null;
@@ -57,6 +61,7 @@ export const emailCopy = {
     verifiedDetail: "YTÜ Microsoft hesabınla doğrulandı. Bu adresle de giriş yapabilirsin.",
     unverifiedDetail: "YTÜ hesabın bağlı olmadığı için doğrulanmadı ve birincil adres yapılamaz.",
     missingDetail: "YTÜ hesabını bağladığında okul e-postan buraya gelir.",
+    verifiedMissingDetail: "YTÜ hesabın bağlı ama okul e-postan henüz gelmedi; bir sonraki YTÜ girişinde gelir.",
   },
   personal: {
     title: "Kişisel e-posta",
@@ -68,6 +73,8 @@ export const emailCopy = {
     add: "Kişisel e-posta ekle",
     change: "Değiştir",
     remove: "Kaldır",
+    removeBlocked: "Bu adres birincil adresin ve yerine geçebilecek, YTÜ hesabınla doğrulanmış bir okul e-postan yok; kaldırırsan giriş yapabileceğin bir adres kalmaz. YTÜ hesabını bağlayabilir ya da adresi değiştirebilirsin.",
+    waiting: "Bekleyen bir kod var — gir",
   },
   add: {
     title: "Kişisel e-posta ekle",
@@ -75,8 +82,9 @@ export const emailCopy = {
     hint: "Bu adrese 6 haneli bir doğrulama kodu göndereceğiz; kod 10 dakika geçerli. Göndermeden önce kimliğini doğrulaman istenir.",
     send: "Kod gönder",
     sending: "Gönderiliyor",
-    invalid: "Geçerli bir e-posta adresi gir.",
+    invalid: emailAddressMessage,
     alreadyYours: "Bu adres zaten hesabında kayıtlı.",
+    taken: "Bu e-posta adresi başka bir hesapta kayıtlı. Başka bir adres dene.",
   },
   change: {
     title: "Kişisel e-postayı değiştir",
@@ -134,12 +142,9 @@ export const emailCopy = {
 
 type Notice = { tone: "positive" | "warning"; title: string; detail: string };
 
-/** A change the SPI still holds (`GET /api/account/email/pending`), shown again as the code panel. */
-export type WaitingChange = { address: string; expiresAt: string; attemptsLeft: number };
-
 type Flow =
   /** Adding a first personal address, or replacing the existing one (`change`); `waiting` restores the code panel. */
-  | { kind: "add" | "change"; waiting?: WaitingChange }
+  | { kind: "add" | "change"; waiting?: PendingEmailChange }
   | { kind: "remove" };
 
 function optionalAddress(value: unknown): value is string | null {
@@ -178,7 +183,7 @@ export function parseEmailPayload(value: unknown): EmailPayload | null {
  * `null` when nothing waits, `undefined` for an answer outside the contract
  * (treated like nothing waiting: the page simply does not restore).
  */
-export function parsePendingPayload(value: unknown): WaitingChange | null | undefined {
+export function parsePendingPayload(value: unknown): PendingEmailChange | null | undefined {
   if (!isObject(value)) return undefined;
   if (value.pending === null) return null;
   const pending = value.pending;
@@ -188,54 +193,47 @@ export function parsePendingPayload(value: unknown): WaitingChange | null | unde
     pending.address === null ||
     typeof pending.expiresAt !== "string" ||
     pending.expiresAt.length > 64 ||
-    !Number.isFinite(Date.parse(pending.expiresAt)) ||
-    typeof pending.attemptsLeft !== "number" ||
-    !Number.isSafeInteger(pending.attemptsLeft) ||
-    pending.attemptsLeft < 0 ||
-    pending.attemptsLeft > 100
+    !isEmailCodeAttempts(pending.attemptsLeft) ||
+    !isEmailCodeSeconds(pending.secondsLeft)
   ) return undefined;
-  return { address: pending.address, expiresAt: pending.expiresAt, attemptsLeft: pending.attemptsLeft };
-}
-
-/** Trimmed and lower-cased the way the SPI stores it, so the page shows and compares what Keycloak will hold. */
-function normalizeAddress(value: string) {
-  return value.trim().toLowerCase();
+  return {
+    address: pending.address,
+    expiresAt: pending.expiresAt,
+    attemptsLeft: pending.attemptsLeft,
+    secondsLeft: pending.secondsLeft,
+  };
 }
 
 function knownAddresses(payload: EmailPayload) {
   return [payload.email, payload.schoolEmail, payload.personalEmail]
     .filter((address): address is string => address !== null)
-    .map(normalizeAddress);
+    .map(normalizeEmailAddress);
 }
 
 /**
- * When the code stops working, on this browser's clock. The SPI's deadline
- * is honoured, but a clock that disagrees with the server (a deadline in the
- * past or further than ten minutes away) falls back to the documented ten
- * minutes: the SPI stays the judge and answers `no_pending_change` itself.
+ * Seconds left until `closesAt`, a `performance.now()` instant, ticking once a
+ * second while any are left. The monotonic clock means neither a wrong nor a
+ * changed browser clock moves the moment the code input closes; the start
+ * comes from the server's `secondsLeft`. `restart(at)` moves the clock to the
+ * instant a new deadline was computed from (in the event handler that sets
+ * it), so the first second shown is exactly the server's count.
  */
-function localDeadline(expiresAt: string) {
-  const remaining = Date.parse(expiresAt) - Date.now();
-  const lifetime = Number.isFinite(remaining) && remaining > 0 && remaining <= CODE_LIFETIME_MS ? remaining : CODE_LIFETIME_MS;
-  return Date.now() + lifetime;
-}
-
-/**
- * Seconds left until `deadline`, ticking once a second while any are left.
- * `restart` re-reads the clock when a new deadline is set (from the event
- * handler that sets it), so the first second shown is never stale.
- */
-function useCountdown(deadline: number | null) {
-  const [now, setNow] = useState(() => Date.now());
-  const remaining = deadline === null ? 0 : Math.max(0, Math.ceil((deadline - now) / 1_000));
-  const running = deadline !== null && remaining > 0;
+function useCountdown(closesAt: number | null) {
+  const [now, setNow] = useState(() => performance.now());
+  const remaining = closesAt === null ? 0 : Math.max(0, Math.ceil((closesAt - now) / 1_000));
+  const running = closesAt !== null && remaining > 0;
   useEffect(() => {
     if (!running) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    const timer = window.setInterval(() => setNow(performance.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [running, deadline]);
-  const restart = useCallback(() => setNow(Date.now()), []);
+  }, [running, closesAt]);
+  const restart = useCallback((at: number) => setNow(at), []);
   return { remaining, restart };
+}
+
+/** When a code the server gave `secondsLeft` for closes, counted from `from` on the monotonic clock. */
+function closesAfter(secondsLeft: number, from = performance.now()) {
+  return from + secondsLeft * 1_000;
 }
 
 function formatCountdown(seconds: number) {
@@ -265,7 +263,8 @@ type CodeState =
   /** The SPI has nothing pending any more (expired, used, replaced). */
   | "gone";
 
-type PendingChange = { address: string; deadline: number };
+/** The code panel's subject: the address, the SPI's deadline (its identity) and when the input closes here. */
+type OpenCode = { address: string; expiresAt: string; closesAt: number };
 
 /**
  * "Kişisel e-posta ekle" / "Değiştir": the address → Sudo mode
@@ -291,9 +290,14 @@ function PersonalEmailFlow({
 }: FlowCallbacks & {
   payload: EmailPayload;
   replacing: string | null;
-  waiting?: WaitingChange;
+  waiting?: PendingEmailChange;
   onDone: (address: string) => void;
-  onCancel: () => void;
+  /**
+   * Closes the flow. `openCode` is the deadline (`expiresAt`) of a code the
+   * person could still have entered, `null` when the code panel showed a dead
+   * code, and absent when no code panel was shown.
+   */
+  onCancel: (openCode?: string | null) => void;
 }) {
   const baseId = useId();
   const [value, setValue] = useState("");
@@ -303,14 +307,16 @@ function PersonalEmailFlow({
   /** Which action a lockout or rate limit applies to, so a wait on one never blocks the other. */
   const [waitScope, setWaitScope] = useState<"send" | "confirm">("send");
   const waitSeconds = useWaitSeconds(feedback);
-  const [change, setChange] = useState<PendingChange | null>(() =>
-    waiting ? { address: waiting.address, deadline: localDeadline(waiting.expiresAt) } : null);
+  const [change, setChange] = useState<OpenCode | null>(() =>
+    waiting ? { address: waiting.address, expiresAt: waiting.expiresAt, closesAt: closesAfter(waiting.secondsLeft) } : null);
+  /** Addresses the SPI said belong to someone else; they are never mailed again from this form. */
+  const [taken, setTaken] = useState<Record<string, string>>({});
   /** Tries left on the current code, when the SPI said so (a restored change or a wrong code). */
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(waiting?.attemptsLeft ?? null);
   const [code, setCode] = useState("");
   const [codeState, setCodeState] = useState<CodeState>("open");
   const [resent, setResent] = useState(false);
-  const { remaining, restart } = useCountdown(change?.deadline ?? null);
+  const { remaining, restart } = useCountdown(change?.closesAt ?? null);
   const addressInput = useRef<HTMLInputElement>(null);
   const codeInput = useRef<HTMLInputElement>(null);
   const focusTarget = useRef<"address" | "code" | null>(null);
@@ -359,9 +365,13 @@ function PersonalEmailFlow({
         ensureSudo,
       );
       if (outcome.kind === "ok") {
-        const expiresAt = isObject(outcome.body) && typeof outcome.body.expiresAt === "string" ? outcome.body.expiresAt : "";
-        restart();
-        setChange({ address, deadline: localDeadline(expiresAt) });
+        const body = isObject(outcome.body) ? outcome.body : {};
+        const expiresAt = typeof body.expiresAt === "string" ? body.expiresAt : "";
+        // An answer without the server's count falls back to the code's whole life; the SPI stays the judge.
+        const secondsLeft = isEmailCodeSeconds(body.secondsLeft) ? body.secondsLeft : EMAIL_CODE_LIFETIME_SECONDS;
+        const at = performance.now();
+        restart(at);
+        setChange({ address, expiresAt, closesAt: closesAfter(secondsLeft, at) });
         setCode("");
         setCodeState("open");
         setAttemptsLeft(null);
@@ -372,8 +382,10 @@ function PersonalEmailFlow({
       if (!again && outcome.kind === "error") {
         const error = errorOf(outcome.body);
         if (error === "invalid_address" || error === "email_taken") {
+          const detail = detailOf(outcome.body, error === "email_taken" ? emailCopy.add.taken : emailCopy.add.invalid);
+          if (error === "email_taken") setTaken((previous) => ({ ...previous, [address]: detail }));
           focusTarget.current = "address";
-          setFieldError(detailOf(outcome.body, emailCopy.add.invalid));
+          setFieldError(detail);
           return;
         }
       }
@@ -391,10 +403,16 @@ function PersonalEmailFlow({
   const submitAddress = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (sendBlocked) return;
-    const address = normalizeAddress(value);
-    if (address.length > MAX_ADDRESS_LENGTH || !ADDRESS_SHAPE.test(address)) {
+    const check = checkEmailAddress(value);
+    if (!check.ok) {
       focusTarget.current = "address";
       setFieldError(emailCopy.add.invalid);
+      return;
+    }
+    const address = check.value;
+    if (Object.hasOwn(taken, address)) {
+      focusTarget.current = "address";
+      setFieldError(taken[address]!);
       return;
     }
     if (knownAddresses(payload).includes(address)) {
@@ -408,8 +426,9 @@ function PersonalEmailFlow({
   const submitCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!change || confirmBlocked) return;
-    const digits = code.replace(/\s+/g, "");
-    if (!EMAIL_CODE.test(digits)) return;
+    const checked = checkEmailCode(code);
+    if (!checked.ok) return;
+    const digits = checked.value;
     setPending(true);
     setFeedback(null);
     setFieldError(null);
@@ -441,6 +460,18 @@ function PersonalEmailFlow({
       }
       if (response.status === 404 && error === "no_pending_change") {
         setCodeState("gone");
+        return;
+      }
+      if (response.status === 409 && error === "email_taken") {
+        // The code is burned and the address belongs to someone else now: back to the address, never mailed again.
+        const detail = detailOf(body, emailCopy.add.taken);
+        setTaken((previous) => ({ ...previous, [change.address]: detail }));
+        setValue(change.address);
+        setChange(null);
+        setCodeState("open");
+        setAttemptsLeft(null);
+        focusTarget.current = "address";
+        setFieldError(detail);
         return;
       }
       await handleFailure({ kind: "error", response, status: response.status, body }, "confirm", () => null);
@@ -476,7 +507,7 @@ function PersonalEmailFlow({
             spellCheck={false}
             autoFocus
             required
-            maxLength={MAX_ADDRESS_LENGTH}
+            maxLength={MAX_EMAIL_ADDRESS_LENGTH}
             disabled={sendBlocked}
             aria-describedby={fieldError ? `${errorId} ${hintId}` : hintId}
             aria-invalid={fieldError ? true : undefined}
@@ -494,7 +525,7 @@ function PersonalEmailFlow({
           </small>
         </div>
         <div className="security-panel__actions">
-          <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+          <button className="secondary-button" type="button" disabled={pending} onClick={() => onCancel()}>
             Vazgeç
           </button>
           <button className="primary-button" type="submit" disabled={sendBlocked || value.trim().length === 0}>
@@ -567,7 +598,12 @@ function PersonalEmailFlow({
         <small id={codeHintId}>{emailCopy.code.hint}</small>
       </div>
       <div className="security-panel__actions">
-        <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={pending}
+          onClick={() => onCancel(codeClosed ? null : change.expiresAt)}
+        >
           Vazgeç
         </button>
         <button className="secondary-button" type="button" disabled={sendBlocked} onClick={() => void send(change.address, true)}>
@@ -577,7 +613,7 @@ function PersonalEmailFlow({
         <button
           className="primary-button"
           type="submit"
-          disabled={confirmBlocked || !EMAIL_CODE.test(code.replace(/\s+/g, ""))}
+          disabled={confirmBlocked || !checkEmailCode(code).ok}
         >
           {pending ? <ActionProgress label={emailCopy.code.confirming} /> : emailCopy.code.confirm}
         </button>
@@ -587,7 +623,7 @@ function PersonalEmailFlow({
 }
 
 type PrimaryOption = {
-  which: PrimaryChoice;
+  which: PrimaryEmailChoice;
   title: string;
   address: string;
   /** Why the option cannot be chosen, or `null`. The current primary is never disabled. */
@@ -639,7 +675,7 @@ function PrimarySelector({
 }) {
   const baseId = useId();
   const current = payload.primary === "none" ? null : payload.primary;
-  const [selected, setSelected] = useState<PrimaryChoice | null>(current);
+  const [selected, setSelected] = useState<PrimaryEmailChoice | null>(current);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [refusedSchool, setRefusedSchool] = useState(false);
@@ -867,6 +903,14 @@ export function EmailManager() {
   /** Read by the visibility listener, which must not replace a flow the person opened meanwhile. */
   const flowRef = useRef<Flow | null>(null);
   const payloadRef = useRef<EmailPayload | null>(null);
+  /**
+   * The waiting change (by its `expiresAt`) whose code panel the person closed
+   * with "Vazgeç": returning to the tab does not force it open again in this
+   * page instance; "Bekleyen bir kod var — gir" offers it instead.
+   */
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const dismissedRef = useRef<string | null>(null);
+  const removeBlockedId = useId();
   const trigger = useRef<HTMLElement | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const focusNotice = useRef(false);
@@ -910,37 +954,51 @@ export function EmailManager() {
     setFlow(next);
   }, []);
 
+  const dismiss = useCallback((expiresAt: string | null) => {
+    dismissedRef.current = expiresAt;
+    setDismissed(expiresAt);
+  }, []);
+
   /**
-   * Reopens the code panel of a change the SPI still holds. Best effort: an
-   * answer that is not a waiting change (none, an outage, drift) leaves the
-   * page as it is, and a flow the person opened meanwhile is never replaced.
+   * Reopens the code panel of a change the SPI still holds. `automatic` (on
+   * load and on returning to the tab) skips the change the person closed with
+   * "Vazgeç"; the offer button asks explicitly. Best effort: an answer that is
+   * not a waiting change (an outage, drift) leaves the page as it is, nothing
+   * waiting drops the offer, and a flow the person opened meanwhile is never
+   * replaced.
    */
-  const restoreWaiting = useCallback(async (current: EmailPayload) => {
+  const restoreWaiting = useCallback(async (current: EmailPayload, automatic: boolean) => {
     if (flowRef.current !== null) return;
     try {
       const response = await fetch("/api/account/email/pending", { cache: "no-store", credentials: "same-origin" });
       if (!response.ok) return;
       const waiting = parsePendingPayload(await responseJson(response));
-      if (!waiting || flowRef.current !== null) return;
+      if (waiting === undefined || flowRef.current !== null) return;
+      if (waiting === null || waiting.secondsLeft === 0) {
+        dismiss(null);
+        return;
+      }
+      if (automatic && waiting.expiresAt === dismissedRef.current) return;
+      dismiss(null);
       changeFlow({ kind: current.personalEmail ? "change" : "add", waiting });
     } catch {
       // The page works without it; the next load or return asks again.
     }
-  }, [changeFlow]);
+  }, [changeFlow, dismiss]);
 
   useEffect(() => {
     if (firstLoadStarted.current) return;
     firstLoadStarted.current = true;
     void load().then((loaded) => {
-      if (loaded) void restoreWaiting(loaded);
+      if (loaded) void restoreWaiting(loaded, true);
     });
   }, [load, restoreWaiting]);
 
-  // Coming back from the mail app: the person may have left the code panel or reloaded elsewhere.
+  // Coming back from the mail app is the main case on a phone: the code panel may be closed or the page reloaded.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== "visible" || !payloadRef.current) return;
-      void restoreWaiting(payloadRef.current);
+      void restoreWaiting(payloadRef.current, true);
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
@@ -958,22 +1016,24 @@ export function EmailManager() {
     changeFlow(next);
   }, [changeFlow]);
 
-  const closeFlow = useCallback(() => {
+  const closeFlow = useCallback((openCode?: string | null) => {
+    if (openCode !== undefined) dismiss(openCode);
     changeFlow(null);
     const element = trigger.current;
     trigger.current = null;
     queueMicrotask(() => {
       if (element?.isConnected) element.focus();
     });
-  }, [changeFlow]);
+  }, [changeFlow, dismiss]);
 
   const finish = useCallback(async (detail: string) => {
     changeFlow(null);
+    dismiss(null);
     trigger.current = null;
     focusNotice.current = true;
     setNotice({ tone: "positive", title: "İşlem tamamlandı", detail });
     await load(true);
-  }, [changeFlow, load]);
+  }, [changeFlow, dismiss, load]);
 
   const csrfRenewed = useCallback(async () => {
     invalidateSudo();
@@ -1002,6 +1062,9 @@ export function EmailManager() {
   const busy = flow !== null;
   const callbacks: FlowCallbacks = { ensureSudo, onCsrfRenewed: csrfRenewed, onAuthenticationRequired };
   const personalEmail = payload.personalEmail;
+  // Only a school address proven by the YTÜ link can take over a removed primary personal address.
+  const schoolFallback = payload.schoolEmail !== null && payload.verifiedYtu;
+  const removeBlocked = payload.primary === "personal" && !schoolFallback;
 
   return (
     <>
@@ -1018,14 +1081,16 @@ export function EmailManager() {
           <span className="settings-row__copy">
             <strong className="email-address">{payload.schoolEmail ?? emailCopy.school.missing}</strong>
             <small>
-              {payload.verifiedYtu
-                ? emailCopy.school.verifiedDetail
-                : payload.schoolEmail ? emailCopy.school.unverifiedDetail : emailCopy.school.missingDetail}
+              {payload.schoolEmail
+                ? payload.verifiedYtu ? emailCopy.school.verifiedDetail : emailCopy.school.unverifiedDetail
+                : payload.verifiedYtu ? emailCopy.school.verifiedMissingDetail : emailCopy.school.missingDetail}
             </small>
           </span>
-          <div className="settings-row__trailing security-row-actions">
-            {payload.verifiedYtu ? <StatusBadge tone="positive">{emailCopy.verified}</StatusBadge> : <YtuLink />}
-          </div>
+          {!payload.verifiedYtu || payload.schoolEmail ? (
+            <div className="settings-row__trailing security-row-actions">
+              {payload.verifiedYtu ? <StatusBadge tone="positive">{emailCopy.verified}</StatusBadge> : <YtuLink />}
+            </div>
+          ) : null}
         </div>
       </SettingsGroup>
 
@@ -1055,7 +1120,8 @@ export function EmailManager() {
                 className="quiet-danger-button"
                 type="button"
                 aria-label={`${personalEmail} — ${emailCopy.personal.remove}`}
-                disabled={busy}
+                aria-describedby={removeBlocked ? removeBlockedId : undefined}
+                disabled={busy || removeBlocked}
                 onClick={(event) => openFlow({ kind: "remove" }, event.currentTarget)}
               >
                 <Trash2 aria-hidden="true" size={15} />
@@ -1085,6 +1151,27 @@ export function EmailManager() {
             </div>
           </>
         )}
+        {personalEmail && removeBlocked ? (
+          <div className="security-group-actions">
+            <small id={removeBlockedId} className="security-group-actions__hint">{emailCopy.personal.removeBlocked}</small>
+            {!payload.verifiedYtu ? <YtuLink /> : null}
+          </div>
+        ) : null}
+        {dismissed !== null && flow === null ? (
+          <div className="security-group-actions">
+            <button
+              className="security-action"
+              type="button"
+              onClick={(event) => {
+                trigger.current = event.currentTarget;
+                void restoreWaiting(payload, false);
+              }}
+            >
+              <MailCheck aria-hidden="true" size={15} />
+              {emailCopy.personal.waiting}
+            </button>
+          </div>
+        ) : null}
         {flow && flow.kind !== "remove" ? (
           <PersonalEmailFlow
             key={flow.waiting?.expiresAt ?? flow.kind}
@@ -1120,7 +1207,7 @@ export function EmailManager() {
         <RemoveDialog
           payload={{ ...payload, personalEmail }}
           onDone={() => void finish(emailCopy.remove.removed)}
-          onCancel={closeFlow}
+          onCancel={() => closeFlow()}
           {...callbacks}
         />
       ) : null}
