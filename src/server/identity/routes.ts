@@ -71,6 +71,7 @@ export type IdentityRouteProblem = {
     | "name_locked"
     | "username_taken"
     | "username_cooldown"
+    | "already_linked"
     | "locked"
     | "disabled"
     | "rate_limited"
@@ -91,13 +92,14 @@ export type IdentityRouteProblem = {
  */
 export type NameChangePayload = { coreSync: "synced" | "failed" | "disabled" };
 
-const copy = {
+export const identityRouteCopy = {
   invalidRequest: "İstek anlaşılamadı. Sayfayı yenileyip yeniden dene.",
   unavailable: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden dene.",
   contract: "Kimlik hizmetinin yanıtı desteklenen sürümle eşleşmedi. Değişiklik yapılmadı.",
   unexpected: "Beklenmeyen bir sorun oluştu. Değişiklik yapılmadı.",
   tooManyAttempts: "Çok fazla deneme yaptın. Biraz sonra yeniden dene.",
 } as const;
+const copy = identityRouteCopy;
 
 class IdentityRequestError extends Error {
   constructor(readonly status: 400 | 413) {
@@ -117,7 +119,7 @@ class IdentityFieldError extends Error {
   }
 }
 
-function problemResponse(
+export function problemResponse(
   status: number,
   problem: IdentityRouteProblem,
   headers: Record<string, string> = {},
@@ -125,7 +127,7 @@ function problemResponse(
   return noStore(NextResponse.json(problem, { status, headers }));
 }
 
-function forbiddenResponse() {
+export function forbiddenResponse() {
   return noStore(NextResponse.json({ error: "forbidden" }, { status: 403 }));
 }
 
@@ -135,7 +137,7 @@ function retryAfterHeaders(seconds: number | null | undefined): Record<string, s
     : {};
 }
 
-function isReauthenticationRequired(error: unknown) {
+export function isReauthenticationRequired(error: unknown) {
   return (
     error instanceof AccountReauthenticationRequiredError ||
     error instanceof AccountAccessTokenExpiredError ||
@@ -154,7 +156,7 @@ function isSudoRejectedUpstream(error: unknown) {
  * session (decided from the error, never from the status code), because that
  * answer clears the cookie instead.
  */
-function finish(response: NextResponse, authorization: BrowserSession, sessionEnded = false) {
+export function finish(response: NextResponse, authorization: BrowserSession, sessionEnded = false) {
   if (authorization.rotatedHandle && !sessionEnded) {
     setSessionCookie(response, authorization.rotatedHandle, authorization.session.absoluteExpiresAt);
   }
@@ -187,7 +189,7 @@ function problemField(error: SkyAccountProblem): Pick<IdentityRouteProblem, "fie
  * rules (`invalid_name`, `invalid_username`, `name_locked`, `username_taken`,
  * `username_cooldown`) keep their status and Turkish `detail`.
  */
-async function failureResponse(
+export async function failureResponse(
   request: NextRequest,
   services: Services,
   session: Session,

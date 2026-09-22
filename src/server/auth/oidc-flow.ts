@@ -10,8 +10,18 @@ import type {
   ActiveSession,
   NativeHandoffIdentity,
   SudoReauthenticationTransactionPayload,
+  YtuLinkTransactionPayload,
 } from "@/server/auth/types";
 import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
+
+/** How Keycloak reported the `idp_link` action; `success` still has to be proven by re-reading the identity. */
+export type YtuLinkCallbackStatus = "success" | "cancelled" | "error";
+
+export type OidcFlowOptions = {
+  /** Alias of the YTÜ Microsoft identity provider, the only `kc_action_parameter` ever pushed. */
+  ytuIdpAlias: string;
+  clock?: () => Date;
+};
 
 /** Account pages a login or a Sudo mode re-authentication may return to; mirrored in `oidc-transactions.ts`. */
 const allowedReturnPaths = new Set([
@@ -43,6 +53,9 @@ export function normalizeReturnTo(value: string | null | undefined) {
 }
 
 export class OidcFlowService {
+  private readonly ytuIdpAlias: string;
+  private readonly clock: () => Date;
+
   constructor(
     private readonly protocol: OidcProtocol,
     private readonly transactions: OidcTransactionStore,
@@ -51,8 +64,11 @@ export class OidcFlowService {
       "authenticate" | "candidate" | "create" | "readTokens" | "replaceTokens"
     >,
     private readonly accountAccess: Pick<AccountAccessAuthorizer, "requireActive">,
-    private readonly clock: () => Date = () => new Date(),
-  ) {}
+    options: OidcFlowOptions,
+  ) {
+    this.ytuIdpAlias = options.ytuIdpAlias;
+    this.clock = options.clock ?? (() => new Date());
+  }
 
   async begin(returnTo?: string | null) {
     const proof = {
@@ -155,10 +171,45 @@ export class OidcFlowService {
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
 
+  /**
+   * "YTÜ hesabımı bağla": the `idp_link` application-initiated action for the
+   * YTÜ Microsoft identity provider, bound to the current session and always
+   * returning to the identity page. Keycloak itself takes the person to
+   * Microsoft, so no `prompt=login` is requested; the callback exchanges the
+   * code like a re-authentication and the route proves the link afterwards.
+   */
+  async beginYtuLink(session: ActiveSession) {
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+      accountAction: { action: "idp_link" as const, parameter: this.ytuIdpAlias },
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    const initiatedAt = this.clock();
+    await this.transactions.create(
+      {
+        state: proof.state,
+        nonce: proof.nonce,
+        codeVerifier: proof.codeVerifier,
+        purpose: "ytu-link",
+        returnTo: "/identity",
+        expectedSubject: session.subject,
+        expectedSessionId: session.id,
+        initiatedAt: initiatedAt.toISOString(),
+      },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
   async #boundActionSession(
     transaction:
       | AccountDeletionReauthenticationTransactionPayload
-      | SudoReauthenticationTransactionPayload,
+      | SudoReauthenticationTransactionPayload
+      | YtuLinkTransactionPayload,
     sessionHandle: string | undefined,
   ) {
     const candidate = await this.sessions.candidate(sessionHandle);
@@ -277,6 +328,59 @@ export class OidcFlowService {
     };
   }
 
+  /**
+   * Return from the `idp_link` action. Keycloak answers with a code plus
+   * `kc_action=idp_link&kc_action_status=success|cancelled|error`; anything
+   * else (an OAuth error, a missing or different action, an unknown status, a
+   * failed exchange) counts as `error` and changes nothing. A code that
+   * exchanges is kept even when the action was cancelled, because Keycloak may
+   * have rotated the session at Microsoft: the fresh token set replaces the
+   * stored one (the `sid` may change) so the BFF session stays usable. The
+   * identity at Keycloak must still be this session's person; the bound
+   * session and subject are checked before anything is stored. `success` is a
+   * claim, not proof: the route re-reads the identity before announcing it.
+   */
+  async #ytuLinkCallback(
+    callbackUrl: URL,
+    transaction: YtuLinkTransactionPayload,
+    sessionHandle: string | undefined,
+  ) {
+    const session = await this.#boundActionSession(transaction, sessionHandle);
+    const outcome = (ytuLink: YtuLinkCallbackStatus) => ({ ytuLink, session, returnTo: transaction.returnTo });
+    if (callbackUrl.searchParams.has("error")) return outcome("error");
+    const status = callbackUrl.searchParams.get("kc_action_status");
+    if (
+      callbackUrl.searchParams.get("kc_action") !== "idp_link" ||
+      (status !== "success" && status !== "cancelled" && status !== "error")
+    ) {
+      return outcome("error");
+    }
+    let authorization;
+    try {
+      authorization = await this.protocol.exchange({
+        callbackUrl,
+        state: transaction.state,
+        nonce: transaction.nonce,
+        codeVerifier: transaction.codeVerifier,
+      });
+    } catch {
+      return outcome("error");
+    }
+    if (authorization.subject !== transaction.expectedSubject || !authorization.keycloakSid) {
+      throw new InvalidOidcTransactionError();
+    }
+    await this.accountAccess.requireActive(authorization.subject);
+    const currentTokens = await this.sessions.readTokens(session.id);
+    if (!currentTokens) throw new InvalidOidcTransactionError();
+    await this.sessions.replaceTokens(
+      session.id,
+      currentTokens.version,
+      authorization.tokens,
+      authorization.keycloakSid,
+    );
+    return outcome(status);
+  }
+
   async callback(
     callbackUrl: URL,
     browserBinding: string | undefined,
@@ -292,6 +396,9 @@ export class OidcFlowService {
     }
     if (transaction.purpose === "sudo-reauthentication") {
       return this.#sudoReauthenticationCallback(callbackUrl, transaction, sessionHandle);
+    }
+    if (transaction.purpose === "ytu-link") {
+      return this.#ytuLinkCallback(callbackUrl, transaction, sessionHandle);
     }
 
     const authorization = await this.protocol.exchange({

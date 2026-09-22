@@ -98,6 +98,17 @@ describe("authentication configuration", () => {
     });
   });
 
+  it("defaults the YTÜ identity provider alias to OBS and accepts only a URL-safe alias", () => {
+    environment("3600");
+    expect(getAuthConfig().ytuIdpAlias).toBe("OBS");
+    process.env.YTU_IDP_ALIAS = " obs-sandbox_2 ";
+    expect(getAuthConfig().ytuIdpAlias).toBe("obs-sandbox_2");
+    for (const invalid of ["OBS/link", "OBS OBS", "a".repeat(65), "<idp-alias>", "OBS?x=1", "ÖBS"]) {
+      process.env.YTU_IDP_ALIAS = invalid;
+      expect(() => getAuthConfig()).toThrow(/YTU_IDP_ALIAS/);
+    }
+  });
+
   it("keeps the club-profile core origin optional but canonical whenever it is set", () => {
     environment("3600");
     expect(getAuthConfig().coreApiUrl).toBeNull();

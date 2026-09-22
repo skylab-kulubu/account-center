@@ -17,6 +17,7 @@ import {
   OidcProviderStageError,
 } from "@/server/auth/oidc-protocol";
 import { getAuthServices } from "@/server/auth/services";
+import { completeYtuLink, YTU_LINK_QUERY } from "@/server/identity/ytu-link";
 import {
   AccountAccessBlockedError,
   AccountAccessUnavailableError,
@@ -65,6 +66,18 @@ export async function GET(request: NextRequest) {
           });
         }
       }
+      const response = NextResponse.redirect(destination, 303);
+      clearOidcTransactionCookie(response);
+      response.headers.set("Referrer-Policy", "no-referrer");
+      response.headers.set("x-request-id", requestId);
+      return noStore(response);
+    }
+    if ("ytuLink" in result) {
+      const destination = new URL(result.returnTo, services.config.appUrl);
+      destination.searchParams.set(
+        YTU_LINK_QUERY,
+        await completeYtuLink(services, result.session, result.ytuLink, requestId),
+      );
       const response = NextResponse.redirect(destination, 303);
       clearOidcTransactionCookie(response);
       response.headers.set("Referrer-Policy", "no-referrer");

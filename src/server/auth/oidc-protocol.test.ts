@@ -17,6 +17,7 @@ const config = {
   issuer: new URL("https://e.yildizskylab.com/realms/e-skylab"),
   clientId: "account-center",
   clientSecret: "client-secret-000000000000000000",
+  ytuIdpAlias: "OBS",
 } as AuthConfig;
 
 afterEach(() => vi.unstubAllGlobals());
@@ -111,6 +112,86 @@ describe("OAuth4WebApiProtocol", () => {
     ]);
     expect(pushed?.body).not.toContain("kc_action");
     expect(pushed?.body).not.toContain("DELETE_ACCOUNT");
+  });
+
+  it("keeps the YTÜ link action inside PAR without forcing a login and out of the browser URL", async () => {
+    const requests: Array<{ url: string; body?: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push({ url, ...(init?.body ? { body: String(init.body) } : {}) });
+      if (url.includes(".well-known")) return Response.json(discovery);
+      return Response.json(
+        { request_uri: "urn:ietf:params:oauth:request_uri:ytu-link", expires_in: 45 },
+        { status: 201 },
+      );
+    }));
+
+    const result = await new OAuth4WebApiProtocol(config).begin({
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+      accountAction: { action: "idp_link", parameter: "OBS" },
+    });
+
+    const pushed = requests.find(({ url }) => url === discovery.pushed_authorization_request_endpoint);
+    const parameters = new URLSearchParams(pushed?.body);
+    expect(parameters.get("kc_action")).toBe("idp_link");
+    expect(parameters.get("kc_action_parameter")).toBe("OBS");
+    expect(parameters.get("scope")).toBe("openid");
+    expect(parameters.get("redirect_uri")).toBe("https://my.yildizskylab.com/api/auth/callback");
+    expect([...parameters.keys()].sort()).toEqual([
+      "client_id", "code_challenge", "code_challenge_method", "kc_action", "kc_action_parameter",
+      "nonce", "redirect_uri", "response_type", "scope", "state",
+    ]);
+    expect(pushed?.body).not.toContain("prompt");
+    expect(pushed?.body).not.toContain("max_age");
+    expect(result.authorizationUrl.origin).toBe("https://e.yildizskylab.com");
+    expect(result.authorizationUrl.searchParams.get("request_uri")).toBe("urn:ietf:params:oauth:request_uri:ytu-link");
+    expect([...result.authorizationUrl.searchParams.keys()].sort()).toEqual(["client_id", "request_uri"]);
+    expect(result.authorizationUrl.href).not.toContain("kc_action");
+    expect(result.authorizationUrl.href).not.toContain("OBS");
+  });
+
+  it("refuses every account action but the configured YTÜ link before any request leaves", async () => {
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes(".well-known")) return Response.json(discovery);
+      throw new Error("PAR must not be reached");
+    });
+    vi.stubGlobal("fetch", request);
+    const protocol = new OAuth4WebApiProtocol(config);
+
+    const rejected: Array<Partial<Parameters<typeof protocol.begin>[0]>> = [
+      { accountAction: { action: "idp_link", parameter: "github" } },
+      { accountAction: { action: "idp_link", parameter: "obs" } },
+      { accountAction: { action: "idp_link", parameter: "OBS/../github" } },
+      { accountAction: { action: "idp_link", parameter: "" } },
+      { accountAction: { action: "UPDATE_PASSWORD" as "idp_link", parameter: "OBS" } },
+      { accountAction: { action: "CONFIGURE_TOTP" as "idp_link", parameter: "OBS" } },
+      { accountAction: { action: "delete_credential" as "idp_link", parameter: "OBS" } },
+      { accountAction: { action: "DELETE_ACCOUNT" as "idp_link", parameter: "OBS" } },
+      { accountAction: { action: "idp_link", parameter: "OBS" }, forceReauthentication: true },
+      { accountAction: { action: "idp_link", parameter: "OBS" }, nativeBridgeCode: "bridge" },
+    ];
+    for (const input of rejected) {
+      await expect(protocol.begin({
+        state: "state-value",
+        nonce: "nonce-value",
+        codeVerifier: "v".repeat(43),
+        ...input,
+      })).rejects.toBeInstanceOf(OidcContractError);
+    }
+    expect(request).not.toHaveBeenCalled();
+
+    // A deployment whose alias is not OBS accepts exactly its own alias.
+    const sandbox = new OAuth4WebApiProtocol({ ...config, ytuIdpAlias: "obs-sandbox" });
+    await expect(sandbox.begin({
+      state: "state-value",
+      nonce: "nonce-value",
+      codeVerifier: "v".repeat(43),
+      accountAction: { action: "idp_link", parameter: "OBS" },
+    })).rejects.toBeInstanceOf(OidcContractError);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("never mixes a native bridge login with a forced re-authentication", async () => {

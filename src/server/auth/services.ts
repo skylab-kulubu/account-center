@@ -73,7 +73,9 @@ function createAuthServices() {
     cipher,
     config.oidcTransactionTtlSeconds,
   );
-  const oidc = new OidcFlowService(protocol, transactions, sessions, accountAccess);
+  const oidc = new OidcFlowService(protocol, transactions, sessions, accountAccess, {
+    ytuIdpAlias: config.ytuIdpAlias,
+  });
   const nativeHandoff = new NativeHandoffService(
     createNativeAccessTokenVerifier(config.issuer),
     new PostgresNativeHandoffRepository(pool),

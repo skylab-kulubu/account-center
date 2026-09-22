@@ -45,6 +45,7 @@ const mutations = [
   "/api/account/sudo/webauthn/verify",
   "/api/account/sudo/reauthenticate",
   "/api/account/identity/username",
+  "/api/account/identity/ytu-link",
   "/api/account/security/password",
   "/api/account/security/totp/setup",
   "/api/account/security/totp/confirm",

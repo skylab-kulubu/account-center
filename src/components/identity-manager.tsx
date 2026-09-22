@@ -10,7 +10,7 @@ import {
   UserRound,
   UserRoundPen,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { ModalDialog } from "@/components/modal-dialog";
@@ -112,8 +112,51 @@ export const identityCopy = {
     unverified: "YTÜ hesabın bağlı değil",
     unverifiedDetail: "YTÜ Microsoft hesabını bağladığında adın ve okul e-postan YTÜ kaydından gelir ve kilitlenir.",
     link: "YTÜ hesabımı bağla",
-    soon: "Yakında",
-    soonDetail: "YTÜ hesabını bağlama yakında bu sayfaya gelecek.",
+    confirm: {
+      title: "YTÜ hesabın bağlansın mı?",
+      lead: "Microsoft ile YTÜ hesabına giriş yapacaksın. Devam etmeden önce şunları bil:",
+      consequences: [
+        "Bağlandıktan sonra adın ve okul e-postan YTÜ kaydından gelir ve buradan değiştirilemez.",
+        "Okul e-postan, giriş yaptığın YTÜ Microsoft hesabındaki adres olur.",
+        "Bağlantı kalıcıdır; buradan kaldırılamaz.",
+      ],
+      note: "Kısa bir süre için e.yildizskylab.com ve Microsoft sayfalarına gideceksin; işlem bitince bu sayfaya dönersin.",
+      confirm: "Microsoft ile devam et",
+      redirecting: "Yönlendiriliyor",
+    },
+    unexpectedAnswer: "Yönlendirme adresi alınamadı. Yeniden dene.",
+    notices: {
+      linked: {
+        tone: "positive",
+        title: "YTÜ hesabın bağlandı",
+        detail: "Adın ve okul e-postan artık YTÜ kaydından gelir ve buradan değiştirilemez.",
+      },
+      cancelled: {
+        tone: "neutral",
+        title: "Bağlama tamamlanmadı",
+        detail: "Hesabında değişiklik yapılmadı. İstediğinde yeniden deneyebilirsin.",
+      },
+      error: {
+        tone: "warning",
+        title: "YTÜ hesabı bağlanamadı",
+        detail: "YTÜ girişi tamamlanamadı ya da bu Microsoft hesabı başka bir SKY LAB hesabına bağlı. Yeniden dene; sorun sürerse yönetim ekibine yaz.",
+      },
+      unverified: {
+        tone: "warning",
+        title: "Bağlantı doğrulanamadı",
+        detail: "Microsoft girişi tamamlandı ama hesabında YTÜ bağlantısı görünmüyor. Bu sayfa güncel durumu gösterir; bağlı görünmüyorsa yeniden dene.",
+      },
+      already_linked: {
+        tone: "neutral",
+        title: "YTÜ hesabın zaten bağlı",
+        detail: "Adın ve okul e-postan YTÜ kaydından geliyor; yeniden bağlaman gerekmez.",
+      },
+      unavailable: {
+        tone: "warning",
+        title: "Bağlama başlatılamadı",
+        detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden dene.",
+      },
+    },
   },
   email: {
     title: "E-posta",
@@ -127,16 +170,39 @@ export const identityCopy = {
     schoolMissing: "Kayıtlı değil",
     schoolBadge: "YTÜ hesabından gelir",
     manage: "E-posta ayarları",
+    soon: "Yakında",
     soonDetail: "Kişisel e-posta ekleme ve birincil adres seçimi yakında bu sayfaya gelecek.",
   },
-  note: "Ad ve kullanıcı adı değişiklikleri Keycloak'taki SKY LAB kimliğinde yapılır ve her SKY LAB uygulamasında geçerlidir. Kullanıcı adı değişikliği kimliğini yeniden doğrulamanı ister.",
+  note: "Ad ve kullanıcı adı değişiklikleri Keycloak'taki SKY LAB kimliğinde yapılır ve her SKY LAB uygulamasında geçerlidir. Kullanıcı adı değişikliği kimliğini yeniden doğrulamanı ister; YTÜ hesabını bağlamak seni kısa süreliğine Microsoft girişine götürür.",
 } as const;
 
 type Flow =
   | { kind: "name" }
-  | { kind: "username"; stage: "form" | "confirm" };
+  | { kind: "username"; stage: "form" | "confirm" }
+  | { kind: "ytu-link" };
 
-type Notice = { tone: "positive" | "warning"; title: string; detail: string };
+type Notice = { tone: "positive" | "neutral" | "warning"; title: string; detail: string };
+
+/** `?ytu=` values the identity page announces after the Microsoft round trip (`src/server/identity/ytu-link.ts`). */
+export type YtuLinkOutcome = keyof typeof identityCopy.ytu.notices;
+
+export const YTU_LINK_QUERY = "ytu";
+
+export function ytuLinkNotice(value: string | null): Notice | null {
+  if (!value || !Object.hasOwn(identityCopy.ytu.notices, value)) return null;
+  return identityCopy.ytu.notices[value as YtuLinkOutcome];
+}
+
+/** The Keycloak authorization URL the BFF answered, accepted only as an absolute HTTPS address. */
+export function authorizationUrlOf(answer: unknown): string | null {
+  if (!isObject(answer) || typeof answer.authorizationUrl !== "string" || answer.authorizationUrl.length > 4_096) return null;
+  try {
+    const url = new URL(answer.authorizationUrl);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 
 const absoluteFormatter = new Intl.DateTimeFormat("tr-TR", {
   dateStyle: "long",
@@ -560,26 +626,133 @@ function UsernameForm({
   );
 }
 
+type YtuLinkDialogProps = {
+  payload: IdentityPayload;
+  onDismiss: () => void;
+  onAlreadyLinked: () => void;
+  onCsrfRenewed: () => Promise<void>;
+  onAuthenticationRequired: () => void;
+};
+
+/**
+ * "YTÜ hesabımı bağla": the consequences (the name and school e-mail become
+ * YTÜ's and lock, the school e-mail is the Microsoft account's address, no
+ * unlink) and one button. Confirming asks the BFF to start the `idp_link`
+ * action and then navigates to the Keycloak address it answered; the person
+ * comes back to this page with `?ytu=`. The dialog stays busy while the
+ * browser leaves, and a `409 already_linked` re-reads the identity instead.
+ */
+function YtuLinkDialog({ payload, onDismiss, onAlreadyLinked, onCsrfRenewed, onAuthenticationRequired }: YtuLinkDialogProps) {
+  const baseId = useId();
+  const [pending, setPending] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const waitSeconds = useWaitSeconds(feedback);
+  const busy = pending || waitSeconds > 0;
+
+  const start = async () => {
+    if (busy) return;
+    setPending(true);
+    setFeedback(null);
+    let leaving = false;
+    try {
+      const response = await securityRequest({ method: "POST", path: "/api/account/identity/ytu-link", csrfToken: payload.csrfToken });
+      const answer = await responseJson(response);
+      if (response.ok) {
+        const authorizationUrl = authorizationUrlOf(answer);
+        if (!authorizationUrl) {
+          setFeedback({ tone: "warning", detail: identityCopy.ytu.unexpectedAnswer });
+          return;
+        }
+        leaving = true;
+        window.location.assign(authorizationUrl);
+        return;
+      }
+      if (response.status === 409 && errorOf(answer) === "already_linked") {
+        onAlreadyLinked();
+        return;
+      }
+      const next = feedbackFor({ kind: "error", response, status: response.status, body: answer }, (code, detail) => {
+        if (code === "invalid_request") return { tone: "danger", detail };
+        return null;
+      }, onAuthenticationRequired);
+      if (next === "reload-csrf") {
+        setFeedback({ tone: "warning", detail: sharedCopy.csrfRenewed });
+        await onCsrfRenewed();
+        return;
+      }
+      setFeedback(next);
+    } catch {
+      setFeedback({ tone: "warning", detail: sharedCopy.network });
+    } finally {
+      if (!leaving) setPending(false);
+    }
+  };
+
+  const titleId = `${baseId}-title`;
+  const descriptionId = `${baseId}-description`;
+  return (
+    <ModalDialog
+      titleId={titleId}
+      descriptionId={descriptionId}
+      className="security-dialog"
+      pending={pending}
+      icon={<Link2 size={22} />}
+      onDismiss={onDismiss}
+    >
+      <h2 id={titleId}>{identityCopy.ytu.confirm.title}</h2>
+      <p id={descriptionId}>{identityCopy.ytu.confirm.lead}</p>
+      <ul className="security-hints identity-consequences">
+        {identityCopy.ytu.confirm.consequences.map((consequence) => <li key={consequence}>{consequence}</li>)}
+      </ul>
+      <p className="identity-consequences__sudo">{identityCopy.ytu.confirm.note}</p>
+      <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
+      <div className="confirmation-dialog__actions">
+        <button className="secondary-button" type="button" disabled={pending} onClick={onDismiss}>
+          Vazgeç
+        </button>
+        <button className="primary-button" type="button" disabled={busy} onClick={() => void start()}>
+          {pending ? <ActionProgress label={identityCopy.ytu.confirm.redirecting} /> : identityCopy.ytu.confirm.confirm}
+        </button>
+      </div>
+    </ModalDialog>
+  );
+}
+
 /**
  * The identity page: name (locked for a Verified YTÜ account), username
- * (confirmation + Sudo mode, 14-day cooldown), YTÜ status and the e-mail
- * rows, all read from `/api/account/identity` and always re-read after a
- * change; the server's identity, not the answer of a mutation, is what the
- * page shows.
+ * (confirmation + Sudo mode, 14-day cooldown), YTÜ status with the link
+ * (a confirmation dialog, then Keycloak's `idp_link` action at Microsoft,
+ * announced from `?ytu=` on return) and the e-mail rows, all read from
+ * `/api/account/identity` and always re-read after a change; the server's
+ * identity, not the answer of a mutation, is what the page shows.
  */
 export function IdentityManager() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { ensureSudo, invalidateSudo } = useSudo();
   const [payload, setPayload] = useState<IdentityPayload | null>(null);
   const [problem, setProblem] = useState<{ title: string; detail: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [flow, setFlow] = useState<Flow | null>(null);
-  const [notices, setNotices] = useState<Notice[]>([]);
+  // The Microsoft round trip ends in a full navigation, so its outcome is read once at mount.
+  const [returnNotice] = useState<Notice | null>(() => ytuLinkNotice(searchParams.get(YTU_LINK_QUERY)));
+  const [notices, setNotices] = useState<Notice[]>(() => returnNotice ? [returnNotice] : []);
   const firstLoadStarted = useRef(false);
   const trigger = useRef<HTMLElement | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
-  const focusNotice = useRef(false);
+  const focusNotice = useRef(returnNotice !== null);
+  const returnHandled = useRef(false);
   const soonId = useId();
+
+  useEffect(() => {
+    if (!returnNotice || returnHandled.current) return;
+    returnHandled.current = true;
+    const remaining = new URLSearchParams(searchParams.toString());
+    remaining.delete(YTU_LINK_QUERY);
+    const query = remaining.toString();
+    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+  }, [pathname, returnNotice, searchParams]);
 
   const onAuthenticationRequired = useCallback(() => {
     router.replace(loginPath(RETURN_TO));
@@ -618,11 +791,12 @@ export function IdentityManager() {
     void load();
   }, [load]);
 
+  // The notices region exists only once the identity is shown; a notice seeded from `?ytu=` waits for it.
   useEffect(() => {
-    if (!focusNotice.current || notices.length === 0) return;
+    if (!focusNotice.current || notices.length === 0 || !noticeRef.current) return;
     focusNotice.current = false;
-    noticeRef.current?.focus();
-  }, [notices]);
+    noticeRef.current.focus();
+  }, [notices, payload]);
 
   const openFlow = useCallback((next: Flow, element: HTMLElement) => {
     trigger.current = element;
@@ -674,7 +848,6 @@ export function IdentityManager() {
   const busy = flow !== null;
   const cooldown = payload.usernameChangeAvailableAt ? describeCooldown(new Date(payload.usernameChangeAvailableAt)) : null;
   const cooldownId = `${soonId}-cooldown`;
-  const ytuSoonId = `${soonId}-ytu`;
   const emailSoonId = `${soonId}-email`;
 
   return (
@@ -784,17 +957,27 @@ export function IdentityManager() {
             {payload.verifiedYtu ? (
               <StatusBadge tone="positive">{identityCopy.ytu.verifiedBadge}</StatusBadge>
             ) : (
-              <>
-                <StatusBadge tone="warning">{identityCopy.ytu.soon}</StatusBadge>
-                <button className="security-action" type="button" disabled aria-describedby={ytuSoonId}>
-                  <Link2 aria-hidden="true" size={15} />
-                  {identityCopy.ytu.link}
-                </button>
-                <small id={ytuSoonId} className="sr-only">{identityCopy.ytu.soonDetail}</small>
-              </>
+              <button
+                className="security-action"
+                type="button"
+                disabled={busy}
+                onClick={(event) => openFlow({ kind: "ytu-link" }, event.currentTarget)}
+              >
+                <Link2 aria-hidden="true" size={15} />
+                {identityCopy.ytu.link}
+              </button>
             )}
           </div>
         </div>
+        {flow?.kind === "ytu-link" && !payload.verifiedYtu ? (
+          <YtuLinkDialog
+            payload={payload}
+            onDismiss={closeFlow}
+            onAlreadyLinked={() => void finishFlow([identityCopy.ytu.notices.already_linked])}
+            onCsrfRenewed={csrfRenewed}
+            onAuthenticationRequired={onAuthenticationRequired}
+          />
+        ) : null}
       </SettingsGroup>
 
       <SettingsGroup title={identityCopy.email.title}>
@@ -815,7 +998,7 @@ export function IdentityManager() {
           trailing={<StatusBadge>{identityCopy.email.schoolBadge}</StatusBadge>}
         />
         <div className="security-group-actions">
-          <StatusBadge tone="warning">{identityCopy.ytu.soon}</StatusBadge>
+          <StatusBadge tone="warning">{identityCopy.email.soon}</StatusBadge>
           <button className="security-action" type="button" disabled aria-describedby={emailSoonId}>
             <Mail aria-hidden="true" size={15} />
             {identityCopy.email.manage}

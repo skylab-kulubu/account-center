@@ -5,14 +5,16 @@ import { seedAuthenticatedSession } from "./auth-session";
 
 /**
  * The identity page in the browser: the Verified YTÜ lock, the name change
- * with its core mirror, and the username change behind the confirmation
- * dialog and the real Sudo mode dialog. The BFF routes under
- * `/api/account/identity*` and `/api/account/sudo/*` are answered by
- * `page.route` in the shapes `src/server/identity/routes.ts` and
- * `src/server/auth/sudo-routes.ts` produce (the handlers themselves,
- * including the core mirror and its soft failure, are covered by their unit
- * tests against the sky-account fixtures); the session, shell, page, forms
- * and dialogs run for real, and no request may leave for `e.yildizskylab.com`.
+ * with its core mirror, the username change behind the confirmation dialog
+ * and the real Sudo mode dialog, and the YTÜ link's round trip. The BFF
+ * routes under `/api/account/identity*` and `/api/account/sudo/*` are
+ * answered by `page.route` in the shapes `src/server/identity/routes.ts`,
+ * `src/server/identity/ytu-link.ts` and `src/server/auth/sudo-routes.ts`
+ * produce (the handlers themselves, including the core mirror, its soft
+ * failure and the link's callback, are covered by their unit tests against
+ * the sky-account fixtures); the session, shell, page, forms and dialogs run
+ * for real. No request may leave for `e.yildizskylab.com` except the link's
+ * own navigation, which a stand-in authorization endpoint answers in-browser.
  */
 
 const baseUrl = "https://127.0.0.1:3100";
@@ -187,9 +189,10 @@ test("an unverified account edits its name in place; the core mirror's soft fail
 
   await gotoIdentity(page);
   await expect(page.getByText("YTÜ hesabın bağlı değil")).toBeVisible();
-  const link = page.getByRole("button", { name: "YTÜ hesabımı bağla" });
-  await expect(link).toBeDisabled();
-  await expect(page.getByText("Yakında").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+  // Only the e-mail settings are still "yakında".
+  await expect(page.getByText("Yakında", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "E-posta ayarları" })).toBeDisabled();
 
   const trigger = page.getByRole("button", { name: "Adı düzenle" });
   await trigger.click();
@@ -367,6 +370,137 @@ test("username change: confirmation dialog, 428 → sudo dialog → success, the
   expect(errors).toEqual([]);
 });
 
+/**
+ * The Keycloak side of "YTÜ hesabımı bağla" as the browser sees it. The BFF's
+ * pushed authorization request is server-to-server and is asserted in
+ * `oidc-protocol.test.ts` (`kc_action=idp_link&kc_action_parameter=OBS`,
+ * no `prompt`); the harness pins `OIDC_ISSUER` to the production realm and
+ * makes no network call to it, so the authorization endpoint is answered here:
+ * it records the navigation the page made and sends the person back the way
+ * the BFF callback does after a verified link, `303` to `/identity?ytu=…`.
+ */
+const authorizationUrl = `https://${keycloakHost}/realms/e-skylab/protocol/openid-connect/auth?client_id=account-center&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Ae2e-ytu-link`;
+
+async function mockKeycloakAuthorization(page: Page, onArrival: () => "linked" | "cancelled" | "error") {
+  const arrivals: string[] = [];
+  await page.route((url) => url.hostname === keycloakHost, async (route) => {
+    arrivals.push(route.request().url());
+    await route.fulfill({
+      status: 303,
+      headers: { location: `${baseUrl}/identity?ytu=${onArrival()}` },
+    });
+  });
+  return arrivals;
+}
+
+async function openYtuDialog(page: Page) {
+  await page.getByRole("button", { name: "YTÜ hesabımı bağla" }).click();
+  const dialog = page.getByRole("dialog", { name: "YTÜ hesabın bağlansın mı?" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  return dialog;
+}
+
+test("YTÜ link: the consequences dialog, the start call, the Keycloak round trip and the linked, locked result", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `identity-ytu-link-${testInfo.retry}`);
+  const errors = failOnPageErrors(page);
+  const network = recordRequests(page);
+  const identity: Identity = { ...unverified };
+  await mockIdentity(page, identity);
+  const starts: Array<{ headers: Record<string, string>; body: string | null }> = [];
+  await page.route("**/api/account/identity/ytu-link", async (route) => {
+    starts.push({ headers: await route.request().allHeaders(), body: route.request().postData() });
+    await route.fulfill({ json: { authorizationUrl } });
+  });
+  // Keycloak links the Microsoft account and the realm now reports the person as verified.
+  const arrivals = await mockKeycloakAuthorization(page, () => {
+    Object.assign(identity, verified);
+    return "linked";
+  });
+
+  await gotoIdentity(page);
+  const dialog = await openYtuDialog(page);
+  await expect(dialog).toContainText("Microsoft ile YTÜ hesabına giriş yapacaksın. Devam etmeden önce şunları bil:");
+  await expect(dialog).toContainText("Bağlandıktan sonra adın ve okul e-postan YTÜ kaydından gelir ve buradan değiştirilemez.");
+  await expect(dialog).toContainText("Okul e-postan, giriş yaptığın YTÜ Microsoft hesabındaki adres olur.");
+  await expect(dialog).toContainText("Bağlantı kalıcıdır; buradan kaldırılamaz.");
+  expect(starts).toHaveLength(0);
+
+  // Escape cancels: nothing was sent and the trigger regains focus.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeFocused();
+  expect(starts).toHaveLength(0);
+
+  await openYtuDialog(page);
+  await dialog.getByRole("button", { name: "Microsoft ile devam et" }).click();
+  const notice = page.getByRole("status").filter({ hasText: "YTÜ hesabın bağlandı" });
+  await expect(notice).toContainText("Adın ve okul e-postan artık YTÜ kaydından gelir ve buradan değiştirilemez.");
+  await expect(notice).toBeFocused();
+  await expect(page).toHaveURL(`${baseUrl}/identity`);
+
+  // The start carried the session proof and no body; the browser left for exactly the address the BFF answered.
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.headers["x-csrf-token"]).toBe(csrfToken);
+  expect(starts[0]?.headers.origin).toBe(baseUrl);
+  expect(starts[0]?.body).toBeNull();
+  expect(arrivals).toEqual([authorizationUrl]);
+  const arrival = new URL(arrivals[0]!);
+  expect([...arrival.searchParams.keys()].sort()).toEqual(["client_id", "request_uri"]);
+  expect(arrival.href).not.toContain("kc_action");
+  expect(network.urls().filter((url) => new URL(url).hostname === keycloakHost)).toEqual([authorizationUrl]);
+
+  // The page shows the server's identity after the link: locked name, verified badge, no link button.
+  await expect(page.getByText("Doğrulanmış YTÜ hesabı", { exact: true })).toBeVisible();
+  await expect(page.getByText(/ada@std\.yildiz\.edu\.tr adresiyle bağlı/)).toBeVisible();
+  await expect(page.getByText("YTÜ kaydından", { exact: true })).toBeVisible();
+  await expect(page.getByText("YTÜ hesabından gelir; yönetim ekibi düzeltebilir.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Adı düzenle" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "YTÜ hesabımı bağla" })).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(await page.content()).not.toContain(csrfToken);
+  expect(errors).toEqual([]);
+});
+
+test("YTÜ link: a cancelled or failed round trip is announced, stripped from the address and can be retried", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `identity-ytu-cancel-${testInfo.retry}`);
+  const errors = failOnPageErrors(page);
+  await mockIdentity(page, unverified);
+  await page.route("**/api/account/identity/ytu-link", (route) => route.fulfill({ json: { authorizationUrl } }));
+  const outcomes: Array<"cancelled" | "error"> = ["cancelled", "error"];
+  await mockKeycloakAuthorization(page, () => outcomes.shift() ?? "error");
+
+  await gotoIdentity(page);
+  const dialog = await openYtuDialog(page);
+  await dialog.getByRole("button", { name: "Microsoft ile devam et" }).click();
+  const cancelled = page.getByRole("status").filter({ hasText: "Bağlama tamamlanmadı" });
+  await expect(cancelled).toContainText("Hesabında değişiklik yapılmadı. İstediğinde yeniden deneyebilirsin.");
+  await expect(cancelled).toBeFocused();
+  await expect(page).toHaveURL(`${baseUrl}/identity`);
+  await expect(page.getByText("YTÜ hesabın bağlı değil")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Adı düzenle" })).toBeEnabled();
+
+  // Retry: the same button, this time the IdP round trip fails.
+  await page.waitForLoadState("networkidle");
+  const retry = await openYtuDialog(page);
+  await retry.getByRole("button", { name: "Microsoft ile devam et" }).click();
+  const failed = page.getByRole("status").filter({ hasText: "YTÜ hesabı bağlanamadı" });
+  await expect(failed).toContainText("bu Microsoft hesabı başka bir SKY LAB hesabına bağlı");
+  await expect(page).toHaveURL(`${baseUrl}/identity`);
+  await expect(page.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+
+  // The BFF's own answers for a link Keycloak claimed but the identity does not show, or that could not start.
+  await gotoIdentity(page, "/identity?ytu=unverified");
+  await expect(page.getByRole("status").filter({ hasText: "Bağlantı doğrulanamadı" })).toContainText("Bu sayfa güncel durumu gösterir");
+  await expect(page).toHaveURL(`${baseUrl}/identity`);
+  await gotoIdentity(page, "/identity?ytu=unavailable");
+  await expect(page.getByRole("status").filter({ hasText: "Bağlama başlatılamadı" })).toBeVisible();
+  await expect(page).toHaveURL(`${baseUrl}/identity`);
+  expect(errors).toEqual([]);
+});
+
 test("a running cooldown disables the username change and says when it reopens", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   await installAuthenticatedSession(context, `identity-cooldown-${testInfo.retry}`);
@@ -427,6 +561,13 @@ test("the identity page with its forms and dialog passes axe and fits a 320px We
       await form.getByRole("button", { name: "Devam et" }).click();
       await expect(page.getByRole("dialog", { name: "Kullanıcı adın değişsin mi?" })).toBeVisible();
       await analyze("confirmation dialog");
+      await page.keyboard.press("Escape");
+      await form.getByRole("button", { name: "Vazgeç" }).click();
+
+      const ytuDialog = await openYtuDialog(page);
+      await analyze("YTÜ link dialog");
+      await page.keyboard.press("Escape");
+      await expect(ytuDialog).toBeHidden();
 
       expect(errors).toEqual([]);
     } finally {

@@ -1,8 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { describeCooldown, IdentityManager, parseIdentityPayload } from "@/components/identity-manager";
+import {
+  authorizationUrlOf,
+  describeCooldown,
+  IdentityManager,
+  parseIdentityPayload,
+  ytuLinkNotice,
+} from "@/components/identity-manager";
 
-const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+const navigation = vi.hoisted(() => ({ replace: vi.fn(), search: "" }));
 const sudo = vi.hoisted(() => ({
   ensureSudo: vi.fn<(options?: { challenged?: boolean }) => Promise<boolean>>(),
   invalidateSudo: vi.fn(),
@@ -10,6 +16,8 @@ const sudo = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: navigation.replace }),
+  usePathname: () => "/identity",
+  useSearchParams: () => new URLSearchParams(navigation.search),
 }));
 
 vi.mock("@/components/sudo-provider", () => ({
@@ -82,6 +90,7 @@ beforeEach(() => {
   sudo.ensureSudo.mockResolvedValue(true);
   sudo.invalidateSudo.mockReset();
   navigation.replace.mockReset();
+  navigation.search = "";
 });
 
 afterEach(() => {
@@ -121,17 +130,19 @@ describe("IdentityManager", () => {
     expect(container.querySelector("a[href='/email']")).toBeNull();
   });
 
-  it("offers the name form and the disabled YTÜ link for an unverified account", async () => {
+  it("offers the name form and the YTÜ link for an unverified account", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload(unlocked)));
     render(<IdentityManager />);
     expect(await screen.findByRole("button", { name: "Adı düzenle" })).toBeEnabled();
     expect(screen.queryByText("YTÜ kaydından")).not.toBeInTheDocument();
     expect(screen.getByText("YTÜ hesabın bağlı değil")).toBeInTheDocument();
-    const link = screen.getByRole("button", { name: "YTÜ hesabımı bağla" });
-    expect(link).toBeDisabled();
-    expect(link).toHaveAccessibleDescription("YTÜ hesabını bağlama yakında bu sayfaya gelecek.");
-    expect(screen.getAllByText("Yakında").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("YTÜ Microsoft hesabını bağladığında adın ve okul e-postan YTÜ kaydından gelir ve kilitlenir.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+    // Only the e-mail settings are still "yakında".
+    expect(screen.getAllByText("Yakında")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "E-posta ayarları" })).toBeDisabled();
     expect(screen.getByText("Kayıtlı değil · YTÜ hesabından gelir; buradan değiştirilemez.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("shows a retryable card when the identity cannot be read and redirects on 401", async () => {
@@ -364,6 +375,201 @@ describe("IdentityManager", () => {
       const button = await screen.findByRole("button", { name: "Kullanıcı adını değiştir" });
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleDescription(/Kullanıcı adını en erken .* tarihinde yeniden değiştirebilirsin \(3 gün sonra\)\./);
+    });
+  });
+
+  describe("YTÜ link", () => {
+    const authorizationUrl = "https://e.yildizskylab.com/realms/e-skylab/protocol/openid-connect/auth?client_id=account-center&request_uri=urn%3Apar%3Aytu";
+
+    const originalLocation = Object.getOwnPropertyDescriptor(window, "location")!;
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", originalLocation);
+    });
+
+    /** jsdom cannot navigate: `location.assign` becomes a spy on a stand-in that keeps the address parts. */
+    function stubNavigation() {
+      const assign = vi.fn();
+      const original = window.location;
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { assign, href: original.href, search: original.search, pathname: original.pathname, origin: original.origin },
+      });
+      return assign;
+    }
+
+    async function openYtuDialog() {
+      fireEvent.click(await screen.findByRole("button", { name: "YTÜ hesabımı bağla" }));
+      return screen.findByRole("dialog", { name: "YTÜ hesabın bağlansın mı?" });
+    }
+
+    it("explains the consequences, starts the link with the CSRF proof and navigates to the address the BFF answered", async () => {
+      const assign = stubNavigation();
+      const request = vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json({ authorizationUrl }));
+      const { container } = render(<IdentityManager />);
+      const dialog = await openYtuDialog();
+      expect(dialog).toHaveTextContent("Microsoft ile YTÜ hesabına giriş yapacaksın. Devam etmeden önce şunları bil:");
+      expect(dialog).toHaveTextContent("Bağlandıktan sonra adın ve okul e-postan YTÜ kaydından gelir ve buradan değiştirilemez.");
+      expect(dialog).toHaveTextContent("Okul e-postan, giriş yaptığın YTÜ Microsoft hesabındaki adres olur.");
+      expect(dialog).toHaveTextContent("Bağlantı kalıcıdır; buradan kaldırılamaz.");
+      expect(dialog).toHaveTextContent("e.yildizskylab.com ve Microsoft sayfalarına gideceksin");
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Adı düzenle" })).toBeDisabled();
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Microsoft ile devam et" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizationUrl));
+      const started = recorded(request.mock.calls[1]!);
+      expect(started.url).toBe("/api/account/identity/ytu-link");
+      expect(started.init).toMatchObject({
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        redirect: "error",
+        headers: { "x-csrf-token": csrfToken },
+      });
+      expect(started.init.body).toBeUndefined();
+      // The dialog stays busy while the browser leaves; nothing is re-read or announced here.
+      expect(dialog).toHaveAttribute("aria-busy", "true");
+      expect(within(dialog).getByRole("button", { name: "Vazgeç" })).toBeDisabled();
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(container.innerHTML).not.toContain(csrfToken);
+    });
+
+    it("cancels from the dialog without any request and refuses an address that is not HTTPS", async () => {
+      const assign = stubNavigation();
+      const request = vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json({ authorizationUrl: "http://e.yildizskylab.com/realms/e-skylab/protocol/openid-connect/auth" }));
+      render(<IdentityManager />);
+      const dialog = await openYtuDialog();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Vazgeç" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "YTÜ hesabımı bağla" })).toHaveFocus();
+      expect(request).toHaveBeenCalledTimes(1);
+
+      const reopened = await openYtuDialog();
+      fireEvent.click(within(reopened).getByRole("button", { name: "Microsoft ile devam et" }));
+      expect(await within(reopened).findByRole("alert")).toHaveTextContent("Yönlendirme adresi alınamadı. Yeniden dene.");
+      expect(assign).not.toHaveBeenCalled();
+      expect(within(reopened).getByRole("button", { name: "Microsoft ile devam et" })).toBeEnabled();
+    });
+
+    it("re-reads the identity when the account is already linked and shows the lock", async () => {
+      stubNavigation();
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json({ error: "already_linked", detail: "YTÜ hesabın zaten bağlı." }, 409))
+        .mockResolvedValueOnce(json(payload()));
+      render(<IdentityManager />);
+      const dialog = await openYtuDialog();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Microsoft ile devam et" }));
+      const notice = await findNotice("Adın ve okul e-postan YTÜ kaydından geliyor; yeniden bağlaman gerekmez.");
+      expect(notice).toHaveTextContent("YTÜ hesabın zaten bağlı");
+      expect(notice).toHaveFocus();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(await screen.findByText("Doğrulanmış YTÜ hesabı")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "YTÜ hesabımı bağla" })).not.toBeInTheDocument();
+      expect(screen.getByText("YTÜ kaydından")).toBeInTheDocument();
+    });
+
+    it("keeps the dialog open with the outage, reloads the proof after a 403 and counts a rate limit down", async () => {
+      const assign = stubNavigation();
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockResolvedValueOnce(json({ error: "unavailable", detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden dene." }, 503, { "retry-after": "3" }))
+        .mockResolvedValueOnce(json({ error: "forbidden" }, 403))
+        .mockResolvedValueOnce(json(payload({ ...unlocked, csrfToken: "renewed-csrf" })))
+        .mockResolvedValueOnce(json({ error: "rate_limited", detail: "Çok fazla deneme yaptın.", retryAfter: 120 }, 429));
+      render(<IdentityManager />);
+      const dialog = await openYtuDialog();
+      const proceed = () => fireEvent.click(within(dialog).getByRole("button", { name: "Microsoft ile devam et" }));
+      proceed();
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("Kimlik hizmetine şu anda ulaşılamıyor.");
+      expect(within(dialog).getByRole("button", { name: "Microsoft ile devam et" })).toBeEnabled();
+
+      proceed();
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("Oturum bilgin yenilendi. Lütfen yeniden dene.");
+      await waitFor(() => expect(sudo.invalidateSudo).toHaveBeenCalled());
+
+      proceed();
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(/Çok fazla deneme yaptın\. Yeniden denemek için bekle: 2 dakika\./);
+      expect(within(dialog).getByRole("button", { name: "Microsoft ile devam et" })).toBeDisabled();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("sends the person to login on 401 and reports a network failure", async () => {
+      stubNavigation();
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(payload(unlocked)))
+        .mockRejectedValueOnce(new TypeError("network"))
+        .mockResolvedValueOnce(json({ error: "authentication_required" }, 401));
+      render(<IdentityManager />);
+      const dialog = await openYtuDialog();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Microsoft ile devam et" }));
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("Bağlantı kurulamadı. Kısa bir süre sonra yeniden dene.");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Microsoft ile devam et" }));
+      await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login?returnTo=%2Fidentity"));
+    });
+
+    it("announces the linked return once, strips it from the address and shows the locked state", async () => {
+      navigation.search = "ytu=linked&tab=x";
+      const replaceState = vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload()));
+      render(<IdentityManager />);
+      const notice = await findNotice("Adın ve okul e-postan artık YTÜ kaydından gelir ve buradan değiştirilemez.");
+      expect(notice).toHaveTextContent("YTÜ hesabın bağlandı");
+      expect(notice.querySelector("[data-tone='positive']")).not.toBeNull();
+      await waitFor(() => expect(notice).toHaveFocus());
+      expect(replaceState).toHaveBeenCalledWith(null, "", "/identity?tab=x");
+      expect(screen.getByText("Doğrulanmış YTÜ hesabı")).toBeInTheDocument();
+      expect(screen.getByText("YTÜ kaydından")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "YTÜ hesabımı bağla" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Adı düzenle" })).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["cancelled", "Bağlama tamamlanmadı", "Hesabında değişiklik yapılmadı. İstediğinde yeniden deneyebilirsin."],
+      ["error", "YTÜ hesabı bağlanamadı", "YTÜ girişi tamamlanamadı ya da bu Microsoft hesabı başka bir SKY LAB hesabına bağlı."],
+      ["unverified", "Bağlantı doğrulanamadı", "Microsoft girişi tamamlandı ama hesabında YTÜ bağlantısı görünmüyor."],
+      ["unavailable", "Bağlama başlatılamadı", "Kimlik hizmetine şu anda ulaşılamıyor."],
+    ])("announces the %s return and keeps the link available", async (outcome, title, detail) => {
+      navigation.search = `ytu=${outcome}`;
+      vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload(unlocked)));
+      render(<IdentityManager />);
+      const notice = (await screen.findByText(title)).closest<HTMLElement>("[role='status']")!;
+      expect(notice).toHaveTextContent(detail);
+      expect(await screen.findByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+      expect(window.history.replaceState).toHaveBeenCalledWith(null, "", "/identity");
+    });
+
+    it("ignores unknown return values and clears the notice when a change starts", async () => {
+      navigation.search = "ytu=owned";
+      const replaceState = vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(json(payload(unlocked)));
+      render(<IdentityManager />);
+      expect(await screen.findByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(replaceState).not.toHaveBeenCalled();
+      expect(ytuLinkNotice("owned")).toBeNull();
+      expect(ytuLinkNotice("constructor")).toBeNull();
+      expect(ytuLinkNotice(null)).toBeNull();
+      expect(ytuLinkNotice("linked")).toMatchObject({ tone: "positive" });
+    });
+
+    it("accepts only an absolute HTTPS authorization address", () => {
+      expect(authorizationUrlOf({ authorizationUrl })).toBe(authorizationUrl);
+      for (const broken of [
+        null,
+        {},
+        { authorizationUrl: 42 },
+        { authorizationUrl: "http://e.yildizskylab.com/auth" },
+        { authorizationUrl: "javascript:alert(1)" },
+        { authorizationUrl: "/api/auth/login" },
+        { authorizationUrl: `https://e.yildizskylab.com/${"x".repeat(5_000)}` },
+      ]) expect(authorizationUrlOf(broken)).toBeNull();
     });
   });
 

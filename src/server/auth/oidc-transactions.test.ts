@@ -98,4 +98,38 @@ describe("OidcTransactionStore", () => {
       await expect(store.consume(candidate.state, browserBinding)).resolves.toBeNull();
     }
   });
+
+  it("round-trips a YTÜ link transaction only when it returns to the identity page", async () => {
+    const store = new OidcTransactionStore(
+      new MemoryTransactions(),
+      new AesGcmSecretCipher(Buffer.alloc(32, 6)),
+      300,
+      () => new Date("2026-09-22T09:00:00Z"),
+    );
+    const payload = {
+      state: "s".repeat(43),
+      nonce: "n".repeat(43),
+      codeVerifier: "v".repeat(43),
+      returnTo: "/identity" as const,
+      purpose: "ytu-link" as const,
+      expectedSubject: "person",
+      expectedSessionId: "11111111-1111-4111-8111-111111111111",
+      initiatedAt: "2026-09-22T09:00:00.000Z",
+    };
+    const browserBinding = "b".repeat(43);
+    await store.create(payload, browserBinding);
+    await expect(store.consume(payload.state, browserBinding)).resolves.toEqual(payload);
+    await expect(store.consume(payload.state, browserBinding)).resolves.toBeNull();
+
+    const drifted = [
+      { ...payload, state: "t".repeat(43), returnTo: "/security" },
+      { ...payload, state: "u".repeat(43), returnTo: "/" },
+      { ...payload, state: "w".repeat(43), expectedSessionId: "not-a-session" },
+      { ...payload, state: "x".repeat(43), initiatedAt: "today" },
+    ];
+    for (const candidate of drifted) {
+      await store.create(candidate as typeof payload, browserBinding);
+      await expect(store.consume(candidate.state, browserBinding)).resolves.toBeNull();
+    }
+  });
 });
