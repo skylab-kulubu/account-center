@@ -271,25 +271,31 @@ describe("authentication routes", () => {
   });
 
   it("marks a native handoff session as embedded in SkyApp for exactly the session's lifetime", async () => {
-    const absoluteExpiresAt = new Date(Date.now() + 8 * 60 * 60 * 1_000);
-    authMocks.callback.mockResolvedValue({
-      handle: "n".repeat(43),
-      absoluteExpiresAt,
-      returnTo: "/",
-      nativeHandoff: true,
-    });
+    // Both cookies derive max-age from Date.now(); a frozen clock keeps them from straddling a second.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-09-20T12:00:00.250Z") });
+    try {
+      const absoluteExpiresAt = new Date("2026-09-20T20:00:00.000Z");
+      authMocks.callback.mockResolvedValue({
+        handle: "n".repeat(43),
+        absoluteExpiresAt,
+        returnTo: "/",
+        nativeHandoff: true,
+      });
 
-    const response = await callbackRoute(new NextRequest(
-      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
-      { headers: { cookie: `${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
-    ));
+      const response = await callbackRoute(new NextRequest(
+        `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+        { headers: { cookie: `${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+      ));
 
-    expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));
-    const embedded = response.cookies.get(EMBEDDED_APP_COOKIE);
-    expect(embedded?.value).toBe("skyapp");
-    expect(embedded).toMatchObject({ httpOnly: true, secure: true, sameSite: "lax", path: "/" });
-    expect(embedded?.maxAge).toBe(response.cookies.get(SESSION_COOKIE)?.maxAge);
-    expect(embedded?.maxAge).toBeGreaterThan(8 * 60 * 60 - 5);
+      expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));
+      const embedded = response.cookies.get(EMBEDDED_APP_COOKIE);
+      expect(embedded?.value).toBe("skyapp");
+      expect(embedded).toMatchObject({ httpOnly: true, secure: true, sameSite: "lax", path: "/" });
+      expect(embedded?.maxAge).toBe(response.cookies.get(SESSION_COOKIE)?.maxAge);
+      expect(embedded?.maxAge).toBe(8 * 60 * 60 - 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps deletion proof and receipt in secure host-only cookies after fresh reauthentication", async () => {
