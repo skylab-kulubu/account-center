@@ -9,6 +9,7 @@ import {
   setSessionCookie,
   setAccountDeletionProofCookie,
   setAccountDeletionReceiptCookie,
+  setEmbeddedAppCookie,
 } from "@/server/auth/http";
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import { InvalidOidcTransactionError } from "@/server/auth/oidc-flow";
@@ -103,6 +104,7 @@ export async function GET(request: NextRequest) {
     await services.sessions.revokeHandle(request.cookies.get(SESSION_COOKIE)?.value);
     const response = NextResponse.redirect(new URL(result.returnTo, services.config.appUrl), 303);
     setSessionCookie(response, result.handle, result.absoluteExpiresAt);
+    if ("nativeHandoff" in result) setEmbeddedAppCookie(response, result.absoluteExpiresAt);
     clearOidcTransactionCookie(response);
     response.headers.set("x-request-id", requestId);
     response.headers.set("Referrer-Policy", "no-referrer");

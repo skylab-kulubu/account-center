@@ -80,7 +80,13 @@ function MobileHeader({ currentRoute, csrfToken }: { currentRoute: AccountRoute 
 export function AccountShell({
   children,
   logoutCsrfToken,
-}: Readonly<{ children: React.ReactNode; logoutCsrfToken: string }>) {
+  embedded = false,
+}: Readonly<{
+  children: React.ReactNode;
+  logoutCsrfToken: string;
+  /** Opened inside SkyApp's WebView, whose own top bar handles back and close. */
+  embedded?: boolean;
+}>) {
   const pathname = usePathname();
   const router = useRouter();
   const currentRoute = matchAccountRoute(pathname);
@@ -109,12 +115,12 @@ export function AccountShell({
   }, [logoutCsrfToken, router]);
 
   return (
-    <div className="account-root">
+    <div className="account-root" data-embedded={embedded ? "skyapp" : undefined}>
       <a className="skip-link" href="#main-content">İçeriğe geç</a>
       <Background />
       <div className="account-frame">
         <DesktopNavigation currentRoute={currentRoute} csrfToken={logoutCsrfToken} />
-        <MobileHeader currentRoute={currentRoute} csrfToken={logoutCsrfToken} />
+        {embedded ? null : <MobileHeader currentRoute={currentRoute} csrfToken={logoutCsrfToken} />}
         <main className="account-content" id="main-content" tabIndex={-1}>
           {children}
         </main>

@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountShell, SESSION_REFRESH_INTERVAL_MS } from "@/components/account-shell";
@@ -55,6 +55,19 @@ describe("AccountShell", () => {
         headers: { "x-csrf-token": "csrf-value" },
       }),
     );
+  });
+
+  it("leaves the top bar to SkyApp when embedded in its WebView", () => {
+    const { container } = render(
+      <AccountShell logoutCsrfToken="csrf-value" embedded><p>İçerik</p></AccountShell>,
+    );
+
+    expect(container.querySelector(".mobile-header")).toBeNull();
+    expect(container.querySelector(".account-root")).toHaveAttribute("data-embedded", "skyapp");
+    const shell = within(container);
+    expect(shell.getByRole("navigation", { name: "Hesap ayarları" })).toBeInTheDocument();
+    expect(shell.getAllByRole("button", { name: "Çıkış yap" })).toHaveLength(1);
+    expect(shell.getByText("İçerik")).toBeInTheDocument();
   });
 
   it("refreshes periodically and on focus/visibility, then cleans up", async () => {

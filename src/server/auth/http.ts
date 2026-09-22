@@ -7,6 +7,8 @@ export const SESSION_COOKIE = "__Host-sky-account";
 export const OIDC_TRANSACTION_COOKIE = "__Host-sky-account-txn";
 export const ACCOUNT_DELETION_PROOF_COOKIE = "__Host-sky-account-delete-proof";
 export const ACCOUNT_DELETION_RECEIPT_COOKIE = "__Host-sky-account-delete-receipt";
+/** Presentation only: this session was opened from SkyApp, whose WebView brings its own top bar. */
+export const EMBEDDED_APP_COOKIE = "__Host-sky-account-embed";
 
 const baseCookie = {
   httpOnly: true,
@@ -22,6 +24,14 @@ export function setSessionCookie(
   absoluteExpiresAt: Date,
 ) {
   response.cookies.set(SESSION_COOKIE, handle, {
+    ...baseCookie,
+    expires: absoluteExpiresAt,
+    maxAge: Math.max(0, Math.floor((absoluteExpiresAt.getTime() - Date.now()) / 1_000)),
+  });
+}
+
+export function setEmbeddedAppCookie(response: NextResponse, absoluteExpiresAt: Date) {
+  response.cookies.set(EMBEDDED_APP_COOKIE, "skyapp", {
     ...baseCookie,
     expires: absoluteExpiresAt,
     maxAge: Math.max(0, Math.floor((absoluteExpiresAt.getTime() - Date.now()) / 1_000)),
