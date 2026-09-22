@@ -120,6 +120,7 @@ function createAuthServices() {
       new PostgresRateLimitRepository(pool),
       config.sessionHmacKey,
       config.trustedProxy,
+      config.trustedProxyRanges,
     ),
   };
 }
