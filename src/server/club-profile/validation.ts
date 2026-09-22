@@ -5,7 +5,9 @@ import {
   CLUB_PROFILE_LINKEDIN_MAX_LENGTH,
   CLUB_PROFILE_PICTURE_MAX_BYTES,
   CLUB_PROFILE_TEXT_MAX_LENGTH,
+  hasForbiddenCharacters,
   isLinkedinProfileUrl,
+  normalizeLinkedinProfileUrl,
 } from "@/config/club-profile";
 import type { ClubProfileEditableField, ClubProfilePictureType } from "@/config/club-profile";
 import type { CoreProfile, CoreProfilePatch } from "@/server/core/profile-client";
@@ -17,8 +19,6 @@ import type { CoreProfile, CoreProfilePatch } from "@/server/core/profile-client
  * from this page).
  */
 
-const PRINTABLE_TEXT = /^[^\p{Cc}]*$/u;
-
 export type ClubProfileInput = Partial<Record<ClubProfileEditableField, string>>;
 
 export type ClubProfileValidationReason =
@@ -26,7 +26,7 @@ export type ClubProfileValidationReason =
   | "unknown_field"
   | "not_text"
   | "too_long"
-  | "control_characters"
+  | "forbidden_characters"
   | "linkedin_url";
 
 export class ClubProfileValidationError extends Error {
@@ -56,14 +56,18 @@ function isEditableField(key: string): key is ClubProfileEditableField {
   return (CLUB_PROFILE_EDITABLE_FIELDS as readonly string[]).includes(key);
 }
 
+/** LinkedIn is stored in its canonical serialization; the other fields as trimmed text. */
 function parseText(field: ClubProfileEditableField, value: unknown) {
   if (typeof value !== "string") throw new ClubProfileValidationError(field, "not_text");
-  if (!PRINTABLE_TEXT.test(value)) throw new ClubProfileValidationError(field, "control_characters");
+  if (hasForbiddenCharacters(value)) throw new ClubProfileValidationError(field, "forbidden_characters");
   const trimmed = value.trim();
   if (field === "linkedin") {
     if (trimmed.length > CLUB_PROFILE_LINKEDIN_MAX_LENGTH) throw new ClubProfileValidationError(field, "too_long");
-    if (trimmed.length > 0 && !isLinkedinProfileUrl(trimmed)) throw new ClubProfileValidationError(field, "linkedin_url");
-    return trimmed;
+    if (trimmed.length === 0) return "";
+    const normalized = normalizeLinkedinProfileUrl(trimmed);
+    if (normalized === null) throw new ClubProfileValidationError(field, "linkedin_url");
+    if (normalized.length > CLUB_PROFILE_LINKEDIN_MAX_LENGTH) throw new ClubProfileValidationError(field, "too_long");
+    return normalized;
   }
   if (trimmed.length > CLUB_PROFILE_TEXT_MAX_LENGTH) throw new ClubProfileValidationError(field, "too_long");
   return trimmed;
@@ -116,7 +120,7 @@ export function sniffPictureContentType(bytes: Uint8Array): ClubProfilePictureTy
   return null;
 }
 
-export { isLinkedinProfileUrl };
+export { isLinkedinProfileUrl, normalizeLinkedinProfileUrl };
 
 export function validateClubProfilePicture(bytes: Uint8Array): { contentType: ClubProfilePictureType } {
   if (bytes.byteLength === 0) throw new ClubProfilePictureError("empty");

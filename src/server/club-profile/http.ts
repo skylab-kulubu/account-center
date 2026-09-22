@@ -25,7 +25,7 @@ import {
 import type { ClubProfileProblem } from "@/server/club-profile/problem";
 import { clubProfileServiceFor, toClubProfileView } from "@/server/club-profile/service";
 import type { ClubProfileService } from "@/server/club-profile/service";
-import { ClubProfileValidationError } from "@/server/club-profile/validation";
+import { ClubProfilePictureError, ClubProfileValidationError } from "@/server/club-profile/validation";
 
 /**
  * Browser BFF routes for the club profile. Reads need an active session behind
@@ -163,11 +163,18 @@ export async function updateClubProfile(request: NextRequest) {
   }
 }
 
+/** A multipart body over the cap is the picture being too large, so it reports the picture copy. */
 async function readPictureBytes(request: NextRequest) {
-  const bytes = await readBytesBody(request, {
-    maxBytes: CLUB_PROFILE_PICTURE_MAX_BYTES + PICTURE_BODY_OVERHEAD_BYTES,
-    contentType: (value) => value.split(";", 1)[0]?.trim().toLowerCase() === "multipart/form-data",
-  });
+  let bytes: Awaited<ReturnType<typeof readBytesBody>>;
+  try {
+    bytes = await readBytesBody(request, {
+      maxBytes: CLUB_PROFILE_PICTURE_MAX_BYTES + PICTURE_BODY_OVERHEAD_BYTES,
+      contentType: (value) => value.split(";", 1)[0]?.trim().toLowerCase() === "multipart/form-data",
+    });
+  } catch (error) {
+    if (error instanceof RequestBodyError && error.status === 413) throw new ClubProfilePictureError("too_large");
+    throw error;
+  }
   let form: FormData;
   try {
     form = await new Response(bytes, { headers: { "content-type": request.headers.get("content-type")! } }).formData();

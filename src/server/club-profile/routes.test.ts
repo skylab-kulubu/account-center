@@ -95,9 +95,9 @@ function patchRequest(body: unknown, overrides: RequestOptions = {}) {
     method: "PATCH",
     origin: "https://my.yildizskylab.com",
     csrf: "session-bound-csrf",
-    headers: { "content-type": "application/json" },
     body: typeof body === "string" ? body : JSON.stringify(body),
     ...overrides,
+    headers: { "content-type": "application/json", ...overrides.headers },
   });
 }
 
@@ -316,6 +316,26 @@ describe("club-profile BFF routes", () => {
       expect(routeMocks.patchMe).toHaveBeenCalledWith("server-held-user-token", { linkedin: "" });
     });
 
+    it("answers an oversized JSON body with a generic 413 rather than the picture copy", async () => {
+      for (const candidate of [
+        patchRequest({ faculty: "x".repeat(5_000) }),
+        patchRequest({ faculty: "x" }, { headers: { "content-length": "5000" } }),
+      ]) {
+        const response = await PATCH(candidate);
+        expect(response.status).toBe(413);
+        expect(response.headers.get("content-type")).toBe("application/problem+json");
+        const body = await response.json();
+        expect(body).toMatchObject({
+          type: "https://my.yildizskylab.com/problems/club-profile-request-too-large",
+          title: "İstek çok büyük",
+          status: 413,
+        });
+        expect(body.title).not.toContain("Fotoğraf");
+        expect(body.detail).not.toContain("PNG");
+      }
+      expect(routeMocks.getMe).not.toHaveBeenCalled();
+    });
+
     it("rejects malformed bodies and never reads core for them", async () => {
       const cases: Array<[NextRequest, number, string | undefined]> = [
         [patchRequest("{not json", {}), 400, undefined],
@@ -417,7 +437,7 @@ describe("club-profile BFF routes", () => {
         { headers: { "content-length": String(CLUB_PROFILE_PICTURE_MAX_BYTES + 64 * 1_024 + 1) } },
       ));
       expect(declaredOversize.status).toBe(413);
-      await expect(declaredOversize.json()).resolves.toMatchObject({ title: "Fotoğraf çok büyük" });
+      await expect(declaredOversize.json()).resolves.toMatchObject({ title: "Fotoğraf çok büyük", status: 413 });
 
       const oversizeFile = new Uint8Array(CLUB_PROFILE_PICTURE_MAX_BYTES + 1);
       oversizeFile.set(png);
@@ -425,6 +445,7 @@ describe("club-profile BFF routes", () => {
         { name: "file", value: oversizeFile, fileName: "big.png", type: "image/png" },
       ]));
       expect(streamedOversize.status).toBe(413);
+      await expect(streamedOversize.json()).resolves.toMatchObject({ title: "Fotoğraf çok büyük" });
 
       const wrongField = await POST(await multipartRequest([
         { name: "image", value: png, fileName: "me.png", type: "image/png" },

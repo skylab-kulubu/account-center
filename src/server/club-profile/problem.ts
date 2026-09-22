@@ -74,8 +74,8 @@ function validationDetail(error: ClubProfileValidationError) {
       return error.field === "linkedin"
         ? `${label} en fazla ${CLUB_PROFILE_LINKEDIN_MAX_LENGTH} karakter olabilir.`
         : `${label} en fazla ${CLUB_PROFILE_TEXT_MAX_LENGTH} karakter olabilir.`;
-    case "control_characters":
-      return `${label} satır sonu ya da kontrol karakteri içeremez.`;
+    case "forbidden_characters":
+      return `${label} görünmez, biçimlendirme ya da kontrol karakteri içeremez.`;
     case "linkedin_url":
       return "LinkedIn bağlantısı https:// ile başlamalı ve linkedin.com ya da www.linkedin.com adresinde olmalı.";
   }
@@ -135,7 +135,14 @@ export function toClubProfileProblem(error: unknown): ClubProfileProblem {
     };
   }
   if (error instanceof RequestBodyError) {
-    if (error.status === 413) return pictureTooLargeProblem;
+    if (error.status === 413) {
+      return {
+        type: `${PROBLEM_BASE}club-profile-request-too-large`,
+        title: "İstek çok büyük",
+        status: 413,
+        detail: "Gönderilen istek izin verilen boyutu aşıyor. Kulüp profilin değişmedi.",
+      };
+    }
     return {
       type: `${PROBLEM_BASE}club-profile-invalid`,
       title: "İstek okunamadı",

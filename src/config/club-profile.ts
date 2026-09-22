@@ -24,10 +24,39 @@ export type ClubProfilePictureType = (typeof CLUB_PROFILE_PICTURE_TYPES)[number]
 
 /**
  * The platform media CDN core publishes profile pictures on
- * (`profilePictureUrl` from `/v1/users/me`). It is the only cross-origin
- * image source in the Content Security Policy; nothing else loads from it.
+ * (`profilePictureUrl` from `/v1/users/me`) when `PROFILE_PICTURE_ORIGIN`
+ * is unset. Whichever origin applies is the only cross-origin image source
+ * in the Content Security Policy; nothing else loads from it.
  */
-export const PROFILE_PICTURE_ORIGIN = "https://cdn.yildizskylab.com";
+export const DEFAULT_PROFILE_PICTURE_ORIGIN = "https://cdn.yildizskylab.com";
+
+/**
+ * Resolves `PROFILE_PICTURE_ORIGIN`: unset or blank falls back to the
+ * platform CDN; anything else must be a canonical, credential-free HTTPS
+ * origin (no path, query or fragment) exactly as the browser serializes it.
+ */
+export function parseProfilePictureOrigin(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return DEFAULT_PROFILE_PICTURE_ORIGIN;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error("PROFILE_PICTURE_ORIGIN must be a valid HTTPS URL.");
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash ||
+    trimmed !== url.origin
+  ) {
+    throw new Error("PROFILE_PICTURE_ORIGIN must be a canonical credential-free HTTPS origin.");
+  }
+  return url.origin;
+}
 
 /** Multipart field the browser posts the picture under; the BFF reads exactly this one. */
 export const CLUB_PROFILE_PICTURE_FIELD = "file";
@@ -36,27 +65,44 @@ export function isClubProfilePictureType(value: string): value is ClubProfilePic
   return (CLUB_PROFILE_PICTURE_TYPES as readonly string[]).includes(value);
 }
 
-const PRINTABLE_TEXT = /^[^\p{Cc}]*$/u;
-const WHITESPACE = /\s/u;
+/**
+ * Characters no club-profile text may carry: control characters, format
+ * characters (zero-width joiners, bidi marks, soft hyphens, BOM), line and
+ * paragraph separators, and every space other than U+0020 (NBSP and friends).
+ */
+const FORBIDDEN_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]|(?! )\p{Zs}/u;
+const LINKEDIN_AUTHORITY = /^https:\/\/([^/?#]*)/i;
+
+export function hasForbiddenCharacters(value: string) {
+  return FORBIDDEN_CHARACTERS.test(value);
+}
 
 /**
- * `https://` plus exactly `linkedin.com` or `www.linkedin.com`, no credentials,
- * no explicit port, no whitespace or control characters, within the length cap.
+ * The canonical serialization of a LinkedIn profile URL, or `null` when the
+ * value is not one. The raw authority must be exactly `linkedin.com` or
+ * `www.linkedin.com` (any case) before the URL parser sees it, so userinfo,
+ * explicit ports (even `:443`) and backslash spellings are refused instead
+ * of being normalized away; the parser then canonicalizes host case and
+ * escaping (`new URL(value).href`).
  */
-export function isLinkedinProfileUrl(value: string) {
-  if (value.length === 0 || value.length > CLUB_PROFILE_LINKEDIN_MAX_LENGTH) return false;
-  if (!PRINTABLE_TEXT.test(value) || WHITESPACE.test(value)) return false;
+export function normalizeLinkedinProfileUrl(value: string): string | null {
+  if (value.length === 0 || hasForbiddenCharacters(value) || /[\s\\]/u.test(value)) return null;
+  const authority = LINKEDIN_AUTHORITY.exec(value)?.[1];
+  if (!authority || !CLUB_PROFILE_LINKEDIN_HOSTS.has(authority.toLowerCase())) return null;
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    return false;
+    return null;
   }
-  return (
-    url.protocol === "https:" &&
-    !url.username &&
-    !url.password &&
-    url.port === "" &&
-    CLUB_PROFILE_LINKEDIN_HOSTS.has(url.hostname)
-  );
+  if (url.protocol !== "https:" || url.username || url.password || url.port !== "" || !CLUB_PROFILE_LINKEDIN_HOSTS.has(url.hostname)) {
+    return null;
+  }
+  return url.href;
+}
+
+/** Whether `value` is an acceptable LinkedIn profile URL within the shared length cap. */
+export function isLinkedinProfileUrl(value: string) {
+  const normalized = normalizeLinkedinProfileUrl(value);
+  return normalized !== null && normalized.length <= CLUB_PROFILE_LINKEDIN_MAX_LENGTH && value.length <= CLUB_PROFILE_LINKEDIN_MAX_LENGTH;
 }

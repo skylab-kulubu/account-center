@@ -28,6 +28,7 @@ import {
   CLUB_PROFILE_PICTURE_MAX_BYTES,
   CLUB_PROFILE_PICTURE_TYPES,
   CLUB_PROFILE_TEXT_MAX_LENGTH,
+  hasForbiddenCharacters,
   isClubProfilePictureType,
   isLinkedinProfileUrl,
 } from "@/config/club-profile";
@@ -181,6 +182,9 @@ function dirtyFields(profile: ClubProfileView, values: FormValues) {
 }
 
 function localFieldError(field: ClubProfileEditableField, value: string): string | null {
+  if (hasForbiddenCharacters(value)) {
+    return `${fieldCopy[field].label} görünmez, biçimlendirme ya da kontrol karakteri içeremez.`;
+  }
   const trimmed = value.trim();
   if (field === "linkedin") {
     if (trimmed.length > CLUB_PROFILE_LINKEDIN_MAX_LENGTH) return `LinkedIn bağlantısı en fazla ${CLUB_PROFILE_LINKEDIN_MAX_LENGTH} karakter olabilir.`;

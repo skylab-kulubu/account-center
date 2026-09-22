@@ -138,7 +138,11 @@ Ortam değişkenlerinin tam listesi ve güvenli örnek değerleri
 [`.env.example`](.env.example) dosyasındadır. Gerçek gizli bilgiler repoya
 eklenmez. `CORE_API_URL` isteğe bağlıdır: tanımlıysa kulüp profili çağrıları
 için canonical, credential'sız bir HTTPS origin olmak zorundadır; tanımsızsa
-kulüp profili özellikleri kapalı kalır. Yeni bir gizli değer gerekmez;
+kulüp profili özellikleri kapalı kalır. `PROFILE_PICTURE_ORIGIN` de isteğe
+bağlıdır: core'un profil fotoğraflarını yayımladığı origin'dir, Content
+Security Policy `img-src` yalnız bu origin'i ek olarak tanır; tanımsızsa
+`https://cdn.yildizskylab.com` kullanılır, tanımlıysa credential'sız,
+canonical bir HTTPS origin olmak zorundadır. Yeni bir gizli değer gerekmez;
 sudo proof'ları mevcut `TOKEN_ENCRYPTION_KEY` ile oturum kaydında şifrelenir.
 
 Sürüm geçişi: bu sürüm Keycloak kullanıcı token'ında K2 geçişi boyunca
