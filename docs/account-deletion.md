@@ -2,9 +2,21 @@
 
 ## Akış
 
-Hesap silme, Keycloak Account Console veya `DELETE_ACCOUNT` AIA işlemi değildir. Account Center kullanıcıyı `prompt=login` ve `max_age=0` ile yeniden doğrular; callback mevcut opaque BFF session, aynı subject, doğrulanmış `sid` ve en fazla beş dakikalık `auth_time` ile bağlıdır. Tarayıcıya Keycloak token'ı veya subject verilmez.
+Hesap silme, Keycloak Account Console veya `DELETE_ACCOUNT` AIA işlemi değildir. `/delete-account` sayfası kişiyi sırayla şu adımlardan geçirir:
 
-Kullanıcı `HESABIMI SİL` metnini birebir girdikten sonra BFF, Core'un dar self-service intake ucuna yalnız fresh Account REST access token'ını, fresh ID token'ını ve 256-bit idempotency key'i yollar. Subject request body/header'dan alınmaz. Core kalıcı global access-gate marker'ını doğrulamadan başarılı yanıt veremez. Başarıdan sonra Account Center aynı yerel subject'e ait bütün session'ları, intentteki güvenilir session kimliği üzerinden revoke eder; ancak bundan sonra silme durumuna yönlendirir.
+1. **Niyet.** Sonuçlar okunduktan sonra "Hesabımı silmek istiyorum" denir. Bu ana kadar hiçbir uç çağrılmaz.
+2. **Sudo modu.** Sayfa `useSudo().ensureSudo()` ile ürün içi doğrulama diyaloğunu açar: parola, passkey ya da doğrulama kodu; hiçbiri yoksa Microsoft yedeği (bkz. [Sudo modu](architecture.md#sudo-modu)). Diyaloğun sonucu tarayıcının kararı değildir: hem `POST /api/account/deletion/prepare` hem de `POST /api/account/deletion` kapıyı sunucuda `requireAccountSudo` ile yeniden uygular. Taze proof yoksa yanıt `428 sudo_required`, tarayıcı gezintisinde `/delete-account?deletionError=sudo_required` olur ve akış birinci adıma döner. Hesap silme SPI'ye `X-Sky-Sudo` sunmadığı için token'sız bir `reauth` proof'u da kabul edilir.
+3. **Onay metni.** `HESABIMI SİL` birebir yazılır.
+4. **Gönderim.** Form `POST /api/account/deletion` ucuna gider.
+
+İkinci ve üçüncü adım arasında `POST .../deletion/prepare` (exact `Origin`, `x-csrf-token`, access gate, oturum, sudo) Core'un taze kimlik doğrulama koşulunun nasıl karşılanacağına karar verir. Karar tek bir yerdedir: `planDeletionReauthentication` (`src/server/account-deletion/reauthentication.ts`). Yanıt yalnız `{ "step": … }` taşır; subject, token ya da Keycloak ayrıntısı taşımaz.
+
+- **`confirm`** — oturumdaki ID token Core'un doğruladığı sözleşmeye uyuyorsa (RS256 `JWT`, aynı issuer ve subject, `aud` tam olarak `account-center`, boş olmayan `sid`, gelecekte `exp`, en fazla beş dakikalık `auth_time`) intent bu uçta oluşturulur, proof ve yerel receipt cookie'leri yazılır ve Keycloak'a hiç gidilmez. Sudo modunun Microsoft yedeği tam olarak bu durumu üretir: callback taze token setini oturuma yazdığı için `auth_time` zaten tazedir.
+- **`keycloak_reauthentication`** — oturumdaki ID token yalnız ilk girişi kanıtlıyorsa sayfa "Hesap silme için Keycloak üzerinden ek doğrulama gerekiyor" der ve bugünkü `prompt=login&max_age=0` hop'unu (`POST /api/account/deletion/reauthenticate`) sunar. `prompt=none` ile sessiz bir tur aynı `auth_time` değerini döndürdüğü için Core'un beş dakikalık kuralını karşılamaz; bu yüzden denenmez. Hiçbir token üretilmez, tazeymiş gibi yeniden yazılmaz.
+
+Hop'un kendisi değişmedi: callback mevcut opaque BFF session, aynı subject, doğrulanmış `sid` ve en fazla beş dakikalık `auth_time` ile bağlıdır ve dönüşte intent ile cookie'leri yine callback yazar. Tarayıcıya Keycloak token'ı veya subject verilmez. Takip bileti **A7b** Core intake'i sky-account sudo token'ını kabul ettiğinde yalnız yukarıdaki ikinci dal değişir; adım sırası, intent, idempotency key, receipt cookie ve durum sayfası aynı kalır.
+
+Onay metni girildikten sonra BFF, Core'un dar self-service intake ucuna yalnız fresh Account REST access token'ını, fresh ID token'ını ve 256-bit idempotency key'i yollar. Subject request body/header'dan alınmaz. Core kalıcı global access-gate marker'ını doğrulamadan başarılı yanıt veremez. Başarıdan sonra Account Center aynı yerel subject'e ait bütün session'ları, intentteki güvenilir session kimliği üzerinden revoke eder; ancak bundan sonra silme durumuna yönlendirir.
 
 Core çağrısı ile browser cevabı arasındaki kayıp idempotent'tir. Beş dakikalık kısa recovery penceresi callback saatinden değil doğrulanmış `auth_time` değerinden başlar; şifreli access/ID token çifti bu sınırı aşamaz. Browser yalnız `Secure`, `HttpOnly`, `SameSite=Lax`, host-only receipt cookie taşır. İlk yerel receipt, aynı durable intent/idempotency key ile Core'u yeniden çağırabilir. Core receipt alındığı anda şifreli access/ID token çifti atomik olarak şifreli Core receipt ile değiştirilir. Receipt URL'ye, HTML'e, JSON'a, localStorage/sessionStorage'a veya loglara yazılmaz.
 
@@ -21,6 +33,17 @@ Production HTTP adapter'ın kabul ettiği cevap şemaları bilinçli olarak dard
 - Core problem gövdeleri kullanıcıya veya loga aktarılmaz; yalnız sabit kullanıcı durumlarına çevrilir.
 
 Core remote-but-owned bağımlılıktır. Route ve UI HTTP ayrıntılarını bilmez; yalnız `AccountDeletionOrchestrator` arayüzünü kullanır. Production adapter ile test in-memory adapter aynı observable outcome testlerine tabidir.
+
+### Hop'un tamamen kalkması için Core'da gerekenler (A7b)
+
+Intake bugün `Authorization: Bearer <Account REST token>` yanında `X-Account-Reauth-Token` içinde ikinci bir JWT bekler ve bu ID token'ın `auth_time` değerini beş dakikayla sınırlar (`ParseSelfDeleteContext`). Sudo modu bu koşulu karşılayamaz: ürün içi kanıt Keycloak oturumunun `auth_time` değerini değiştirmez. Hop yalnız Core şunları yaparsa kalkar:
+
+1. `X-Account-Reauth-Token` yerine `X-Sky-Sudo` kabul etmeli; sky-account sudo token'ını realm JWKS ile RS256 doğrulamalı, `sub` değerinin bearer ile aynı olduğunu, token'ın sudo türünde ve süresinin dolmadığını görmeli (sky-account beş dakikalık token verir, dolayısıyla tazelik yine token'ın kendisinden gelir).
+2. Sudo token'ının `aud`/`azp` ve tür alanlarını kendi tarafında sabitlemeli; `auth_time` koşulu bu yolda aranmamalı.
+3. Geçiş boyunca iki başlıktan birini kabul etmeli ki Account Center ile Core sürümleri bağımsız dağıtılabilsin; eski başlık ancak `keycloak_reauthentication` dalı kalktıktan sonra düşürülebilir.
+4. Bearer'ın audience kuralı `aud` alanını tam olarak `"account"` dizgisi olarak arıyor. K2 reconcile'dan sonra kullanıcı token'ı `["account","core"]` taşıdığı için bu kural gevşetilmeli (kümenin `account` içermesi yeterli olmalı), yoksa intake her çağrıyı reddeder.
+
+Bu dört madde Core PR'ı ve sürümü gerektirir; A7 kapsamında Core'a dokunulmadı.
 
 ## Saklama ve temizlik
 
