@@ -129,11 +129,51 @@ test("requires a verified, safely bounded upstream session maximum", () => {
   );
 });
 
-test("accepts only the documented trusted proxy boundary", () => {
-  assert.throws(
-    () => validateEnvironment({ ...valid, AUTH_TRUSTED_PROXY: "x-forwarded-for" }),
-    /cloudflare/,
-  );
+test("accepts only the three documented trusted proxy boundaries", () => {
+  for (const mode of ["cloudflare", "traefik", "none"]) {
+    assert.doesNotThrow(() => validateEnvironment({ ...valid, AUTH_TRUSTED_PROXY: mode }));
+  }
+  for (const invalid of ["x-forwarded-for", "Traefik", "traefik,none", "<proxy>"]) {
+    assert.throws(
+      () => validateEnvironment({ ...valid, AUTH_TRUSTED_PROXY: invalid }),
+      /AUTH_TRUSTED_PROXY must be cloudflare, traefik or none/,
+    );
+  }
+});
+
+test("accepts only canonical CIDR blocks as trusted proxy ranges", () => {
+  const traefik = { ...valid, AUTH_TRUSTED_PROXY: "traefik" };
+  assert.doesNotThrow(() => validateEnvironment(traefik));
+  for (const ranges of [
+    "10.0.0.0/8",
+    " 10.0.1.0/24 , 172.16.0.0/12 ",
+    "::1/128,fc00::/7",
+    "0.0.0.0/0",
+    "::ffff:0:0/96",
+  ]) {
+    assert.doesNotThrow(
+      () => validateEnvironment({ ...traefik, AUTH_TRUSTED_PROXY_RANGES: ranges }),
+      ranges,
+    );
+  }
+  for (const ranges of [
+    "10.0.0.1/8",
+    "10.0.0.0",
+    "10.0.0.0/33",
+    "10.0.0.0/8/8",
+    "::1/129",
+    "2001:db8::1/32",
+    "fe80::1%eth0/64",
+    "10.0.0.0/08",
+    "not-an-address/8",
+    ",",
+  ]) {
+    assert.throws(
+      () => validateEnvironment({ ...traefik, AUTH_TRUSTED_PROXY_RANGES: ranges }),
+      /AUTH_TRUSTED_PROXY_RANGES/,
+      ranges,
+    );
+  }
 });
 
 test("requires pinned native bridge transport credentials", () => {

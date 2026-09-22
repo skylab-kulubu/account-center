@@ -21,7 +21,7 @@ Browser cookie’sinde yalnız 256-bit rastgele bir opaque handle bulunur; verit
 
 Keycloak backchannel logout RS256/JWKS, issuer, audience, event, `sid|sub`, `iat` ve `jti` doğrulamasından sonra JTI replay kaydını ve session hard-delete işlemini tek PostgreSQL transaction’ında yapar. Local logout session ve token ciphertext’i önce hard-delete eder, varsa refresh token’ı Keycloak revocation endpoint’inde best-effort iptal eder; upstream çağrı başarısız olsa bile yerel erişim ve cookie geri gelmez.
 
-Anonymous login/callback limiti PostgreSQL’de atomiktir. İstemci adresi yalnız güvenilen Cloudflare sınırından alınır ve bellekte normalize edildikten hemen sonra HMAC’lenir; ham IP veritabanına veya loglara yazılmaz. Edge güven varsayımları [ayrı sözleşmede](auth-edge-trust.md) tanımlıdır.
+Anonymous login/callback limiti PostgreSQL’de atomiktir. İstemci adresi yalnız `AUTH_TRUSTED_PROXY` ile seçilen güvenilen kenardan (önde Traefik varsa `X-Forwarded-For`, Cloudflare proxy'si açıksa `CF-Connecting-IP`, `none` modunda hiçbir başlık) alınır ve bellekte normalize edildikten hemen sonra HMAC’lenir; ham IP veritabanına veya loglara yazılmaz. Edge güven varsayımları [ayrı sözleşmede](auth-edge-trust.md) tanımlıdır.
 
 Opaque session kullanımı iki aşamalıdır: PostgreSQL’den salt-okunur aday subject çözülür, tek Redis `MGET` ile contract ve marker birlikte okunur, yalnız `active` kararından sonra aynı handle atomik olarak yeniden doğrulanıp touch/rotate edilir. `blocked` bütün yerel subject session’larını revoke eder ve cookie’yi güvenli temizlik rotasında sonlandırır. `unavailable` session zamanlarını ve ürün verisini değiştirmez. Local ve backchannel logout bu gate’i atlar; yalnız mevcut session’ı yok eder ve korunan veri açmaz.
 

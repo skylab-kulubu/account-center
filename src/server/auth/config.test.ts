@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getAuthConfig } from "@/server/auth/config";
+import { trustedClientAddress } from "@/server/auth/rate-limit";
 import appUrlContract from "../../../tests/fixtures/app-url-contract.json";
 import issuerContract from "../../../tests/fixtures/oidc-issuer-contract.json";
 
@@ -96,6 +97,41 @@ describe("authentication configuration", () => {
       mode: "enforce",
       coreApiUrl: new URL("https://api.yildizskylab.com"),
     });
+  });
+
+  it("accepts exactly the three documented edge topologies", () => {
+    environment("3600");
+    expect(getAuthConfig().trustedProxy).toBe("cloudflare");
+    for (const mode of ["traefik", "none"] as const) {
+      process.env.AUTH_TRUSTED_PROXY = mode;
+      expect(getAuthConfig().trustedProxy).toBe(mode);
+    }
+    for (const invalid of ["", "  ", "x-forwarded-for", "Traefik", "traefik,none", "<proxy>"]) {
+      process.env.AUTH_TRUSTED_PROXY = invalid;
+      expect(() => getAuthConfig()).toThrow(/AUTH_TRUSTED_PROXY/);
+    }
+  });
+
+  it("defaults the trusted proxy ranges to the private networks and rejects a loose override", () => {
+    environment("3600");
+    process.env.AUTH_TRUSTED_PROXY = "traefik";
+    const request = { headers: new Headers({ "x-forwarded-for": "203.0.113.42, 10.0.1.109" }) };
+    expect(getAuthConfig().trustedProxyRanges).toHaveLength(6);
+    expect(
+      trustedClientAddress(request, "traefik", getAuthConfig().trustedProxyRanges),
+    ).toBe("203.0.113.42");
+
+    // Narrowing the set turns a former hop back into a client address of its own.
+    process.env.AUTH_TRUSTED_PROXY_RANGES = " 192.168.0.0/16 , ::1/128 ";
+    expect(getAuthConfig().trustedProxyRanges).toHaveLength(2);
+    expect(
+      trustedClientAddress(request, "traefik", getAuthConfig().trustedProxyRanges),
+    ).toBe("10.0.1.109");
+
+    for (const invalid of ["10.0.0.1/8", "10.0.0.0", "10.0.0.0/33", "fe80::1%eth0/64", ",", "private"]) {
+      process.env.AUTH_TRUSTED_PROXY_RANGES = invalid;
+      expect(() => getAuthConfig()).toThrow(/AUTH_TRUSTED_PROXY_RANGES/);
+    }
   });
 
   it("defaults the YTÜ identity provider alias to OBS and accepts only a URL-safe alias", () => {

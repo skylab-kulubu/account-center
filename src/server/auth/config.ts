@@ -1,12 +1,25 @@
 import "server-only";
 
+import {
+  AUTH_TRUSTED_PROXY_MODES,
+  DEFAULT_TRUSTED_PROXY_RANGES,
+  parseTrustedProxyRanges,
+} from "@/server/auth/trusted-proxy";
+import type { AuthTrustedProxy, TrustedProxyRange } from "@/server/auth/trusted-proxy";
+
 export type AuthConfig = {
   appUrl: URL;
   issuer: URL;
   clientId: string;
   clientSecret: string;
   upstreamSessionMaxSeconds: number;
-  trustedProxy: "cloudflare";
+  /** Which edge this deployment reads the visitor address from; see `docs/auth-edge-trust.md`. */
+  trustedProxy: AuthTrustedProxy;
+  /**
+   * CIDR blocks that are skipped as proxy hops while reading `X-Forwarded-For`
+   * in `traefik` mode. Every peer inside the set may present a client address.
+   */
+  trustedProxyRanges: readonly TrustedProxyRange[];
   databaseUrl: string;
   sessionHmacKey: Buffer;
   tokenEncryptionKey: Buffer;
@@ -104,6 +117,26 @@ function coreApiUrlConfig(): URL | null {
   return coreApiUrl;
 }
 
+function trustedProxyConfig(): AuthTrustedProxy {
+  const value = required("AUTH_TRUSTED_PROXY");
+  const mode = AUTH_TRUSTED_PROXY_MODES.find((candidate) => candidate === value);
+  if (!mode) {
+    throw new Error("AUTH_TRUSTED_PROXY must be cloudflare, traefik or none.");
+  }
+  return mode;
+}
+
+function trustedProxyRangesConfig(): readonly TrustedProxyRange[] {
+  const value = process.env.AUTH_TRUSTED_PROXY_RANGES?.trim() || DEFAULT_TRUSTED_PROXY_RANGES;
+  const ranges = parseTrustedProxyRanges(value);
+  if (!ranges) {
+    throw new Error(
+      "AUTH_TRUSTED_PROXY_RANGES must be a comma-separated list of canonical CIDR blocks.",
+    );
+  }
+  return ranges;
+}
+
 function ytuIdpAliasConfig() {
   const value = process.env.YTU_IDP_ALIAS?.trim();
   if (!value) return DEFAULT_YTU_IDP_ALIAS;
@@ -143,10 +176,8 @@ export function getAuthConfig(): AuthConfig {
     60,
     30 * 24 * 60 * 60,
   );
-  const trustedProxy = required("AUTH_TRUSTED_PROXY");
-  if (trustedProxy !== "cloudflare") {
-    throw new Error("AUTH_TRUSTED_PROXY must be cloudflare.");
-  }
+  const trustedProxy = trustedProxyConfig();
+  const trustedProxyRanges = trustedProxyRangesConfig();
   const nativeBridgeMtlsClientSha256 = required("NATIVE_BRIDGE_MTLS_CLIENT_SHA256");
   if (!/^[a-f0-9]{64}$/.test(nativeBridgeMtlsClientSha256)) {
     throw new Error("NATIVE_BRIDGE_MTLS_CLIENT_SHA256 must be a lowercase SHA-256 fingerprint.");
@@ -174,6 +205,7 @@ export function getAuthConfig(): AuthConfig {
     clientSecret: required("OIDC_CLIENT_SECRET"),
     upstreamSessionMaxSeconds,
     trustedProxy,
+    trustedProxyRanges,
     databaseUrl: required("DATABASE_URL"),
     sessionHmacKey,
     tokenEncryptionKey,

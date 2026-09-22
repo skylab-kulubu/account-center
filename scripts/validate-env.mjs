@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { isAbsolute } from "node:path";
 
 const required = [
@@ -28,6 +29,79 @@ const forbiddenPublicSecrets = [
 ];
 
 const placeholderPattern = /(?:change[-_ ]?me|replace[-_ ]?with|example|placeholder|<[^>]+>)/i;
+
+/** Mirrors AUTH_TRUSTED_PROXY_MODES in src/server/auth/trusted-proxy.ts. */
+const trustedProxyModes = ["cloudflare", "traefik", "none"];
+/** Mirrors DEFAULT_TRUSTED_PROXY_RANGES in src/server/auth/trusted-proxy.ts. */
+const defaultTrustedProxyRanges = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128,fc00::/7";
+
+function ipv4Bytes(value) {
+  return Uint8Array.from(value.split(".").map(Number));
+}
+
+function ipv6Bytes(value) {
+  let text = value;
+  const embeddedIpv4 = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(text);
+  if (embeddedIpv4) {
+    const quads = ipv4Bytes(embeddedIpv4[1]);
+    text = `${text.slice(0, embeddedIpv4.index)}${((quads[0] << 8) | quads[1]).toString(16)}:${((quads[2] << 8) | quads[3]).toString(16)}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const headGroups = halves[0] ? halves[0].split(":") : [];
+  const tailGroups = halves[1] ? halves[1].split(":") : [];
+  const missing = 8 - headGroups.length - tailGroups.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 0) return null;
+  const groups = [
+    ...headGroups,
+    ...(halves.length === 1 ? [] : Array.from({ length: missing }, () => "0")),
+    ...tailGroups,
+  ];
+  const bytes = new Uint8Array(16);
+  for (const [index, group] of groups.entries()) {
+    const word = Number.parseInt(group, 16);
+    if (!Number.isInteger(word) || word < 0 || word > 0xffff) return null;
+    bytes[index * 2] = word >> 8;
+    bytes[index * 2 + 1] = word & 0xff;
+  }
+  return bytes;
+}
+
+function ipBytes(value) {
+  if (value.includes("%")) return null;
+  const version = isIP(value);
+  if (version === 4) return ipv4Bytes(value);
+  if (version === 6) return ipv6Bytes(value);
+  return null;
+}
+
+/** A CIDR block whose host bits are all zero, so nothing wider than written is trusted. */
+function isCanonicalCidr(entry) {
+  const separator = entry.indexOf("/");
+  if (separator < 0) return false;
+  const bytes = ipBytes(entry.slice(0, separator));
+  const prefix = entry.slice(separator + 1);
+  if (!bytes || !/^(?:0|[1-9]\d{0,2})$/.test(prefix)) return false;
+  const prefixLength = Number(prefix);
+  if (prefixLength > bytes.length * 8) return false;
+  return bytes.every((byte, index) => {
+    const significant = Math.min(8, Math.max(0, prefixLength - index * 8));
+    return byte === (significant === 0 ? 0 : byte & ((0xff << (8 - significant)) & 0xff));
+  });
+}
+
+function validateTrustedProxyEnvironment(env, mode) {
+  if (!trustedProxyModes.includes(mode)) {
+    throw new Error("AUTH_TRUSTED_PROXY must be cloudflare, traefik or none.");
+  }
+  const value = env.AUTH_TRUSTED_PROXY_RANGES?.trim() || defaultTrustedProxyRanges;
+  const entries = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (entries.length === 0 || !entries.every(isCanonicalCidr)) {
+    throw new Error(
+      "AUTH_TRUSTED_PROXY_RANGES must be a comma-separated list of canonical CIDR blocks.",
+    );
+  }
+}
 
 function requireHttpsUrl(name, value) {
   try {
@@ -270,9 +344,7 @@ export function validateEnvironment(env) {
   ) {
     throw new Error("OIDC_UPSTREAM_SESSION_MAX_SECONDS is outside the safe range.");
   }
-  if (values.AUTH_TRUSTED_PROXY !== "cloudflare") {
-    throw new Error("AUTH_TRUSTED_PROXY must be cloudflare.");
-  }
+  validateTrustedProxyEnvironment(env, values.AUTH_TRUSTED_PROXY);
 
   requireHttpsOrigin("APP_URL", values.APP_URL);
   requireOidcIssuer(values.OIDC_ISSUER);
