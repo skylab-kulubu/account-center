@@ -9,6 +9,7 @@ import {
 } from "@/server/sky-account/problem";
 import {
   parseCredential,
+  parseEmailChangeRequest,
   parseIdentity,
   parseSudoGrant,
   parseTotpSetup,
@@ -21,7 +22,10 @@ import type {
   BearerAuthorization,
   ChangePasswordInput,
   ChangeUsernameInput,
+  EmailChangeInput,
+  EmailConfirmInput,
   PatchNameInput,
+  PrimaryEmailInput,
   RegisterPasskeyInput,
   SkyAccountClient,
   SudoAuthenticationInput,
@@ -64,6 +68,11 @@ const TOTP_CODE = /^\d{4,10}$/;
 const CREDENTIAL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 const SETUP_HANDLE = /^[A-Za-z0-9_-]{1,255}$/;
 const BEARER_TOKEN = /^[\x21-\x7e]{1,8192}$/;
+/** RFC 5321 path limit; the shape check only keeps obvious non-addresses local, Keycloak's validator decides. */
+const MAX_EMAIL_LENGTH = 254;
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
+const EMAIL_CODE = /^\d{6}$/;
+const primaryChoices = new Set(["school", "personal"]);
 
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -76,7 +85,7 @@ type RequestSpec = {
   sudo?: string;
   body?: JsonBody;
   maxRequestBytes?: number;
-  expectedStatus: 200 | 201 | 204;
+  expectedStatus: 200 | 201 | 202 | 204;
 };
 
 function requireToken(value: string, field: string) {
@@ -100,6 +109,18 @@ function requireSecret(value: string, field: string, maximum = 1_024) {
 function requireCode(value: string, field: string) {
   if (!TOTP_CODE.test(value)) throw new SkyAccountInvalidInputError(field);
   return value;
+}
+
+function requireAddress(value: string) {
+  const address = typeof value === "string" ? value.trim() : "";
+  if (address.length > MAX_EMAIL_LENGTH || !EMAIL_SHAPE.test(address)) throw new SkyAccountInvalidInputError("address");
+  return address;
+}
+
+function requireEmailCode(value: string) {
+  const code = typeof value === "string" ? value.replace(/\s+/g, "") : "";
+  if (!EMAIL_CODE.test(code)) throw new SkyAccountInvalidInputError("code");
+  return code;
 }
 
 function requireUsername(value: string) {
@@ -387,5 +408,60 @@ export class SkyAccountHttpClient implements SkyAccountClient {
       sudo: auth.sudoToken,
       expectedStatus: 204,
     });
+  }
+
+  /**
+   * Mails a six-digit code to a new Personal e-mail (`202 { expiresAt }`).
+   * Nothing is written to the person yet; a second request replaces the
+   * first and kills its code. The address is only trimmed here: the SPI
+   * lower-cases it and runs Keycloak's validator, and it never reaches a
+   * log line on either side.
+   */
+  async requestEmailChange(auth: SudoAuthorization, input: EmailChangeInput) {
+    return parseEmailChangeRequest(await this.#call({
+      method: "POST",
+      path: "email/change-request",
+      auth,
+      sudo: auth.sudoToken,
+      body: { address: requireAddress(input.address) },
+      expectedStatus: 202,
+    }));
+  }
+
+  /**
+   * Proves the pending address with the mailed code. Bearer only, no sudo:
+   * the SPI compares the code with the caller's own pending change, so a
+   * code read by anyone else cannot attach the address to another account.
+   */
+  async confirmEmail(auth: BearerAuthorization, input: EmailConfirmInput) {
+    return parseIdentity(await this.#call({
+      method: "POST",
+      path: "email/confirm",
+      auth,
+      body: { code: requireEmailCode(input.code) },
+      expectedStatus: 200,
+    }));
+  }
+
+  async setPrimaryEmail(auth: SudoAuthorization, input: PrimaryEmailInput) {
+    if (!primaryChoices.has(input.which)) throw new SkyAccountInvalidInputError("which");
+    return parseIdentity(await this.#call({
+      method: "POST",
+      path: "email/primary",
+      auth,
+      sudo: auth.sudoToken,
+      body: { which: input.which },
+      expectedStatus: 200,
+    }));
+  }
+
+  async removePersonalEmail(auth: SudoAuthorization) {
+    return parseIdentity(await this.#call({
+      method: "DELETE",
+      path: "email/personal",
+      auth,
+      sudo: auth.sudoToken,
+      expectedStatus: 200,
+    }));
   }
 }

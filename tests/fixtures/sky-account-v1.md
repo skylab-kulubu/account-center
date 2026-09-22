@@ -4,7 +4,14 @@ These JSON documents pin the sky-account Keycloak extension responses that
 Account Center consumes, as specified in `docs/sky-account-api.md` (v1):
 
 - `sky-account-v1-identity.json`: `GET identity`, also the body of
-  `PATCH identity/name` and `POST identity/username`.
+  `PATCH identity/name`, `POST identity/username`, `POST email/confirm`,
+  `POST email/primary` and `DELETE email/personal`. `personalEmailVerified`
+  arrived with the e-mail endpoints; the client reads its absence (an older
+  release) as "not proven".
+- `sky-account-v1-email-change-request.json`: `202` body of
+  `POST email/change-request`, the deadline of the mailed six-digit code
+  (ten minutes). The request body (`{ address }`) and the code are never
+  pinned as fixtures.
 - `sky-account-v1-sudo-grant.json`: `POST sudo/password`, `POST sudo/totp` and
   `POST sudo/webauthn/verify`. The token is an opaque, Keycloak-signed JWT; the
   fixture signature is not verifiable and the client never inspects it.
@@ -42,6 +49,10 @@ Account Center consumes, as specified in `docs/sky-account-api.md` (v1):
   documented `code`, with the pinned HTTP status (`webauthn_invalid` and
   `webauthn_origin_not_allowed` are pinned in their sudo form, `401`; the
   registration form answers `400` and the client accepts both).
+  `invalid_email_code` carries `attemptsLeft` (`0`: the code is dead and a
+  new one must be requested). The `email_not_verified` detail is the SPI's
+  own sentence, which still speaks of a link; Account Center does not show
+  it and words the refusal itself.
 
 `POST credentials/password` and `DELETE credentials/{id}` answer `204` without
 a body. The client rejects unknown fields, unknown problem codes and any
