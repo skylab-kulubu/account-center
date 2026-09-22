@@ -1,0 +1,12 @@
+{
+  "id": "PaGGIS6jqmHYGpXjzLHHz6h2xihNMIYS7T_fqm6zELE",
+  "rawId": "PaGGIS6jqmHYGpXjzLHHz6h2xihNMIYS7T_fqm6zELE",
+  "type": "public-key",
+  "response": {
+    "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiWms5RWpmSW1xOU9JTXBCLTR1dW1JUmQyWTVEUEU3cXRCOUswR2pMQzJQWSIsIm9yaWdpbiI6Imh0dHBzOi8vbXkueWlsZGl6c2t5bGFiLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+    "authenticatorData": "ttocO2_qh8e7ISvJf-jXS7_zaC3jJHXTjM3sGT0s1t0FAAAABw",
+    "signature": "UvImZaYMEtKJGF2VDuiBNgkWb2sRPReNbA_TkB_yOaGglfIPk5VlDPk4C47bIkprJIoekk6P0K4uGpSSozBfGIy2EJAPng",
+    "userHandle": "MTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTEx"
+  },
+  "clientExtensionResults": {}
+}

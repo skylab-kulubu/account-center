@@ -1,41 +1,53 @@
 import "server-only";
 
 /**
- * RFC 7807 problem codes of sky-account API v1 with their pinned HTTP status.
- * `code` is the stable branching key for the BFF; `detail` is the Turkish
- * sentence that may be shown to the person.
+ * RFC 7807 problem codes of sky-account API v1 with their pinned HTTP
+ * statuses. `code` is the stable branching key for the BFF; `detail` is the
+ * Turkish sentence that may be shown to the person. A response whose status
+ * is not one pinned for its code (or whose body disagrees with the wire
+ * status) is a contract error.
  */
 export const skyAccountProblemStatuses = {
-  unauthorized: 401,
-  sudo_required: 401,
-  sudo_expired: 401,
-  invalid_credentials: 401,
-  user_temporarily_locked: 401,
-  user_disabled: 401,
-  invalid_request: 400,
-  password_not_configured: 400,
-  totp_not_configured: 400,
-  password_policy: 400,
-  password_rejected: 400,
-  totp_setup_expired: 400,
-  invalid_totp_code: 400,
-  invalid_name: 400,
-  invalid_username: 400,
-  name_locked: 403,
-  credential_not_found: 404,
-  duplicate_label: 409,
-  username_taken: 409,
-  username_cooldown: 409,
-  rate_limited: 429,
-  unmanaged_attributes_enabled: 503,
-  internal_error: 500,
-} as const;
+  unauthorized: [401],
+  sudo_required: [401],
+  sudo_expired: [401],
+  invalid_credentials: [401],
+  user_temporarily_locked: [401],
+  user_disabled: [401],
+  invalid_request: [400],
+  password_not_configured: [400],
+  totp_not_configured: [400],
+  passkey_not_registered: [400],
+  webauthn_challenge_expired: [400],
+  /** Registration answers 400, sudo answers 401 (`docs/sky-account-api.md`, Hata biçimi). */
+  webauthn_invalid: [400, 401],
+  webauthn_origin_not_allowed: [400, 401],
+  password_policy: [400],
+  password_rejected: [400],
+  totp_setup_expired: [400],
+  invalid_totp_code: [400],
+  invalid_name: [400],
+  invalid_username: [400],
+  name_locked: [403],
+  credential_not_found: [404],
+  duplicate_label: [409],
+  passkey_already_registered: [409],
+  username_taken: [409],
+  username_cooldown: [409],
+  rate_limited: [429],
+  unmanaged_attributes_enabled: [503],
+  webauthn_not_configured: [503],
+  internal_error: [500],
+} as const satisfies Record<string, readonly number[]>;
 
 export type SkyAccountProblemCode = keyof typeof skyAccountProblemStatuses;
 
+export type SkyAccountProblemStatus =
+  (typeof skyAccountProblemStatuses)[SkyAccountProblemCode][number];
+
 export type SkyAccountProblemDetails = {
   code: SkyAccountProblemCode;
-  status: (typeof skyAccountProblemStatuses)[SkyAccountProblemCode];
+  status: SkyAccountProblemStatus;
   detail: string;
   retryAfter: number | null;
   field: string | null;
@@ -126,10 +138,10 @@ export function parseSkyAccountProblem(
 ): SkyAccountProblem | null {
   if (!isRecord(body) || !isProblemCode(body.code)) return null;
   const code = body.code;
-  const status = skyAccountProblemStatuses[code];
+  const statuses: readonly number[] = skyAccountProblemStatuses[code];
   if (
-    responseStatus !== status ||
-    body.status !== status ||
+    !statuses.includes(responseStatus) ||
+    body.status !== responseStatus ||
     body.type !== `${PROBLEM_TYPE_PREFIX}${code}` ||
     typeof body.detail !== "string" ||
     body.detail.length === 0 ||
@@ -155,7 +167,7 @@ export function parseSkyAccountProblem(
     : null;
   return new SkyAccountProblem({
     code,
-    status,
+    status: responseStatus as SkyAccountProblemStatus,
     detail: body.detail,
     retryAfter: bodyRetryAfter ?? headerRetryAfter,
     field: body.field ?? null,

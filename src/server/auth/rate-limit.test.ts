@@ -74,4 +74,30 @@ describe("anonymous auth rate limiting", () => {
     expect(results.filter((result) => result.allowed)).toHaveLength(limit);
     expect(results.at(-1)).toMatchObject({ allowed: false, retryAfterSeconds: 50 });
   });
+
+  it.each([
+    ["sudo" as const, 10],
+    ["sudo_options" as const, 30],
+  ])("caps %s attempts per session at %d in a fixed 15-minute window", async (scope, limit) => {
+    const repository = new CapturingRateLimits();
+    const limiter = new AnonymousAuthRateLimiter(
+      repository,
+      Buffer.alloc(32, 3),
+      "cloudflare",
+      () => new Date("2026-09-20T00:07:30Z"),
+    );
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+
+    const results = [];
+    for (let index = 0; index <= limit; index += 1) {
+      results.push(await limiter.consumeKey(scope, sessionId));
+    }
+    expect(results.filter((result) => result.allowed)).toHaveLength(limit);
+    expect(results.at(-1)).toMatchObject({ allowed: false, retryAfterSeconds: 450 });
+    expect(repository.inputs[0]?.windowStartedAt).toEqual(new Date("2026-09-20T00:00:00Z"));
+    expect(repository.inputs[0]?.windowExpiresAt).toEqual(new Date("2026-09-20T00:15:00Z"));
+    expect(repository.inputs[0]?.keyHash.toString("utf8")).not.toContain(sessionId);
+    await limiter.consumeKey(scope, "22222222-2222-4222-8222-222222222222");
+    expect(repository.inputs.at(-1)?.keyHash.equals(repository.inputs[0]!.keyHash)).toBe(false);
+  });
 });

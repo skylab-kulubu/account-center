@@ -60,10 +60,23 @@ export type AccountDeletionReauthenticationTransactionPayload = OidcTransactionB
   initiatedAt: string;
 };
 
+/**
+ * Sudo mode's Microsoft fallback: a `prompt=login&max_age=0` round trip bound
+ * to the current BFF session that, on return, marks sudo for five minutes
+ * from the signed `auth_time`.
+ */
+export type SudoReauthenticationTransactionPayload = OidcTransactionBase & {
+  purpose: "sudo-reauthentication";
+  expectedSubject: string;
+  expectedSessionId: string;
+  initiatedAt: string;
+};
+
 export type OidcTransactionPayload =
   | LoginOidcTransactionPayload
   | AccountActionTransactionPayload
-  | AccountDeletionReauthenticationTransactionPayload;
+  | AccountDeletionReauthenticationTransactionPayload
+  | SudoReauthenticationTransactionPayload;
 
 export type StoredOidcTransaction = {
   id: string;

@@ -10,14 +10,24 @@ export type AnonymousAuthRateLimitScope =
   | "callback"
   | "native_create"
   | "native_consume"
-  | "native_redeem";
+  | "native_redeem"
+  | "sudo"
+  | "sudo_options";
 
+/**
+ * `sudo` and `sudo_options` are keyed by the local session id (`consumeKey`)
+ * and mirror the sky-account budgets (10 proofs and 30 option requests per
+ * fixed 15-minute window) so a session cannot burn the person's upstream
+ * budget or the realm brute-force counter from this side.
+ */
 const policies: Record<AnonymousAuthRateLimitScope, { limit: number; windowSeconds: number }> = {
   login: { limit: 10, windowSeconds: 60 },
   callback: { limit: 30, windowSeconds: 60 },
   native_create: { limit: 10, windowSeconds: 60 },
   native_consume: { limit: 30, windowSeconds: 60 },
   native_redeem: { limit: 120, windowSeconds: 60 },
+  sudo: { limit: 10, windowSeconds: 15 * 60 },
+  sudo_options: { limit: 30, windowSeconds: 15 * 60 },
 };
 
 function canonicalIp(value: string) {

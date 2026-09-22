@@ -7,6 +7,8 @@ import type {
   SkyAccountIdentity,
   SudoGrant,
   TotpSetup,
+  WebauthnAssertion,
+  WebauthnAssertionOptions,
 } from "@/server/sky-account/types";
 
 /**
@@ -21,6 +23,19 @@ type JsonObject = Record<string, unknown>;
 const RFC3339_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 const BASE32 = /^[A-Z2-7]{16,128}={0,6}$/;
 const BASE64URL = /^[A-Za-z0-9_-]{1,255}$/;
+/** RFC 4648 §5 without padding, as the SPI produces; padded input is accepted too. */
+const BASE64URL_BYTES = /^[A-Za-z0-9_-]+={0,2}$/;
+const WEBAUTHN_CHALLENGE_LENGTH = 1_024;
+const WEBAUTHN_CREDENTIAL_ID_LENGTH = 1_366;
+const WEBAUTHN_CLIENT_DATA_LENGTH = 8_192;
+const WEBAUTHN_AUTHENTICATOR_DATA_LENGTH = 8_192;
+const WEBAUTHN_SIGNATURE_LENGTH = 4_096;
+const WEBAUTHN_USER_HANDLE_LENGTH = 1_024;
+const WEBAUTHN_TRANSPORT = /^[a-z][a-z0-9-]{0,31}$/;
+const MAX_ALLOW_CREDENTIALS = 64;
+const MAX_TRANSPORTS = 8;
+const MAX_WEBAUTHN_TIMEOUT_MS = 60 * 60 * 1_000;
+const userVerificationValues = new Set(["required", "preferred", "discouraged"]);
 const CREDENTIAL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 const MAX_CREDENTIALS = 64;
 const credentialTypes = new Set(["otp", "webauthn-passwordless", "webauthn"]);
@@ -164,6 +179,114 @@ export function parseTotpSetup(value: unknown): TotpSetup {
       algorithm: value.policy.algorithm as TotpSetup["policy"]["algorithm"],
       digits: value.policy.digits,
       period: value.policy.period,
+    },
+  };
+}
+
+function base64UrlBytes(value: unknown, maximum: number): value is string {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= maximum &&
+    BASE64URL_BYTES.test(value) &&
+    (value.replace(/=+$/, "").length % 4) !== 1;
+}
+
+function parseTransports(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_TRANSPORTS ||
+    !value.every((transport) => typeof transport === "string" && WEBAUTHN_TRANSPORT.test(transport))
+  ) {
+    throw new SkyAccountContractError();
+  }
+  return [...(value as string[])];
+}
+
+export function parseWebauthnAssertionOptions(value: unknown): WebauthnAssertionOptions {
+  if (
+    !isObject(value) ||
+    !base64UrlBytes(value.challenge, WEBAUTHN_CHALLENGE_LENGTH) ||
+    !requiredString(value.rpId, 253) ||
+    !Array.isArray(value.allowCredentials) ||
+    value.allowCredentials.length > MAX_ALLOW_CREDENTIALS ||
+    typeof value.userVerification !== "string" ||
+    !userVerificationValues.has(value.userVerification) ||
+    (value.timeout !== undefined &&
+      (typeof value.timeout !== "number" ||
+        !Number.isSafeInteger(value.timeout) ||
+        value.timeout < 1 ||
+        value.timeout > MAX_WEBAUTHN_TIMEOUT_MS))
+  ) {
+    throw new SkyAccountContractError();
+  }
+  const seen = new Set<string>();
+  const allowCredentials = value.allowCredentials.map((item) => {
+    if (
+      !isObject(item) ||
+      item.type !== "public-key" ||
+      !base64UrlBytes(item.id, WEBAUTHN_CREDENTIAL_ID_LENGTH) ||
+      seen.has(item.id)
+    ) {
+      throw new SkyAccountContractError();
+    }
+    seen.add(item.id);
+    const transports = parseTransports(item.transports);
+    return {
+      type: "public-key" as const,
+      id: item.id,
+      ...(transports ? { transports } : {}),
+    };
+  });
+  return {
+    challenge: value.challenge,
+    rpId: value.rpId,
+    allowCredentials,
+    userVerification: value.userVerification as WebauthnAssertionOptions["userVerification"],
+    ...(value.timeout !== undefined ? { timeout: value.timeout } : {}),
+  };
+}
+
+/**
+ * Validates the `PublicKeyCredential` JSON the browser produced for
+ * `POST sudo/webauthn/verify`. Only the members the sudo contract lists are
+ * copied: `authenticatorAttachment` (registration only) and the free-form
+ * `clientExtensionResults` are dropped, because the SPI rejects unknown
+ * members and must never see anything the page added. The assertion itself
+ * stays opaque.
+ */
+export function parseWebauthnAssertion(value: unknown): WebauthnAssertion | null {
+  if (
+    !isObject(value) ||
+    !base64UrlBytes(value.id, WEBAUTHN_CREDENTIAL_ID_LENGTH) ||
+    value.rawId !== value.id ||
+    value.type !== "public-key" ||
+    !isObject(value.response) ||
+    !base64UrlBytes(value.response.clientDataJSON, WEBAUTHN_CLIENT_DATA_LENGTH) ||
+    !base64UrlBytes(value.response.authenticatorData, WEBAUTHN_AUTHENTICATOR_DATA_LENGTH) ||
+    !base64UrlBytes(value.response.signature, WEBAUTHN_SIGNATURE_LENGTH) ||
+    (value.response.userHandle !== undefined &&
+      value.response.userHandle !== null &&
+      !base64UrlBytes(value.response.userHandle, WEBAUTHN_USER_HANDLE_LENGTH)) ||
+    (value.clientExtensionResults !== undefined && !isObject(value.clientExtensionResults))
+  ) {
+    return null;
+  }
+  const response = value.response as {
+    clientDataJSON: string;
+    authenticatorData: string;
+    signature: string;
+    userHandle?: string | null;
+  };
+  return {
+    id: value.id,
+    rawId: value.id,
+    type: "public-key",
+    response: {
+      clientDataJSON: response.clientDataJSON,
+      authenticatorData: response.authenticatorData,
+      signature: response.signature,
+      ...(typeof response.userHandle === "string" ? { userHandle: response.userHandle } : {}),
     },
   };
 }
