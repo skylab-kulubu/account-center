@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import type { OidcTransactionRepository } from "@/server/auth/repositories";
 import type { StoredOidcTransaction } from "@/server/auth/types";
+import { accountRoutes } from "@/config/account-routes";
 import { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 
 class MemoryTransactions implements OidcTransactionRepository {
@@ -48,6 +49,30 @@ describe("OidcTransactionStore", () => {
     await expect(store.consume(payload.state, browserBinding)).resolves.toEqual(payload);
     await expect(store.consume(payload.state, browserBinding)).resolves.toBeNull();
     await expect(store.consume("x".repeat(43), browserBinding)).resolves.toBeNull();
+  });
+
+  it("keeps a login transaction for every account page, including the e-mail page, and refuses any other path", async () => {
+    const store = new OidcTransactionStore(
+      new MemoryTransactions(),
+      new AesGcmSecretCipher(Buffer.alloc(32, 7)),
+      300,
+      () => new Date("2026-09-23T00:00:00Z"),
+    );
+    const browserBinding = "b".repeat(43);
+    const paths = [...accountRoutes.map(({ href }) => href), "/email"];
+    for (const [index, returnTo] of paths.entries()) {
+      const payload = {
+        state: `${String.fromCharCode(97 + index)}${"s".repeat(42)}`,
+        nonce: "n".repeat(43),
+        codeVerifier: "v".repeat(43),
+        returnTo,
+      };
+      await store.create(payload, browserBinding);
+      await expect(store.consume(payload.state, browserBinding)).resolves.toEqual(payload);
+    }
+    const foreign = { state: "z".repeat(43), nonce: "n".repeat(43), codeVerifier: "v".repeat(43), returnTo: "/emails" };
+    await store.create(foreign, browserBinding);
+    await expect(store.consume(foreign.state, browserBinding)).resolves.toBeNull();
   });
 
   it("rejects expired transactions", async () => {
