@@ -11,8 +11,16 @@ import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import { getAuthServices } from "@/server/auth/services";
 import { requireAccountSpiSudo } from "@/server/auth/sudo-gate";
 import type { BrowserSession } from "@/server/auth/types";
-import { emailView } from "@/server/email/view";
-import type { EmailPayload, PendingEmailPayload } from "@/server/email/view";
+import {
+  checkEmailAddress,
+  checkEmailCode,
+  emailAddressMessage,
+  emailCodeMessage,
+  isPrimaryEmailChoice,
+} from "@/lib/email-fields";
+import type { PrimaryEmailChoice } from "@/lib/email-fields";
+import { emailChangeView, emailView, pendingEmailView } from "@/server/email/view";
+import type { EmailChangePayload, EmailPayload, PendingEmailPayload } from "@/server/email/view";
 import {
   authenticateMutation,
   failureResponse as accountFailureResponse,
@@ -28,10 +36,6 @@ type Session = BrowserSession["session"];
 type AddressAction = NonNullable<Parameters<typeof logAuthEvent>[0]["addressAction"]>;
 type FailureReason = NonNullable<Parameters<typeof logAuthEvent>[0]["reason"]>;
 
-/** RFC 5321 path limit; only obvious non-addresses stop here, Keycloak's own validator decides the rest. */
-const MAX_ADDRESS_LENGTH = 254;
-const ADDRESS_SHAPE = /^[^\s@]+@[^\s@]+$/;
-const EMAIL_CODE = /^\d{6}$/;
 
 /**
  * Body of the e-mail routes' own non-2xx answers; everything else (session,
@@ -52,6 +56,8 @@ export type EmailRouteProblem = {
     | "email_not_verified"
     | "no_fallback_email"
     | "email_not_sent"
+    /** The SPI's code budget (three an hour per person) refused another code. */
+    | "code_limit"
     | "rate_limited";
   detail: string;
   field?: "address" | "code" | "which";
@@ -59,13 +65,10 @@ export type EmailRouteProblem = {
   retryAfter?: number;
 };
 
-/** `202` answer of `POST …/email/change-request`: when the mailed code stops working. */
-export type EmailChangePayload = { expiresAt: string };
 
 export const emailRouteCopy = {
-  invalidAddress: "Geçerli bir e-posta adresi gir.",
   refusedAddress: "Bu adres kullanılamıyor: geçerli bir e-posta adresi değil ya da zaten hesabında kayıtlı.",
-  invalidCode: "Doğrulama kodu 6 rakamdan oluşur.",
+  codeLimit: "Bir saatte en fazla üç doğrulama kodu isteyebilirsin.",
   invalidChoice: "Birincil adres için okul ya da kişisel e-postanı seç.",
 } as const;
 const copy = emailRouteCopy;
@@ -78,6 +81,14 @@ class EmailFieldError extends Error {
   ) {
     super(`The e-mail field ${field} is invalid.`);
     this.name = "EmailFieldError";
+  }
+}
+
+/** `429 rate_limited` of `email/change-request`: another code was refused. */
+class CodeLimitError extends Error {
+  constructor(readonly retryAfter: number | null) {
+    super("The SPI refused another e-mail code.");
+    this.name = "CodeLimitError";
   }
 }
 
@@ -98,6 +109,13 @@ function failureResponse(request: NextRequest, services: Services, session: Sess
       detail: error.detail,
       field: error.field,
     });
+  }
+  if (error instanceof CodeLimitError) {
+    return problemResponse(429, {
+      error: "code_limit",
+      detail: copy.codeLimit,
+      ...(error.retryAfter !== null ? { retryAfter: error.retryAfter } : {}),
+    }, error.retryAfter !== null && error.retryAfter > 0 ? { "Retry-After": String(error.retryAfter) } : {});
   }
   if (error instanceof SkyAccountProblem) {
     switch (error.code) {
@@ -129,9 +147,28 @@ function failureResponse(request: NextRequest, services: Services, session: Sess
   return accountFailureResponse(request, services, session, error);
 }
 
+type EmailField = EmailFieldError["field"];
+
+function isEmailField(value: unknown): value is EmailField {
+  return value === "address" || value === "code" || value === "which";
+}
+
+/** A refused input is the person's field error, named like the identity routes name theirs; never contract drift. */
+function fieldReason(field: EmailField): FailureReason {
+  switch (field) {
+    case "address":
+      return "invalid_address";
+    case "code":
+      return "invalid_code";
+    case "which":
+      return "invalid_primary";
+  }
+}
+
 function failureReason(error: unknown): FailureReason {
   if (isReauthenticationRequired(error)) return "invalid_token";
-  if (error instanceof EmailFieldError) return error.field === "address" ? "invalid_address" : "contract_blocked";
+  if (error instanceof EmailFieldError) return fieldReason(error.field);
+  if (error instanceof CodeLimitError) return "rate_limited";
   if (error instanceof SkyAccountProblem) {
     switch (error.code) {
       case "sudo_required":
@@ -150,7 +187,7 @@ function failureReason(error: unknown): FailureReason {
       case "email_not_sent":
         return "email_not_sent";
       case "invalid_request":
-        return error.field === "address" ? "invalid_address" : "contract_blocked";
+        return isEmailField(error.field) ? fieldReason(error.field) : "contract_blocked";
       case "rate_limited":
         return "rate_limited";
       case "user_temporarily_locked":
@@ -166,24 +203,23 @@ function failureReason(error: unknown): FailureReason {
   return "contract_blocked";
 }
 
+/** The shared rule (`src/lib/email-fields.ts`): trimmed, lower-cased, obviously an address. */
 function requireAddress(value: unknown) {
-  const address = typeof value === "string" ? value.trim() : "";
-  if (address.length > MAX_ADDRESS_LENGTH || !ADDRESS_SHAPE.test(address)) {
-    throw new EmailFieldError("address", copy.invalidAddress);
-  }
-  return address;
+  const check = checkEmailAddress(value);
+  if (!check.ok) throw new EmailFieldError("address", emailAddressMessage);
+  return check.value;
 }
 
 /** Six digits; the spaces a copy from the mail inserts are dropped. Anything else never reaches the SPI, so it costs no attempt. */
 function requireCode(value: unknown) {
-  const code = typeof value === "string" ? value.replace(/\s+/g, "") : "";
-  if (!EMAIL_CODE.test(code)) throw new EmailFieldError("code", copy.invalidCode);
-  return code;
+  const check = checkEmailCode(value);
+  if (!check.ok) throw new EmailFieldError("code", emailCodeMessage);
+  return check.value;
 }
 
-function requireChoice(value: unknown): "school" | "personal" {
+function requireChoice(value: unknown): PrimaryEmailChoice {
   const which = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (which !== "school" && which !== "personal") throw new EmailFieldError("which", copy.invalidChoice);
+  if (!isPrimaryEmailChoice(which)) throw new EmailFieldError("which", copy.invalidChoice);
   return which;
 }
 
@@ -308,11 +344,7 @@ export function emailRoute(request: NextRequest) {
 export function pendingEmailChangeRoute(request: NextRequest) {
   return emailRead(request, async (services, _session, auth) => {
     const pending = await services.skyAccount.pendingEmailChange(auth);
-    const payload: PendingEmailPayload = {
-      pending: pending === null
-        ? null
-        : { address: pending.address, expiresAt: pending.expiresAt.toISOString(), attemptsLeft: pending.attemptsLeft },
-    };
+    const payload: PendingEmailPayload = { pending: pending === null ? null : pendingEmailView(pending, Date.now()) };
     return noStore(NextResponse.json(payload));
   });
 }
@@ -328,8 +360,15 @@ export function requestEmailChangeRoute(request: NextRequest) {
   return emailMutation(request, "change_request", async (services, auth) => {
     const body = await readJsonBody(request);
     const address = requireAddress(body.address);
-    const change = await services.skyAccount.requestEmailChange(auth, { address });
-    const payload: EmailChangePayload = { expiresAt: change.expiresAt.toISOString() };
+    let change;
+    try {
+      change = await services.skyAccount.requestEmailChange(auth, { address });
+    } catch (error) {
+      // After Sudo mode the SPI's narrowest budget is the code budget (three an hour), so its refusal says so.
+      if (error instanceof SkyAccountProblem && error.code === "rate_limited") throw new CodeLimitError(error.retryAfter);
+      throw error;
+    }
+    const payload: EmailChangePayload = emailChangeView(change, Date.now());
     return noStore(NextResponse.json(payload, { status: 202 }));
   });
 }

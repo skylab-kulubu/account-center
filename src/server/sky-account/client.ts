@@ -1,5 +1,6 @@
 import "server-only";
 
+import { checkEmailAddress, checkEmailCode, isPrimaryEmailChoice } from "@/lib/email-fields";
 import { COMPACT_JWS } from "@/server/contract-shapes";
 import {
   parseSkyAccountProblem,
@@ -70,11 +71,6 @@ const TOTP_CODE = /^\d{4,10}$/;
 const CREDENTIAL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 const SETUP_HANDLE = /^[A-Za-z0-9_-]{1,255}$/;
 const BEARER_TOKEN = /^[\x21-\x7e]{1,8192}$/;
-/** RFC 5321 path limit; the shape check only keeps obvious non-addresses local, Keycloak's validator decides. */
-const MAX_EMAIL_LENGTH = 254;
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
-const EMAIL_CODE = /^\d{6}$/;
-const primaryChoices = new Set(["school", "personal"]);
 
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -113,16 +109,18 @@ function requireCode(value: string, field: string) {
   return value;
 }
 
+/** The shared e-mail rules (`src/lib/email-fields.ts`): trimmed, lower-cased, obviously an address. */
 function requireAddress(value: string) {
-  const address = typeof value === "string" ? value.trim() : "";
-  if (address.length > MAX_EMAIL_LENGTH || !EMAIL_SHAPE.test(address)) throw new SkyAccountInvalidInputError("address");
-  return address;
+  const check = checkEmailAddress(value);
+  if (!check.ok) throw new SkyAccountInvalidInputError("address");
+  return check.value;
 }
 
+/** Six digits once the spaces a copy inserts are dropped. */
 function requireEmailCode(value: string) {
-  const code = typeof value === "string" ? value.replace(/\s+/g, "") : "";
-  if (!EMAIL_CODE.test(code)) throw new SkyAccountInvalidInputError("code");
-  return code;
+  const check = checkEmailCode(value);
+  if (!check.ok) throw new SkyAccountInvalidInputError("code");
+  return check.value;
 }
 
 function requireUsername(value: string) {
@@ -415,9 +413,9 @@ export class SkyAccountHttpClient implements SkyAccountClient {
   /**
    * Mails a six-digit code to a new Personal e-mail (`202 { expiresAt }`).
    * Nothing is written to the person yet; a second request replaces the
-   * first and kills its code. The address is only trimmed here: the SPI
-   * lower-cases it and runs Keycloak's validator, and it never reaches a
-   * log line on either side.
+   * first and kills its code. The address is trimmed and lower-cased like
+   * the SPI stores it; Keycloak's validator decides the rest, and the address
+   * never reaches a log line on either side.
    */
   async requestEmailChange(auth: SudoAuthorization, input: EmailChangeInput) {
     return parseEmailChangeRequest(await this.#call({
@@ -465,7 +463,7 @@ export class SkyAccountHttpClient implements SkyAccountClient {
   }
 
   async setPrimaryEmail(auth: SudoAuthorization, input: PrimaryEmailInput) {
-    if (!primaryChoices.has(input.which)) throw new SkyAccountInvalidInputError("which");
+    if (!isPrimaryEmailChoice(input.which)) throw new SkyAccountInvalidInputError("which");
     return parseIdentity(await this.#call({
       method: "POST",
       path: "email/primary",

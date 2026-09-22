@@ -115,6 +115,7 @@ type AuthLog = {
     | "link_unverified"
     | "token_replace_failed"
     | "invalid_address"
+    | "invalid_primary"
     /** `email_action`: a wrong code that used the last attempt; a new code is needed. */
     | "code_exhausted"
     | "no_pending_change"

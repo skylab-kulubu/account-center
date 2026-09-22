@@ -1,5 +1,7 @@
 import "server-only";
 
+import { isEmailCodeAttempts } from "@/lib/email-fields";
+
 /**
  * RFC 7807 problem codes of sky-account API v1 with their pinned HTTP
  * statuses. `code` is the stable branching key for the BFF; `detail` is the
@@ -74,8 +76,6 @@ export type SkyAccountProblemDetails = {
 const PROBLEM_TYPE_PREFIX = "tag:yildizskylab.com,2026:sky-account:";
 const MAX_DETAIL_LENGTH = 2_048;
 const MAX_RETRY_AFTER_SECONDS = 365 * 24 * 60 * 60;
-/** The SPI allows five wrong codes per pending change; anything far above that is drift, not a count. */
-const MAX_ATTEMPTS_LEFT = 100;
 const RFC3339_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 
 /** A typed sky-account rejection. The message never carries the upstream body. */
@@ -140,8 +140,7 @@ function optionalString(value: unknown, maximum: number): value is string | unde
 
 function attemptsLeftOf(value: unknown): number | null | false {
   if (value === undefined || value === null) return null;
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_ATTEMPTS_LEFT) return value;
-  return false;
+  return isEmailCodeAttempts(value) ? value : false;
 }
 
 function retrySeconds(value: unknown): number | null | false {

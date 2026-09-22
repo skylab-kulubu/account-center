@@ -1,3 +1,5 @@
+import type { PendingEmailChange, PrimaryEmailChoice } from "@/lib/email-fields";
+
 /**
  * sky-account API v1 read models. The wire contract is pinned in
  * `docs/sky-account-api.md` (v1) and the fixtures under
@@ -133,20 +135,19 @@ export type WebauthnAttestation = {
   authenticatorAttachment?: "platform" | "cross-platform";
 };
 
-/** `202` answer of `POST email/change-request`: the six-digit code went out and dies at `expiresAt` (ten minutes). */
-export type EmailChangeRequest = {
-  expiresAt: Date;
-};
+/**
+ * `202` answer of `POST email/change-request`: the six-digit code went out
+ * and dies at `expiresAt` (ten minutes; ISO instant, normalised).
+ */
+export type EmailChangeRequest = Pick<PendingEmailChange, "expiresAt">;
 
 /**
- * `GET email/pending`: the caller's change still waiting for its code, read
- * without consuming it. Never the code or its hash.
+ * `GET email/pending` as the SPI answers it: the caller's change still
+ * waiting for its code, read without consuming it; the shared
+ * `PendingEmailChange` without the `secondsLeft` the BFF adds. Never the
+ * code or its hash.
  */
-export type PendingEmailChange = {
-  address: string;
-  expiresAt: Date;
-  attemptsLeft: number;
-};
+export type SkyAccountPendingEmailChange = Omit<PendingEmailChange, "secondsLeft">;
 
 export type TotpSetup = {
   setupHandle: string;
@@ -190,7 +191,7 @@ export type RegisterPasskeyInput = { attestation: WebauthnAttestation; label: st
 export type EmailChangeInput = { address: string };
 /** The six digits from the mail; spaces a copy inserts are dropped before sending. */
 export type EmailConfirmInput = { code: string };
-export type PrimaryEmailInput = { which: Exclude<SkyAccountPrimaryEmail, "none"> };
+export type PrimaryEmailInput = { which: PrimaryEmailChoice };
 
 export interface SkyAccountClient {
   identity(auth: BearerAuthorization): Promise<SkyAccountIdentity>;
@@ -210,7 +211,7 @@ export interface SkyAccountClient {
   requestEmailChange(auth: SudoAuthorization, input: EmailChangeInput): Promise<EmailChangeRequest>;
   confirmEmail(auth: BearerAuthorization, input: EmailConfirmInput): Promise<SkyAccountIdentity>;
   /** The waiting change, or `null` when nothing waits (`404 no_pending_email_change`). */
-  pendingEmailChange(auth: BearerAuthorization): Promise<PendingEmailChange | null>;
+  pendingEmailChange(auth: BearerAuthorization): Promise<SkyAccountPendingEmailChange | null>;
   setPrimaryEmail(auth: SudoAuthorization, input: PrimaryEmailInput): Promise<SkyAccountIdentity>;
   removePersonalEmail(auth: SudoAuthorization): Promise<SkyAccountIdentity>;
 }

@@ -732,16 +732,16 @@ describe("SkyAccountHttpClient", () => {
       await expect(drifted.client.identity(bearer)).rejects.toBeInstanceOf(SkyAccountContractError);
     });
 
-    it("requests a change under sudo with the trimmed address and returns the code's deadline", async () => {
+    it("requests a change under sudo with the normalised address and returns the code's deadline", async () => {
       const { client, calls } = transport(() => json(emailChangeFixture, 202));
       await expect(client.requestEmailChange(sudo, { address: "  Ada@Example.com " })).resolves.toEqual({
-        expiresAt: new Date("2026-09-21T13:45:18Z"),
+        expiresAt: "2026-09-21T13:45:18.000Z",
       });
       expect(calls).toHaveLength(1);
       expect(calls[0]).toMatchObject({
         url: `${base}/email/change-request`,
         method: "POST",
-        body: JSON.stringify({ address: "Ada@Example.com" }),
+        body: JSON.stringify({ address: "ada@example.com" }),
       });
       expect(calls[0]?.headers.get("x-sky-sudo")).toBe("opaque-sudo-token");
       expect(calls[0]?.headers.get("content-type")).toBe("application/json");
@@ -779,7 +779,7 @@ describe("SkyAccountHttpClient", () => {
       const pending = await client.pendingEmailChange(bearer);
       expect(pending).toEqual({
         address: "ada@example.com",
-        expiresAt: new Date("2026-09-23T00:10:00Z"),
+        expiresAt: "2026-09-23T00:10:00.000Z",
         attemptsLeft: 4,
       });
       expect(JSON.stringify(pending)).not.toMatch(/123456|codeHash/);
@@ -825,7 +825,7 @@ describe("SkyAccountHttpClient", () => {
       }
       const additive = transport(() => json({ ...emailChangeFixture, attemptsLeft: 5 }, 202));
       await expect(additive.client.requestEmailChange(sudo, { address: "ada@example.com" }))
-        .resolves.toEqual({ expiresAt: new Date(emailChangeFixture.expiresAt) });
+        .resolves.toEqual({ expiresAt: "2026-09-21T13:45:18.000Z" });
     });
 
     it("carries attemptsLeft on a wrong code and refuses a value outside the contract", async () => {

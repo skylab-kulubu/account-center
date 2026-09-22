@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import identityFixture from "../../../tests/fixtures/sky-account-v1-identity.json";
 import problemsFixture from "../../../tests/fixtures/sky-account-v1-problems.json";
 import { POST as requestChange } from "@/app/api/account/email/change-request/route";
@@ -78,7 +78,9 @@ const origin = "https://my.yildizskylab.com";
 const sudoToken = "eyJhbGciOiJIUzUxMiJ9.eyJ0eXAiOiJza3ktc3VkbyJ9.signature-fixture";
 const proof = { method: "password", sudoToken, expiresAt: new Date("2026-09-21T13:15:18Z") };
 const bearer = { accessToken: "server-held-user-token" };
-const expiresAt = new Date("2026-09-21T13:45:18Z");
+const expiresAt = "2026-09-21T13:45:18.000Z";
+/** The BFF's clock while the answers are built: four minutes before the code dies. */
+const serverNow = new Date("2026-09-21T13:41:18Z");
 
 function problem(code: keyof typeof problemsFixture, overrides: Record<string, unknown> = {}) {
   const body = { ...problemsFixture[code], ...overrides };
@@ -156,6 +158,11 @@ describe("e-mail BFF routes", () => {
     routeMocks.requireFreshSudo.mockResolvedValue(proof);
     routeMocks.clearSudo.mockResolvedValue(undefined);
     routeMocks.consumeKey.mockResolvedValue({ allowed: true, count: 1, retryAfterSeconds: 900 });
+    vi.useFakeTimers({ now: serverNow, toFake: ["Date"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe("GET /api/account/email", () => {
@@ -210,17 +217,13 @@ describe("e-mail BFF routes", () => {
   });
 
   describe("GET /api/account/email/pending", () => {
-    it("answers the change still waiting for its code with the session only, spending nothing", async () => {
-      routeMocks.pendingEmailChange.mockResolvedValue({
-        address: "ada@example.com",
-        expiresAt: new Date("2026-09-23T00:10:00Z"),
-        attemptsLeft: 4,
-      });
+    it("answers the change still waiting for its code, with the seconds left on the server's clock, spending nothing", async () => {
+      routeMocks.pendingEmailChange.mockResolvedValue({ address: "ada@example.com", expiresAt, attemptsLeft: 4 });
       const response = await readPending();
       expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toBe("no-store");
       await expect(response.json()).resolves.toEqual({
-        pending: { address: "ada@example.com", expiresAt: "2026-09-23T00:10:00.000Z", attemptsLeft: 4 },
+        pending: { address: "ada@example.com", expiresAt, attemptsLeft: 4, secondsLeft: 240 },
       });
       expect(routeMocks.pendingEmailChange).toHaveBeenCalledWith(bearer);
       expect(routeMocks.requireFreshSudo).not.toHaveBeenCalled();
@@ -285,12 +288,12 @@ describe("e-mail BFF routes", () => {
       expect(routeMocks.requestEmailChange).not.toHaveBeenCalled();
     });
 
-    it("forwards the trimmed address with the sudo token and answers the code's deadline", async () => {
+    it("forwards the normalised address with the sudo token and answers the deadline and the seconds left", async () => {
       const response = await change({ address: "  Ada@Example.com " });
       expect(response.status).toBe(202);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      await expect(response.json()).resolves.toEqual({ expiresAt: "2026-09-21T13:45:18.000Z" });
-      expect(routeMocks.requestEmailChange).toHaveBeenCalledWith({ ...bearer, sudoToken }, { address: "Ada@Example.com" });
+      await expect(response.json()).resolves.toEqual({ expiresAt, secondsLeft: 240 });
+      expect(routeMocks.requestEmailChange).toHaveBeenCalledWith({ ...bearer, sudoToken }, { address: "ada@example.com" });
       expect(routeMocks.requireFreshSudo).toHaveBeenCalledWith(activeSession.id, { requestId: "request-id" });
       expect(routeMocks.consumeKey).toHaveBeenCalledWith("email_mutation", activeSession.id);
       expect(logAuthEvent).toHaveBeenCalledWith({
@@ -358,7 +361,12 @@ describe("e-mail BFF routes", () => {
       const limited = await change({ address: "ada@example.com" });
       expect(limited.status).toBe(429);
       expect(limited.headers.get("retry-after")).toBe("540");
-      await expect(limited.json()).resolves.toMatchObject({ error: "rate_limited", retryAfter: 540 });
+      await expect(limited.json()).resolves.toEqual({
+        error: "code_limit",
+        detail: "Bir saatte en fazla üç doğrulama kodu isteyebilirsin.",
+        retryAfter: 540,
+      });
+      expect(logAuthEvent).toHaveBeenLastCalledWith(expect.objectContaining({ reason: "rate_limited", addressAction: "change_request" }));
     });
 
     it("discards a proof the SPI rejects and re-issues the 428 challenge", async () => {
@@ -431,7 +439,7 @@ describe("e-mail BFF routes", () => {
       });
     });
 
-    it("refuses anything but six digits locally, so no attempt is spent", async () => {
+    it("refuses anything but six digits locally, so no attempt is spent, and logs it as a code field error", async () => {
       for (const body of [{ code: "12345" }, { code: "1234567" }, { code: "12a456" }, { code: "" }, { code: 123456 }, {}]) {
         const response = await confirmCode(body);
         expect(response.status).toBe(400);
@@ -440,8 +448,16 @@ describe("e-mail BFF routes", () => {
           detail: "Doğrulama kodu 6 rakamdan oluşur.",
           field: "code",
         });
+        expect(logAuthEvent).toHaveBeenLastCalledWith(expect.objectContaining({ reason: "invalid_code", addressAction: "confirm" }));
       }
       expect(routeMocks.confirmEmail).not.toHaveBeenCalled();
+    });
+
+    it("keeps the generic wait for its own budget", async () => {
+      routeMocks.confirmEmail.mockRejectedValueOnce(problem("rate_limited"));
+      const limited = await confirmCode({ code: "123456" });
+      expect(limited.status).toBe(429);
+      await expect(limited.json()).resolves.toMatchObject({ error: "rate_limited", detail: "Çok fazla deneme yaptın. Biraz sonra yeniden dene." });
     });
 
     it("relays a wrong code with the tries left and tells an exhausted code apart in the log", async () => {
@@ -502,13 +518,18 @@ describe("e-mail BFF routes", () => {
       expect(logAuthEvent).toHaveBeenLastCalledWith(expect.objectContaining({ outcome: "success", addressAction: "primary" }));
     });
 
-    it("refuses a choice that is neither address locally", async () => {
+    it("refuses a choice that is neither address locally and logs it as a primary field error", async () => {
       for (const body of [{ which: "work" }, { which: "" }, { which: 1 }, {}]) {
         const response = await primary(body);
         expect(response.status).toBe(400);
         await expect(response.json()).resolves.toMatchObject({ error: "invalid_request", field: "which" });
+        expect(logAuthEvent).toHaveBeenLastCalledWith(expect.objectContaining({ reason: "invalid_primary", addressAction: "primary" }));
       }
       expect(routeMocks.setPrimaryEmail).not.toHaveBeenCalled();
+
+      routeMocks.setPrimaryEmail.mockRejectedValueOnce(problem("invalid_request", { field: "which" }));
+      expect((await primary({ which: "school" })).status).toBe(400);
+      expect(logAuthEvent).toHaveBeenLastCalledWith(expect.objectContaining({ reason: "invalid_primary" }));
     });
 
     it("relays the SPI's explanation of an unproven address", async () => {

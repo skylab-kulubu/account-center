@@ -1,6 +1,13 @@
 import "server-only";
 
-import type { SkyAccountIdentity, SkyAccountPrimaryEmail } from "@/server/sky-account/types";
+import { secondsLeftUntil } from "@/lib/email-fields";
+import type { PendingEmailChange } from "@/lib/email-fields";
+import type {
+  EmailChangeRequest,
+  SkyAccountIdentity,
+  SkyAccountPendingEmailChange,
+  SkyAccountPrimaryEmail,
+} from "@/server/sky-account/types";
 
 /**
  * What the e-mail page shows, reduced from sky-account `GET identity`: the
@@ -26,9 +33,19 @@ export type EmailPayload = EmailView & { csrfToken: string };
  * Public JSON of `GET /api/account/email/pending`: the person's own change
  * still waiting for its code, or `null`. Never the code.
  */
-export type PendingEmailPayload = {
-  pending: { address: string; expiresAt: string; attemptsLeft: number } | null;
-};
+export type PendingEmailPayload = { pending: PendingEmailChange | null };
+
+/** `202` answer of `POST /api/account/email/change-request`: the deadline and the seconds left on the server's clock. */
+export type EmailChangePayload = Pick<PendingEmailChange, "expiresAt" | "secondsLeft">;
+
+/** Adds the seconds left, counted on this server's clock (`now`, epoch milliseconds), to the SPI's deadline. */
+export function emailChangeView(change: EmailChangeRequest, now: number): EmailChangePayload {
+  return { expiresAt: change.expiresAt, secondsLeft: secondsLeftUntil(change.expiresAt, now) };
+}
+
+export function pendingEmailView(pending: SkyAccountPendingEmailChange, now: number): PendingEmailChange {
+  return { ...pending, ...emailChangeView(pending, now) };
+}
 
 export function emailView(identity: SkyAccountIdentity): EmailView {
   return {
