@@ -66,6 +66,7 @@ async function gotoEmail(page: Page) {
   expect((await refresh).status()).toBe(204);
   await expect(page.getByRole("heading", { level: 1, name: "E-posta ve giriş" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Okul e-postası" })).toBeVisible();
+  await page.waitForLoadState("networkidle");
   return response;
 }
 
@@ -92,6 +93,15 @@ function recordRequests(page: Page) {
 
 type WaitingChange = { address: string; expiresAt: string; attemptsLeft: number };
 
+/** The BFF adds the seconds left, counted on its own clock, to both the change-request answer and the pending read. */
+function withSecondsLeft<T extends { expiresAt: string }>(value: T) {
+  return { ...value, secondsLeft: Math.max(0, Math.min(600, Math.ceil((Date.parse(value.expiresAt) - Date.now()) / 1_000))) };
+}
+
+function codeSent() {
+  return withSecondsLeft({ expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() });
+}
+
 /**
  * The e-mail read and the pending-change read, answered from mutable records
  * so a re-read after a change (or a reload) shows the server's state.
@@ -101,7 +111,9 @@ async function mockEmail(page: Page, state: EmailState, waiting: { current: Wait
     if (route.request().method() !== "GET") return route.fallback();
     return route.fulfill({ json: { ...state, csrfToken } });
   });
-  await page.route("**/api/account/email/pending", (route) => route.fulfill({ json: { pending: waiting.current } }));
+  await page.route("**/api/account/email/pending", (route) => route.fulfill({
+    json: { pending: waiting.current && withSecondsLeft(waiting.current) },
+  }));
   return waiting;
 }
 
@@ -194,7 +206,7 @@ test("add → code → confirm → primary switch → remove, with the identity 
       return;
     }
     pendingAddress = (route.request().postDataJSON() as { address: string }).address;
-    await route.fulfill({ status: 202, json: { expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() } });
+    await route.fulfill({ status: 202, json: codeSent() });
   });
   await page.route("**/api/account/email/confirm", async (route) => {
     await recordMutation(route, mutations);
@@ -314,11 +326,11 @@ test("wrong, exhausted, vanished and rate-limited codes each say what happened",
       await route.fulfill({
         status: 429,
         headers: { "retry-after": "1800" },
-        json: { error: "rate_limited", detail: "Çok fazla deneme yaptın. Biraz sonra yeniden dene.", retryAfter: 1_800 },
+        json: { error: "code_limit", detail: "Bir saatte en fazla üç doğrulama kodu isteyebilirsin.", retryAfter: 1_800 },
       });
       return;
     }
-    await route.fulfill({ status: 202, json: { expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() } });
+    await route.fulfill({ status: 202, json: codeSent() });
   });
   const confirmations: string[] = [];
   const confirmAnswers = [
@@ -359,8 +371,8 @@ test("wrong, exhausted, vanished and rate-limited codes each say what happened",
 
   await form.getByRole("button", { name: "Yeni kod gönder" }).click();
   // The vanished code stays announced next to the wait, so the person knows both what happened and when to retry.
-  await expect(form.getByRole("alert").filter({ hasText: "Çok fazla deneme" })).toHaveText(
-    "Çok fazla deneme yaptın. Biraz sonra yeniden dene. Yeniden denemek için bekle: 30 dakika.",
+  await expect(form.getByRole("alert").filter({ hasText: "üç doğrulama kodu" })).toHaveText(
+    "Bir saatte en fazla üç doğrulama kodu isteyebilirsin. Yeniden denemek için bekle: 30 dakika.",
   );
   await expect(form.getByRole("alert").filter({ hasText: "süresi dolmuş" })).toBeVisible();
   await expect(form.getByRole("button", { name: "Yeni kod gönder" })).toBeDisabled();
@@ -383,7 +395,7 @@ test("a reload between the mail and the code brings the code panel back without 
     sends.push(address);
     const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
     waiting.current = { address, expiresAt, attemptsLeft: 5 };
-    await route.fulfill({ status: 202, json: { expiresAt } });
+    await route.fulfill({ status: 202, json: withSecondsLeft({ expiresAt }) });
   });
   const codes: string[] = [];
   await page.route("**/api/account/email/confirm", async (route) => {
@@ -418,6 +430,15 @@ test("a reload between the mail and the code brings the code panel back without 
   await expect(restored).toContainText("4 deneme hakkın kaldı.");
   await expect(restored.getByRole("timer")).toHaveText(/Kalan süre: (?:10:00|9:\d{2})/);
   await expect(restored.getByLabel("Doğrulama kodu")).toBeFocused();
+
+  // "Vazgeç" is respected when the person returns to the tab; the code is offered instead.
+  await restored.getByRole("button", { name: "Vazgeç" }).click();
+  const offer = page.getByRole("button", { name: "Bekleyen bir kod var — gir" });
+  await expect(offer).toBeVisible();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect(page.getByRole("form", { name: "Doğrulama kodunu gir" })).toHaveCount(0);
+  await offer.click();
+  await expect(restored).toBeVisible();
   await restored.getByLabel("Doğrulama kodu").fill(mailedCode);
   await restored.getByRole("button", { name: "Doğrula" }).click();
   await expect(page.getByRole("status").filter({ hasText: "İşlem tamamlandı" })).toContainText(`${personalEmail} doğrulandı.`);
@@ -457,7 +478,7 @@ test("changing the personal address that is primary moves the primary to the new
     const { address } = route.request().postDataJSON() as { address: string };
     const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
     waiting.current = { address, expiresAt, attemptsLeft: 5 };
-    await route.fulfill({ status: 202, json: { expiresAt } });
+    await route.fulfill({ status: 202, json: withSecondsLeft({ expiresAt }) });
   });
   await page.route("**/api/account/email/confirm", async (route) => {
     // The SPI moves the primary with a replaced personal address that was primary.
@@ -500,7 +521,7 @@ test("the ten-minute countdown closes the code input when it runs out", async ({
   await mockSudo(page);
   await page.route("**/api/account/email/change-request", (route) => route.fulfill({
     status: 202,
-    json: { expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() },
+    json: codeSent(),
   }));
   const confirmations: unknown[] = [];
   await page.route("**/api/account/email/confirm", async (route) => {
@@ -524,10 +545,11 @@ test("the ten-minute countdown closes the code input when it runs out", async ({
   expect(errors).toEqual([]);
 });
 
-test("an unlinked school address cannot become primary and a primary personal address without a fallback stays", async ({ context, page }, testInfo) => {
+test("an unlinked school address cannot become primary and a primary personal address without a fallback is not offered for removal", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   await installAuthenticatedSession(context, `email-refusals-${testInfo.retry}`);
   const errors = failOnPageErrors(page);
+  const network = recordRequests(page);
   await mockEmail(page, {
     email: personalEmail,
     emailVerified: true,
@@ -538,21 +560,6 @@ test("an unlinked school address cannot become primary and a primary personal ad
     personalEmailVerified: true,
   });
   await mockSudo(page);
-  const removals: string[] = [];
-  await page.route("**/api/account/email/personal", async (route) => {
-    removals.push(route.request().method());
-    if (removals.length === 1) {
-      await route.fulfill({ status: 428, json: sudoChallenge });
-      return;
-    }
-    await route.fulfill({
-      status: 409,
-      json: {
-        error: "no_fallback_email",
-        detail: "Kişisel e-posta şu anda birincil adresin ve yerine geçebilecek, YTÜ hesabıyla kanıtlanmış bir okul e-postan yok; kaldırılırsa giriş yapabileceğin bir adres kalmaz. Önce YTÜ hesabını bağla ya da başka bir kişisel adres ekle.",
-      },
-    });
-  });
 
   await gotoEmail(page);
   const schoolRow = page.locator(".settings-row").filter({ hasText: schoolEmail }).first();
@@ -565,14 +572,14 @@ test("an unlinked school address cannot become primary and a primary personal ad
   await expect(group.getByRole("link", { name: "YTÜ hesabını bağla" })).toHaveAttribute("href", "/identity");
   await expect(page.getByRole("button", { name: "Birincil adresi kaydet" })).toBeDisabled();
 
-  await page.getByRole("button", { name: `${personalEmail} — Kaldır` }).click();
-  const dialog = page.getByRole("dialog", { name: "Kişisel e-posta kaldırılsın mı?" });
-  await dialog.getByRole("button", { name: "Kaldır" }).click();
-  await completeSudoDialog(page);
-  await expect(dialog.getByRole("alert")).toContainText("kaldırılırsa giriş yapabileceğin bir adres kalmaz");
-  await expect(dialog.getByRole("link", { name: "YTÜ hesabını bağla" })).toHaveAttribute("href", "/identity");
-  await expect(dialog).toBeVisible();
-  expect(removals).toEqual(["DELETE", "DELETE"]);
+  // Decided before Sudo mode: nothing could take over, so removal is not offered at all.
+  const remove = page.getByRole("button", { name: `${personalEmail} — Kaldır` });
+  await expect(remove).toBeDisabled();
+  await expect(remove).toHaveAccessibleDescription(/yerine geçebilecek, YTÜ hesabınla doğrulanmış bir okul e-postan yok/);
+  await expect(page.getByRole("button", { name: `${personalEmail} — Değiştir` })).toBeEnabled();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(network.urls().some((url) => url.includes("/api/account/email/personal"))).toBe(false);
+  expect(network.urls().some((url) => url.includes("/api/account/sudo/"))).toBe(false);
   expect(errors).toEqual([]);
 });
 
@@ -604,7 +611,7 @@ test("the e-mail page with its forms and dialog passes axe and fits a 320px WebV
       await mockSudo(page);
       await page.route("**/api/account/email/change-request", (route) => route.fulfill({
         status: 202,
-        json: { expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() },
+        json: codeSent(),
       }));
       await gotoEmail(page);
 
@@ -623,6 +630,9 @@ test("the e-mail page with its forms and dialog passes axe and fits a 320px WebV
 
       await analyze("read view");
 
+      // Linked to YTÜ, the school address can take over and removal is offered.
+      state.verifiedYtu = true;
+      await gotoEmail(page);
       await page.getByRole("button", { name: `${personalEmail} — Kaldır` }).click();
       const dialog = page.getByRole("dialog", { name: "Kişisel e-posta kaldırılsın mı?" });
       await expect(dialog).toBeVisible();
