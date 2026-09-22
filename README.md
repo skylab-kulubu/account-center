@@ -40,9 +40,9 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
   kullanıcı adı değişikliği (benzersizlik ve 14 günlük bekleme SPI'de,
   sonuçları anlatan onay penceresi ve Sudo modu), YTÜ durumu ve birincil /
   okul e-postası satırları. Doğrulanmamış hesap "YTÜ hesabımı bağla" ile
-  sonuçları anlatan bir onay penceresinden sonra Keycloak'ın `idp_link`
-  işlemine gider (Microsoft girişi; dönüşte bağlantı `GET identity` ile
-  doğrulanır, ad ve okul e-postası kilitlenir; bağlantı kaldırma yoktur).
+  sonuçları anlatan bir onay penceresi ve Sudo modundan sonra Keycloak'ın
+  `idp_link` işlemine gider (Microsoft girişi; dönüşte bağlantı `GET identity`
+  ile doğrulanır, ad ve okul e-postası kilitlenir; bağlantı kaldırma yoktur).
   `/personal-information` kalıcı olarak `/identity` adresine yönlenir.
 - Hassas işlemlerden önce ürün içi "kimliğini doğrula" adımı (Sudo modu):
   parola, passkey ya da doğrulama kodu ile beş dakikalık, sunucuda şifreli
@@ -104,8 +104,10 @@ AES-256-GCM ile şifrelenir.
   ya da attestation hiçbir log ya da yanıta yazılmaz.
 - Keycloak'a gönderilen tek application-initiated action YTÜ hesabı bağlama
   (`kc_action=idp_link`, yalnız `YTU_IDP_ALIAS` için) olur; başka hiçbir
-  `kc_action` istek gövdesine giremez ve bağlantı Keycloak'ın "başarılı"
-  demesiyle değil, kimliğin yeniden okunmasıyla doğrulanır.
+  `kc_action` istek gövdesine giremez. Geri alınamaz bir işlem olduğu için
+  Sudo modu ister, tarayıcı yalnız sunucudan basılan Keycloak origin'ine
+  yönlendirilir ve bağlantı Keycloak'ın "başarılı" demesiyle değil, kimliğin
+  yeniden okunmasıyla doğrulanır.
 - Oturum kapatma işlemlerinde ham Keycloak oturum kimliği tarayıcıya verilmez.
 - Hesap erişim engeli doğrulanamazsa kimlik doğrulanmış işler güvenli biçimde
   `503` ile kapanır; çıkış ve temizlik yolları çalışmaya devam eder.

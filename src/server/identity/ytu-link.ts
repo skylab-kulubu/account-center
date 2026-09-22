@@ -8,15 +8,15 @@ import {
 } from "@/server/access-gate/http";
 import {
   noStore,
-  requestWantsHtmlNavigation,
   SESSION_COOKIE,
   sessionMutationHasExactOrigin,
   setOidcTransactionCookie,
 } from "@/server/auth/http";
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import type { YtuLinkCallbackStatus } from "@/server/auth/oidc-flow";
-import { readBytesBody, readUrlEncodedBody, RequestBodyError } from "@/server/auth/request-body";
+import { readBytesBody, RequestBodyError } from "@/server/auth/request-body";
 import { getAuthServices } from "@/server/auth/services";
+import { requireAccountSpiSudo } from "@/server/auth/sudo-gate";
 import type { ActiveSession } from "@/server/auth/types";
 import {
   failureResponse,
@@ -35,57 +35,25 @@ type FailureReason = NonNullable<Parameters<typeof logAuthEvent>[0]["reason"]>;
 export const YTU_LINK_QUERY = "ytu";
 
 /**
- * How the link ended, as the identity page learns it from `?ytu=`:
- * `linked` only after `GET identity` reported `verifiedYtu` (never from
- * `kc_action_status` alone), `unverified` when Keycloak claimed success but the
- * identity does not show the link (or could not be read), `already_linked` and
- * `unavailable` when the link could not even start.
+ * How the link ended, as the identity page learns it from `?ytu=`. Only the
+ * callback produces these: `linked` after `GET identity` reported
+ * `verifiedYtu` (never from `kc_action_status` alone) and `unverified` when
+ * Keycloak claimed success but the identity does not show the link, could not
+ * be read, or the fresh token set could not be stored. A link that never
+ * started (`409 already_linked`, an outage) is answered to the caller as a
+ * problem and stays inside the page.
  */
-export type YtuLinkOutcome =
-  | "linked"
-  | "cancelled"
-  | "error"
-  | "unverified"
-  | "already_linked"
-  | "unavailable";
+export type YtuLinkOutcome = "linked" | "cancelled" | "error" | "unverified";
 
-/** `200` answer of a fetch caller: where the browser must navigate to reach Keycloak. */
+/** `200` answer: where the browser must navigate to reach Keycloak. */
 export type YtuLinkStartPayload = { authorizationUrl: string };
 
-const RETURN_TO = "/identity";
-/** `csrfToken=` form field or an empty / small JSON body; nothing else is read. */
+/** Nothing is read from the body; only a stray small one is tolerated (the proof is the header). */
 const MAX_BODY_BYTES = 1_024;
 
 const copy = {
   alreadyLinked: "YTÜ hesabın zaten bağlı.",
 } as const;
-
-function redirectWithOutcome(services: Pick<Services, "config">, outcome: YtuLinkOutcome) {
-  const destination = new URL(RETURN_TO, services.config.appUrl);
-  destination.searchParams.set(YTU_LINK_QUERY, outcome);
-  const response = NextResponse.redirect(destination, 303);
-  response.headers.set("Referrer-Policy", "no-referrer");
-  return noStore(response);
-}
-
-/**
- * The CSRF proof of the request: the `csrfToken` field of a form navigation,
- * or the `x-csrf-token` header of a fetch caller (whose body, if any, is
- * ignored). Anything larger than a form field is refused before the session
- * is looked up.
- */
-async function readCsrfProof(request: NextRequest): Promise<string | undefined> {
-  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
-  if (contentType === "application/x-www-form-urlencoded") {
-    const form = await readUrlEncodedBody(request, { maxBytes: MAX_BODY_BYTES });
-    return form.get("csrfToken") ?? undefined;
-  }
-  await readBytesBody(request, {
-    maxBytes: MAX_BODY_BYTES,
-    contentType: (value) => value === "" || value.split(";", 1)[0]?.trim().toLowerCase() === "application/json",
-  });
-  return request.headers.get("x-csrf-token") ?? undefined;
-}
 
 function startFailureReason(error: unknown): FailureReason {
   if (isReauthenticationRequired(error)) return "invalid_token";
@@ -94,114 +62,119 @@ function startFailureReason(error: unknown): FailureReason {
 }
 
 /**
- * `POST /api/account/identity/ytu-link`: starts "YTÜ hesabımı bağla". Order:
- * exact `Origin` → body and CSRF proof → access gate and session → local
+ * `POST /api/account/identity/ytu-link`: starts "YTÜ hesabımı bağla". The
+ * link is irreversible (the name and the School e-mail become YTÜ's and
+ * cannot be changed here afterwards, and nothing unlinks them), so it runs
+ * the same Sudo mode gate as the username change. Order, as in
+ * `identityMutation`: exact `Origin` → session CSRF (`x-csrf-token`), access
+ * gate and session → Sudo mode gate (`428` with the methods) → local
  * `identity_mutation` budget → `GET identity` (only an unverified account may
  * link; a Verified YTÜ account gets `409 already_linked`) → the `idp_link`
- * transaction bound to this session. A browser navigation (the form) is sent
- * to Keycloak with `303`; a fetch caller receives `200 { authorizationUrl }`
- * and navigates itself, so the redirect chain through Keycloak and Microsoft
- * is an ordinary navigation rather than a form submission. Both answers carry
- * the transaction cookie. Failures answer JSON problems to a fetch caller and
- * `?ytu=already_linked|unavailable` to a navigation.
+ * transaction bound to this session.
+ *
+ * The answer is `200 { authorizationUrl }` plus the transaction cookie, and
+ * the page navigates there itself: the redirect chain through Keycloak and
+ * Microsoft is then an ordinary navigation rather than a form submission,
+ * which the page's `form-action` policy would restrict. Every answer carries
+ * a rotated handle when one was issued.
  */
 export async function startYtuLinkRoute(request: NextRequest) {
   const services = getAuthServices();
   const requestId = requestCorrelationId(request);
-  const htmlNavigation = requestWantsHtmlNavigation(request);
   if (!sessionMutationHasExactOrigin(request, services.config)) return forbiddenResponse();
 
-  let csrfToken: string | undefined;
   try {
-    csrfToken = await readCsrfProof(request);
+    await readBytesBody(request, {
+      maxBytes: MAX_BODY_BYTES,
+      contentType: (value) => value === "" || value.split(";", 1)[0]?.trim().toLowerCase() === "application/json",
+    });
   } catch (error) {
     const status = error instanceof RequestBodyError ? error.status : 400;
     return problemResponse(status, { error: "invalid_request", detail: identityRouteCopy.invalidRequest });
   }
 
-  const unavailable = () => {
-    if (!htmlNavigation) {
-      return problemResponse(503, { error: "unavailable", detail: identityRouteCopy.unavailable }, { "Retry-After": "3" });
-    }
-    const response = redirectWithOutcome(services, "unavailable");
-    response.headers.set("Retry-After", "3");
-    return response;
-  };
-
   const authorization = await services.sessionAccess.authenticateMutation(
     request.cookies.get(SESSION_COOKIE)?.value,
-    csrfToken,
+    request.headers.get("x-csrf-token") ?? undefined,
     { allowRotation: true, requestId },
   );
   if (authorization.status === "forbidden") return forbiddenResponse();
-  if (authorization.status === "missing") return authenticationRequiredResponse();
-  if (authorization.status === "unavailable") {
-    return htmlNavigation ? unavailable() : accountAccessUnavailableResponse();
-  }
+  if (authorization.status === "unavailable") return accountAccessUnavailableResponse();
   if (authorization.status === "blocked") return authenticationRequiredResponse(true);
+  if (authorization.status !== "active") return authenticationRequiredResponse();
   const session = authorization.value.session;
 
-  const limit = await services.anonymousRateLimit.consumeKey("identity_mutation", session.id);
-  if (!limit.allowed) {
-    logAuthEvent({ event: "ytu_link_started", requestId, outcome: "failure", reason: "rate_limited" });
-    if (htmlNavigation) {
-      const response = redirectWithOutcome(services, "unavailable");
-      response.headers.set("Retry-After", String(limit.retryAfterSeconds));
-      return finish(response, authorization.value);
-    }
-    return finish(problemResponse(429, {
-      error: "rate_limited",
-      detail: identityRouteCopy.tooManyAttempts,
-      retryAfter: limit.retryAfterSeconds,
-    }, { "Retry-After": String(limit.retryAfterSeconds) }), authorization.value);
-  }
-
-  let verifiedYtu: boolean;
   try {
+    const gate = await requireAccountSpiSudo(services, session, { requestId });
+    if (!gate.ok) {
+      logAuthEvent({
+        event: "ytu_link_started",
+        requestId,
+        outcome: "failure",
+        reason: gate.reason === "spi_token_required" ? "spi_token_required" : "sudo_required",
+      });
+      return finish(gate.response, authorization.value);
+    }
+
+    const limit = await services.anonymousRateLimit.consumeKey("identity_mutation", session.id);
+    if (!limit.allowed) {
+      logAuthEvent({ event: "ytu_link_started", requestId, outcome: "failure", reason: "rate_limited" });
+      return finish(problemResponse(429, {
+        error: "rate_limited",
+        detail: identityRouteCopy.tooManyAttempts,
+        retryAfter: limit.retryAfterSeconds,
+      }, { "Retry-After": String(limit.retryAfterSeconds) }), authorization.value);
+    }
+
     const accessToken = await services.account.accessToken(session);
-    ({ verifiedYtu } = await services.skyAccount.identity({ accessToken }));
-  } catch (error) {
-    const reason = startFailureReason(error);
-    logAuthEvent({ event: "ytu_link_started", requestId, outcome: "failure", reason });
-    if (reason === "invalid_token") {
-      return finish(await failureResponse(request, services, session, error), authorization.value, true);
+    const { verifiedYtu } = await services.skyAccount.identity({ accessToken });
+    if (verifiedYtu) {
+      logAuthEvent({ event: "ytu_link_started", requestId, outcome: "failure", reason: "already_linked" });
+      return finish(problemResponse(409, { error: "already_linked", detail: copy.alreadyLinked }), authorization.value);
     }
-    return finish(htmlNavigation ? unavailable() : await failureResponse(request, services, session, error), authorization.value);
-  }
-  if (verifiedYtu) {
-    logAuthEvent({ event: "ytu_link_started", requestId, outcome: "failure", reason: "already_linked" });
-    if (htmlNavigation) return finish(redirectWithOutcome(services, "already_linked"), authorization.value);
-    return finish(problemResponse(409, { error: "already_linked", detail: copy.alreadyLinked }), authorization.value);
-  }
 
-  try {
-    const started = await services.oidc.beginYtuLink(session);
-    const response = htmlNavigation
-      ? NextResponse.redirect(started.authorizationUrl, 303)
-      : NextResponse.json({ authorizationUrl: started.authorizationUrl.href } satisfies YtuLinkStartPayload);
+    let started;
+    try {
+      started = await services.oidc.beginYtuLink(session);
+    } catch {
+      // Discovery, PAR or the transaction store: nothing was started, so the page may simply retry.
+      logAuthEvent({ event: "ytu_link_started", requestId, outcome: "failure", reason: "provider_unavailable" });
+      return finish(problemResponse(503, {
+        error: "unavailable",
+        detail: identityRouteCopy.unavailable,
+      }, { "Retry-After": "3" }), authorization.value);
+    }
+    const payload: YtuLinkStartPayload = { authorizationUrl: started.authorizationUrl.href };
+    const response = noStore(NextResponse.json(payload));
     setOidcTransactionCookie(response, started.browserBinding);
     response.headers.set("Referrer-Policy", "no-referrer");
     logAuthEvent({ event: "ytu_link_started", requestId, outcome: "success" });
-    return finish(noStore(response), authorization.value);
-  } catch {
-    logAuthEvent({ event: "ytu_link_started", requestId, outcome: "failure", reason: "provider_unavailable" });
-    return finish(unavailable(), authorization.value);
+    return finish(response, authorization.value);
+  } catch (error) {
+    const reason = startFailureReason(error);
+    logAuthEvent({ event: "ytu_link_started", requestId, outcome: "failure", reason });
+    return finish(
+      await failureResponse(request, services, session, error),
+      authorization.value,
+      isReauthenticationRequired(error),
+    );
   }
 }
 
 /**
- * Turns the callback's `kc_action_status` into what the page may announce.
- * Keycloak's `success` is verified by reading `GET identity` with the fresh
- * token set: only `verifiedYtu === true` becomes `linked`; a link that does
- * not show (or an identity that cannot be read right now) is `unverified`,
- * and the page shows the server's current state either way.
+ * Turns the callback's outcome into what the page may announce. Keycloak's
+ * `success` is verified by reading `GET identity` with the fresh token set:
+ * only `verifiedYtu === true` becomes `linked`; a link that does not show, an
+ * identity that cannot be read right now, or a token set the flow could not
+ * store is `unverified`, and the page shows the server's current state either
+ * way.
  */
 export async function completeYtuLink(
   services: Pick<Services, "account" | "skyAccount">,
   session: ActiveSession,
   status: YtuLinkCallbackStatus,
   requestId: string,
-): Promise<Exclude<YtuLinkOutcome, "already_linked" | "unavailable">> {
+): Promise<YtuLinkOutcome> {
   if (status === "cancelled") {
     logAuthEvent({ event: "ytu_link_completed", requestId, outcome: "failure", reason: "link_cancelled" });
     return "cancelled";
@@ -209,6 +182,10 @@ export async function completeYtuLink(
   if (status === "error") {
     logAuthEvent({ event: "ytu_link_completed", requestId, outcome: "failure", reason: "link_failed" });
     return "error";
+  }
+  if (status === "unverified") {
+    logAuthEvent({ event: "ytu_link_completed", requestId, outcome: "failure", reason: "token_replace_failed" });
+    return "unverified";
   }
   let verifiedYtu: boolean;
   try {

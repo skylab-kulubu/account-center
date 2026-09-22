@@ -98,7 +98,8 @@ type AuthLog = {
     | "already_linked"
     | "link_cancelled"
     | "link_failed"
-    | "link_unverified";
+    | "link_unverified"
+    | "token_replace_failed";
 };
 
 export function logAuthEvent(entry: AuthLog) {

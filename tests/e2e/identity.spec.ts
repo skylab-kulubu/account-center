@@ -401,6 +401,9 @@ async function openYtuDialog(page: Page) {
   return dialog;
 }
 
+/** The start route's `428` challenge, which the page answers by opening the real Sudo mode dialog. */
+const sudoChallenge = { error: "sudo_required", reason: "missing", methods: ["password"], fallback: null };
+
 test("YTÜ link: the consequences dialog, the start call, the Keycloak round trip and the linked, locked result", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   await installAuthenticatedSession(context, `identity-ytu-link-${testInfo.retry}`);
@@ -408,9 +411,15 @@ test("YTÜ link: the consequences dialog, the start call, the Keycloak round tri
   const network = recordRequests(page);
   const identity: Identity = { ...unverified };
   await mockIdentity(page, identity);
+  const proofs = await mockSudo(page);
   const starts: Array<{ headers: Record<string, string>; body: string | null }> = [];
   await page.route("**/api/account/identity/ytu-link", async (route) => {
     starts.push({ headers: await route.request().allHeaders(), body: route.request().postData() });
+    // The first attempt is deliberately answered 428: the real Sudo mode dialog opens, then the start is retried.
+    if (starts.length === 1) {
+      await route.fulfill({ status: 428, json: sudoChallenge });
+      return;
+    }
     await route.fulfill({ json: { authorizationUrl } });
   });
   // Keycloak links the Microsoft account and the realm now reports the person as verified.
@@ -434,17 +443,21 @@ test("YTÜ link: the consequences dialog, the start call, the Keycloak round tri
   expect(starts).toHaveLength(0);
 
   await openYtuDialog(page);
-  await dialog.getByRole("button", { name: "Microsoft ile devam et" }).click();
+  await dialog.getByRole("button", { name: "Onayla ve devam et" }).click();
+  await completeSudoDialog(page);
   const notice = page.getByRole("status").filter({ hasText: "YTÜ hesabın bağlandı" });
   await expect(notice).toContainText("Adın ve okul e-postan artık YTÜ kaydından gelir ve buradan değiştirilemez.");
   await expect(notice).toBeFocused();
   await expect(page).toHaveURL(`${baseUrl}/identity`);
 
-  // The start carried the session proof and no body; the browser left for exactly the address the BFF answered.
-  expect(starts).toHaveLength(1);
-  expect(starts[0]?.headers["x-csrf-token"]).toBe(csrfToken);
-  expect(starts[0]?.headers.origin).toBe(baseUrl);
-  expect(starts[0]?.body).toBeNull();
+  // Sudo mode ran between the two starts; both carried the session proof and no body.
+  expect(proofs).toEqual([{ password: sudoPassword }]);
+  expect(starts).toHaveLength(2);
+  for (const start of starts) {
+    expect(start.headers["x-csrf-token"]).toBe(csrfToken);
+    expect(start.headers.origin).toBe(baseUrl);
+    expect(start.body).toBeNull();
+  }
   expect(arrivals).toEqual([authorizationUrl]);
   const arrival = new URL(arrivals[0]!);
   expect([...arrival.searchParams.keys()].sort()).toEqual(["client_id", "request_uri"]);
@@ -468,13 +481,14 @@ test("YTÜ link: a cancelled or failed round trip is announced, stripped from th
   await installAuthenticatedSession(context, `identity-ytu-cancel-${testInfo.retry}`);
   const errors = failOnPageErrors(page);
   await mockIdentity(page, unverified);
+  await mockSudo(page);
   await page.route("**/api/account/identity/ytu-link", (route) => route.fulfill({ json: { authorizationUrl } }));
   const outcomes: Array<"cancelled" | "error"> = ["cancelled", "error"];
   await mockKeycloakAuthorization(page, () => outcomes.shift() ?? "error");
 
   await gotoIdentity(page);
   const dialog = await openYtuDialog(page);
-  await dialog.getByRole("button", { name: "Microsoft ile devam et" }).click();
+  await dialog.getByRole("button", { name: "Onayla ve devam et" }).click();
   const cancelled = page.getByRole("status").filter({ hasText: "Bağlama tamamlanmadı" });
   await expect(cancelled).toContainText("Hesabında değişiklik yapılmadı. İstediğinde yeniden deneyebilirsin.");
   await expect(cancelled).toBeFocused();
@@ -482,21 +496,26 @@ test("YTÜ link: a cancelled or failed round trip is announced, stripped from th
   await expect(page.getByText("YTÜ hesabın bağlı değil")).toBeVisible();
   await expect(page.getByRole("button", { name: "Adı düzenle" })).toBeEnabled();
 
-  // Retry: the same button, this time the IdP round trip fails.
-  await page.waitForLoadState("networkidle");
+  // Retry: the same button, this time the IdP round trip fails. (The page has
+  // just come back from a full navigation, so wait for the row, not the
+  // network: `next dev` keeps its HMR socket busy and never goes idle.)
+  await expect(page.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
   const retry = await openYtuDialog(page);
-  await retry.getByRole("button", { name: "Microsoft ile devam et" }).click();
+  await retry.getByRole("button", { name: "Onayla ve devam et" }).click();
   const failed = page.getByRole("status").filter({ hasText: "YTÜ hesabı bağlanamadı" });
   await expect(failed).toContainText("bu Microsoft hesabı başka bir SKY LAB hesabına bağlı");
   await expect(page).toHaveURL(`${baseUrl}/identity`);
   await expect(page.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
 
-  // The BFF's own answers for a link Keycloak claimed but the identity does not show, or that could not start.
+  // The BFF's own answer for a link Keycloak claimed but the identity does not show.
   await gotoIdentity(page, "/identity?ytu=unverified");
   await expect(page.getByRole("status").filter({ hasText: "Bağlantı doğrulanamadı" })).toContainText("Bu sayfa güncel durumu gösterir");
   await expect(page).toHaveURL(`${baseUrl}/identity`);
-  await gotoIdentity(page, "/identity?ytu=unavailable");
-  await expect(page.getByRole("status").filter({ hasText: "Bağlama başlatılamadı" })).toBeVisible();
+
+  // A crafted address cannot make the page claim a link the identity does not show.
+  await gotoIdentity(page, "/identity?ytu=linked");
+  await expect(page.getByText("YTÜ hesabın bağlı değil")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(0);
   await expect(page).toHaveURL(`${baseUrl}/identity`);
   expect(errors).toEqual([]);
 });

@@ -8,6 +8,7 @@ import { OIDC_TRANSACTION_COOKIE, SESSION_COOKIE } from "@/server/auth/http";
 import { logAuthEvent } from "@/server/auth/logging";
 import { AccountReauthenticationRequiredError } from "@/server/keycloak-account/service";
 import { completeYtuLink } from "@/server/identity/ytu-link";
+import { SudoRequiredError } from "@/server/auth/sudo";
 import { SkyAccountContractError, SkyAccountUnavailableError } from "@/server/sky-account/problem";
 
 const routeMocks = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ const routeMocks = vi.hoisted(() => ({
   identity: vi.fn(),
   consumeKey: vi.fn(),
   beginYtuLink: vi.fn(),
+  requireFreshSudo: vi.fn(),
   config: { appUrl: new URL("https://my.yildizskylab.com") },
 }));
 
@@ -34,6 +36,7 @@ vi.mock("@/server/auth/services", () => ({
     skyAccount: { identity: routeMocks.identity },
     anonymousRateLimit: { consumeKey: routeMocks.consumeKey },
     oidc: { beginYtuLink: routeMocks.beginYtuLink },
+    sudo: { requireFreshSudo: routeMocks.requireFreshSudo },
   }),
 }));
 
@@ -49,17 +52,18 @@ const activeSession = {
 const origin = "https://my.yildizskylab.com";
 const authorizationUrl = "https://e.yildizskylab.com/realms/e-skylab/protocol/openid-connect/auth?client_id=account-center&request_uri=urn%3Apar%3Aytu";
 const unverified = { ...identityFixture, verifiedYtu: false, nameLocked: false, schoolEmail: null };
+const sudoToken = "eyJhbGciOiJIUzUxMiJ9.eyJ0eXAiOiJza3ktc3VkbyJ9.signature-fixture";
+const proof = { method: "password", sudoToken, expiresAt: new Date("2026-09-22T09:05:00Z") };
 
 type RequestOptions = {
   origin?: string | null;
   csrf?: string | null;
-  html?: boolean;
   cookie?: boolean;
   contentType?: string;
   body?: string;
 };
 
-/** A fetch caller: CSRF in the header, no body, no navigation headers. */
+/** The page's start call: CSRF in the header, no body. */
 function fetchRequest(options: RequestOptions = {}) {
   const headers = new Headers();
   if (options.cookie !== false) headers.set("cookie", `${SESSION_COOKIE}=${"h".repeat(43)}`);
@@ -76,20 +80,6 @@ function fetchRequest(options: RequestOptions = {}) {
   });
 }
 
-/** A browser form navigation: CSRF in the body, `Accept: text/html`. */
-function formRequest(body: string, options: RequestOptions = {}) {
-  const headers = new Headers({
-    cookie: `${SESSION_COOKIE}=${"h".repeat(43)}`,
-    origin: options.origin ?? origin,
-    "sec-fetch-site": "same-origin",
-    "sec-fetch-mode": "navigate",
-    "sec-fetch-dest": "document",
-    accept: "text/html,application/xhtml+xml",
-    "content-type": "application/x-www-form-urlencoded",
-  });
-  return new NextRequest(`${origin}/api/account/identity/ytu-link`, { method: "POST", headers, body });
-}
-
 describe("POST /api/account/identity/ytu-link", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,9 +89,10 @@ describe("POST /api/account/identity/ytu-link", () => {
     routeMocks.identity.mockResolvedValue(unverified);
     routeMocks.consumeKey.mockResolvedValue({ allowed: true, count: 1, retryAfterSeconds: 900 });
     routeMocks.beginYtuLink.mockResolvedValue({ authorizationUrl: new URL(authorizationUrl), browserBinding: "b".repeat(43) });
+    routeMocks.requireFreshSudo.mockResolvedValue(proof);
   });
 
-  it("answers a fetch caller with the Keycloak authorization URL and the transaction cookie", async () => {
+  it("answers the Keycloak authorization URL and the transaction cookie after the Sudo mode gate", async () => {
     const response = await startYtuLink(fetchRequest());
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -114,44 +105,61 @@ describe("POST /api/account/identity/ytu-link", () => {
       "session-bound-csrf",
       expect.objectContaining({ allowRotation: true, requestId: "request-id" }),
     );
+    expect(routeMocks.requireFreshSudo).toHaveBeenCalledWith(activeSession.id, { requestId: "request-id" });
     expect(routeMocks.consumeKey).toHaveBeenCalledWith("identity_mutation", activeSession.id);
     expect(routeMocks.identity).toHaveBeenCalledWith({ accessToken: "server-held-user-token" });
     expect(routeMocks.beginYtuLink).toHaveBeenCalledWith(activeSession);
     expect(logAuthEvent).toHaveBeenCalledWith({ event: "ytu_link_started", requestId: "request-id", outcome: "success" });
   });
 
-  it("sends a form navigation straight to Keycloak with 303", async () => {
-    const response = await startYtuLink(formRequest("csrfToken=session-bound-csrf"));
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe(authorizationUrl);
-    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  it("answers 428 sudo_required with the methods before the budget, the identity read or the transaction", async () => {
+    routeMocks.requireFreshSudo.mockRejectedValue(new SudoRequiredError("missing", null));
+    const response = await startYtuLink(fetchRequest());
+    expect(response.status).toBe(428);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("b".repeat(43));
-    expect(routeMocks.authenticateMutation).toHaveBeenCalledWith("h".repeat(43), "session-bound-csrf", expect.anything());
+    await expect(response.json()).resolves.toEqual({
+      error: "sudo_required",
+      reason: "missing",
+      methods: ["password", "passkey", "totp"],
+      fallback: null,
+    });
+    expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)).toBeUndefined();
+    expect(routeMocks.consumeKey).not.toHaveBeenCalled();
+    expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: "ytu_link_started",
+      outcome: "failure",
+      reason: "sudo_required",
+    }));
   });
 
-  it("refuses a Verified YTÜ account with 409 already_linked (a navigation returns to the page) before any transaction", async () => {
+  it("refuses a token-less Microsoft re-authentication proof with 428 spi_token_required", async () => {
+    routeMocks.requireFreshSudo.mockResolvedValue({ method: "reauth", sudoToken: null, expiresAt: proof.expiresAt });
+    routeMocks.identity.mockResolvedValue({ ...unverified, credentials: { password: false, totp: [], passkeys: [] } });
+    const response = await startYtuLink(fetchRequest());
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toEqual({
+      error: "sudo_required",
+      reason: "spi_token_required",
+      methods: [],
+      fallback: "microsoft",
+    });
+    expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "spi_token_required" }));
+  });
+
+  it("refuses a Verified YTÜ account with 409 already_linked before any transaction", async () => {
     routeMocks.identity.mockResolvedValue(identityFixture);
-    const json = await startYtuLink(fetchRequest());
-    expect(json.status).toBe(409);
-    await expect(json.json()).resolves.toEqual({ error: "already_linked", detail: "YTÜ hesabın zaten bağlı." });
-    expect(json.cookies.get(OIDC_TRANSACTION_COOKIE)).toBeUndefined();
-
-    const html = await startYtuLink(formRequest("csrfToken=session-bound-csrf"));
-    expect(html.status).toBe(303);
-    expect(html.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=already_linked");
-    expect(html.cookies.get(OIDC_TRANSACTION_COOKIE)).toBeUndefined();
-
+    const response = await startYtuLink(fetchRequest());
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "already_linked", detail: "YTÜ hesabın zaten bağlı." });
+    expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)).toBeUndefined();
     expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
     expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "ytu_link_started", reason: "already_linked" }));
   });
 
   it("requires the exact origin and the session CSRF proof before any work", async () => {
-    for (const request of [
-      fetchRequest({ origin: "https://attacker.invalid" }),
-      fetchRequest({ origin: null }),
-      formRequest("csrfToken=session-bound-csrf", { origin: "https://evil.invalid" }),
-    ]) {
+    for (const request of [fetchRequest({ origin: "https://attacker.invalid" }), fetchRequest({ origin: null })]) {
       const response = await startYtuLink(request);
       expect(response.status).toBe(403);
       expect(response.headers.get("location")).toBeNull();
@@ -159,13 +167,13 @@ describe("POST /api/account/identity/ytu-link", () => {
     expect(routeMocks.authenticateMutation).not.toHaveBeenCalled();
 
     routeMocks.authenticateMutation.mockResolvedValue({ status: "forbidden" });
-    for (const request of [fetchRequest({ csrf: null }), fetchRequest({ csrf: "forged" }), formRequest("csrfToken=forged")]) {
+    for (const request of [fetchRequest({ csrf: null }), fetchRequest({ csrf: "forged" })]) {
       const response = await startYtuLink(request);
       expect(response.status).toBe(403);
       expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)).toBeUndefined();
     }
     expect(routeMocks.authenticateMutation).toHaveBeenLastCalledWith("h".repeat(43), "forged", expect.anything());
-    expect(routeMocks.identity).not.toHaveBeenCalled();
+    expect(routeMocks.requireFreshSudo).not.toHaveBeenCalled();
     expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
   });
 
@@ -182,20 +190,12 @@ describe("POST /api/account/identity/ytu-link", () => {
     expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
   });
 
-  it("returns a navigation to the page with ytu=unavailable when the gate cannot decide", async () => {
-    routeMocks.authenticateMutation.mockResolvedValue({ status: "unavailable" });
-    const response = await startYtuLink(formRequest("csrfToken=session-bound-csrf"));
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=unavailable");
-    expect(response.headers.get("retry-after")).toBe("3");
-  });
-
   it("rejects oversized or foreign bodies without looking up the session", async () => {
     const cases = [
       fetchRequest({ contentType: "application/json", body: JSON.stringify({ padding: "x".repeat(2_000) }) }),
       fetchRequest({ contentType: "text/plain", body: "csrfToken=session-bound-csrf" }),
       fetchRequest({ contentType: "multipart/form-data; boundary=x", body: "--x--" }),
-      formRequest(`csrfToken=${"c".repeat(2_000)}`),
+      fetchRequest({ contentType: "application/x-www-form-urlencoded", body: "csrfToken=session-bound-csrf" }),
     ];
     for (const request of cases) {
       const response = await startYtuLink(request);
@@ -204,23 +204,17 @@ describe("POST /api/account/identity/ytu-link", () => {
     }
     expect(routeMocks.authenticateMutation).not.toHaveBeenCalled();
 
-    // A small JSON body from a fetch caller is tolerated; the proof is the header.
+    // A small JSON body is tolerated; the proof is the header.
     const tolerated = await startYtuLink(fetchRequest({ contentType: "application/json", body: "{}" }));
     expect(tolerated.status).toBe(200);
   });
 
   it("stops at the local budget before reading the identity", async () => {
     routeMocks.consumeKey.mockResolvedValue({ allowed: false, count: 11, retryAfterSeconds: 420 });
-    const json = await startYtuLink(fetchRequest());
-    expect(json.status).toBe(429);
-    expect(json.headers.get("retry-after")).toBe("420");
-    await expect(json.json()).resolves.toMatchObject({ error: "rate_limited", retryAfter: 420 });
-
-    const html = await startYtuLink(formRequest("csrfToken=session-bound-csrf"));
-    expect(html.status).toBe(303);
-    expect(html.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=unavailable");
-    expect(html.headers.get("retry-after")).toBe("420");
-
+    const response = await startYtuLink(fetchRequest());
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("420");
+    await expect(response.json()).resolves.toMatchObject({ error: "rate_limited", retryAfter: 420 });
     expect(routeMocks.identity).not.toHaveBeenCalled();
     expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
     expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "ytu_link_started", reason: "rate_limited" }));
@@ -238,15 +232,12 @@ describe("POST /api/account/identity/ytu-link", () => {
     expect(drift.status).toBe(502);
     await expect(drift.json()).resolves.toMatchObject({ error: "upstream_error" });
 
-    routeMocks.identity.mockRejectedValueOnce(new SkyAccountUnavailableError());
-    const navigation = await startYtuLink(formRequest("csrfToken=session-bound-csrf"));
-    expect(navigation.status).toBe(303);
-    expect(navigation.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=unavailable");
     expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
 
     routeMocks.beginYtuLink.mockRejectedValueOnce(new Error("par failed"));
     const par = await startYtuLink(fetchRequest());
     expect(par.status).toBe(503);
+    expect(par.headers.get("retry-after")).toBe("3");
     await expect(par.json()).resolves.toMatchObject({ error: "unavailable" });
     expect(par.cookies.get(OIDC_TRANSACTION_COOKIE)).toBeUndefined();
     expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "ytu_link_started", reason: "provider_unavailable" }));
@@ -330,11 +321,13 @@ describe("completeYtuLink", () => {
     expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "ytu_link_completed", reason: "invalid_token" }));
   });
 
-  it("passes a cancelled or failed action through without reading the identity", async () => {
+  it("passes a cancelled, failed or unstored outcome through without reading the identity", async () => {
     await expect(completeYtuLink(services, activeSession, "cancelled", "request-id")).resolves.toBe("cancelled");
     await expect(completeYtuLink(services, activeSession, "error", "request-id")).resolves.toBe("error");
+    await expect(completeYtuLink(services, activeSession, "unverified", "request-id")).resolves.toBe("unverified");
     expect(routeMocks.identity).not.toHaveBeenCalled();
     expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "link_cancelled" }));
     expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "link_failed" }));
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "token_replace_failed" }));
   });
 });

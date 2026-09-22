@@ -90,7 +90,7 @@ function fixture(decision: "active" | "blocked" = "active") {
       tokens: { accessToken: "old", idToken: "old", tokenType: "bearer" },
       version: "encrypted-v1",
     })),
-    replaceTokens: vi.fn(async () => true),
+    replaceTokens: vi.fn<(...args: unknown[]) => Promise<boolean>>(async () => true),
   };
   const accountAccess = {
     requireActive: vi.fn(async () => {
@@ -194,6 +194,15 @@ describe("YTÜ account link (kc_action=idp_link)", () => {
     expect(result).toEqual({ ytuLink: "error", session: activeSession, returnTo: "/identity" });
     expect(protocol.exchanged).toBeUndefined();
     expect(sessions.replaceTokens).not.toHaveBeenCalled();
+  });
+
+  it("reports unverified when another request replaced the token set meanwhile", async () => {
+    const { flow, protocol, sessions } = fixture();
+    sessions.replaceTokens.mockResolvedValue(false);
+    const started = await flow.beginYtuLink(activeSession);
+    const result = await flow.callback(callbackFor(protocol.proof!.state, linked), started.browserBinding, handle);
+    expect(result).toEqual({ ytuLink: "unverified", session: activeSession, returnTo: "/identity" });
+    expect(sessions.replaceTokens).toHaveBeenCalledTimes(1);
   });
 
   it("reports an error when the code cannot be exchanged and stores nothing", async () => {

@@ -30,7 +30,7 @@ import {
 } from "@/lib/identity-fields";
 import type { PersonNameField } from "@/lib/identity-fields";
 import { detailOf, errorOf, isObject, responseJson, runWithSudo, securityRequest } from "@/lib/security-client";
-import type { MutationOutcome } from "@/lib/security-client";
+import type { EnsureSudo, MutationOutcome } from "@/lib/security-client";
 
 const RETURN_TO = "/identity";
 
@@ -120,8 +120,8 @@ export const identityCopy = {
         "Okul e-postan, giriş yaptığın YTÜ Microsoft hesabındaki adres olur.",
         "Bağlantı kalıcıdır; buradan kaldırılamaz.",
       ],
-      note: "Kısa bir süre için e.yildizskylab.com ve Microsoft sayfalarına gideceksin; işlem bitince bu sayfaya dönersin.",
-      confirm: "Microsoft ile devam et",
+      note: "Onayladıktan sonra kimliğini doğrulaman istenir; ardından kısa bir süre için e.yildizskylab.com ve Microsoft sayfalarına gideceksin ve işlem bitince bu sayfaya dönersin.",
+      confirm: "Onayla ve devam et",
       redirecting: "Yönlendiriliyor",
     },
     unexpectedAnswer: "Yönlendirme adresi alınamadı. Yeniden dene.",
@@ -130,6 +130,8 @@ export const identityCopy = {
         tone: "positive",
         title: "YTÜ hesabın bağlandı",
         detail: "Adın ve okul e-postan artık YTÜ kaydından gelir ve buradan değiştirilemez.",
+        // Only shown when the freshly read identity confirms the link.
+        assertsLink: true,
       },
       cancelled: {
         tone: "neutral",
@@ -146,16 +148,12 @@ export const identityCopy = {
         title: "Bağlantı doğrulanamadı",
         detail: "Microsoft girişi tamamlandı ama hesabında YTÜ bağlantısı görünmüyor. Bu sayfa güncel durumu gösterir; bağlı görünmüyorsa yeniden dene.",
       },
-      already_linked: {
-        tone: "neutral",
-        title: "YTÜ hesabın zaten bağlı",
-        detail: "Adın ve okul e-postan YTÜ kaydından geliyor; yeniden bağlaman gerekmez.",
-      },
-      unavailable: {
-        tone: "warning",
-        title: "Bağlama başlatılamadı",
-        detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden dene.",
-      },
+    },
+    alreadyLinkedNotice: {
+      tone: "neutral",
+      title: "YTÜ hesabın zaten bağlı",
+      detail: "Adın ve okul e-postan YTÜ kaydından geliyor; yeniden bağlaman gerekmez.",
+      assertsLink: true,
     },
   },
   email: {
@@ -181,7 +179,18 @@ type Flow =
   | { kind: "username"; stage: "form" | "confirm" }
   | { kind: "ytu-link" };
 
-type Notice = { tone: "positive" | "neutral" | "warning"; title: string; detail: string };
+type Notice = {
+  tone: "positive" | "neutral" | "warning";
+  title: string;
+  detail: string;
+  /**
+   * States that the YTÜ account is linked. Such a notice is rendered only
+   * while the freshly read identity says so, because `?ytu=` travels in the
+   * address bar: a crafted link must not make the page assert a fact about
+   * the account.
+   */
+  assertsLink?: true;
+};
 
 /** `?ytu=` values the identity page announces after the Microsoft round trip (`src/server/identity/ytu-link.ts`). */
 export type YtuLinkOutcome = keyof typeof identityCopy.ytu.notices;
@@ -193,12 +202,17 @@ export function ytuLinkNotice(value: string | null): Notice | null {
   return identityCopy.ytu.notices[value as YtuLinkOutcome];
 }
 
-/** The Keycloak authorization URL the BFF answered, accepted only as an absolute HTTPS address. */
-export function authorizationUrlOf(answer: unknown): string | null {
+/**
+ * The Keycloak authorization URL the BFF answered, accepted only as an
+ * absolute HTTPS address on the Keycloak origin this deployment was built
+ * with. The origin comes from the server-rendered page, not from the answer,
+ * so a rewritten or injected answer cannot send the browser elsewhere.
+ */
+export function authorizationUrlOf(answer: unknown, expectedOrigin: string): string | null {
   if (!isObject(answer) || typeof answer.authorizationUrl !== "string" || answer.authorizationUrl.length > 4_096) return null;
   try {
     const url = new URL(answer.authorizationUrl);
-    return url.protocol === "https:" ? url.href : null;
+    return url.protocol === "https:" && url.origin === expectedOrigin ? url.href : null;
   } catch {
     return null;
   }
@@ -628,6 +642,8 @@ function UsernameForm({
 
 type YtuLinkDialogProps = {
   payload: IdentityPayload;
+  keycloakOrigin: string;
+  ensureSudo: EnsureSudo;
   onDismiss: () => void;
   onAlreadyLinked: () => void;
   onCsrfRenewed: () => Promise<void>;
@@ -637,12 +653,23 @@ type YtuLinkDialogProps = {
 /**
  * "YTÜ hesabımı bağla": the consequences (the name and school e-mail become
  * YTÜ's and lock, the school e-mail is the Microsoft account's address, no
- * unlink) and one button. Confirming asks the BFF to start the `idp_link`
- * action and then navigates to the Keycloak address it answered; the person
- * comes back to this page with `?ytu=`. The dialog stays busy while the
- * browser leaves, and a `409 already_linked` re-reads the identity instead.
+ * unlink) and one button. Because the link cannot be undone, confirming runs
+ * the same Sudo mode step as the username change (`runWithSudo` opens the
+ * dialog on `428` and retries once); the BFF then starts the `idp_link`
+ * action and the browser navigates to the Keycloak address it answered,
+ * which must be on this deployment's Keycloak origin. The person comes back
+ * to this page with `?ytu=`. The dialog stays busy while the browser leaves,
+ * and a `409 already_linked` re-reads the identity instead.
  */
-function YtuLinkDialog({ payload, onDismiss, onAlreadyLinked, onCsrfRenewed, onAuthenticationRequired }: YtuLinkDialogProps) {
+function YtuLinkDialog({
+  payload,
+  keycloakOrigin,
+  ensureSudo,
+  onDismiss,
+  onAlreadyLinked,
+  onCsrfRenewed,
+  onAuthenticationRequired,
+}: YtuLinkDialogProps) {
   const baseId = useId();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -655,10 +682,12 @@ function YtuLinkDialog({ payload, onDismiss, onAlreadyLinked, onCsrfRenewed, onA
     setFeedback(null);
     let leaving = false;
     try {
-      const response = await securityRequest({ method: "POST", path: "/api/account/identity/ytu-link", csrfToken: payload.csrfToken });
-      const answer = await responseJson(response);
-      if (response.ok) {
-        const authorizationUrl = authorizationUrlOf(answer);
+      const outcome = await runWithSudo(
+        () => securityRequest({ method: "POST", path: "/api/account/identity/ytu-link", csrfToken: payload.csrfToken }),
+        ensureSudo,
+      );
+      if (outcome.kind === "ok") {
+        const authorizationUrl = authorizationUrlOf(outcome.body, keycloakOrigin);
         if (!authorizationUrl) {
           setFeedback({ tone: "warning", detail: identityCopy.ytu.unexpectedAnswer });
           return;
@@ -667,11 +696,11 @@ function YtuLinkDialog({ payload, onDismiss, onAlreadyLinked, onCsrfRenewed, onA
         window.location.assign(authorizationUrl);
         return;
       }
-      if (response.status === 409 && errorOf(answer) === "already_linked") {
+      if (outcome.kind === "error" && outcome.status === 409 && errorOf(outcome.body) === "already_linked") {
         onAlreadyLinked();
         return;
       }
-      const next = feedbackFor({ kind: "error", response, status: response.status, body: answer }, (code, detail) => {
+      const next = feedbackFor(outcome, (code, detail) => {
         if (code === "invalid_request") return { tone: "danger", detail };
         return null;
       }, onAuthenticationRequired);
@@ -721,12 +750,14 @@ function YtuLinkDialog({ payload, onDismiss, onAlreadyLinked, onCsrfRenewed, onA
 /**
  * The identity page: name (locked for a Verified YTÜ account), username
  * (confirmation + Sudo mode, 14-day cooldown), YTÜ status with the link
- * (a confirmation dialog, then Keycloak's `idp_link` action at Microsoft,
- * announced from `?ytu=` on return) and the e-mail rows, all read from
- * `/api/account/identity` and always re-read after a change; the server's
- * identity, not the answer of a mutation, is what the page shows.
+ * (a confirmation dialog, Sudo mode, then Keycloak's `idp_link` action at
+ * Microsoft, announced from `?ytu=` on return) and the e-mail rows, all read
+ * from `/api/account/identity` and always re-read after a change; the
+ * server's identity, not the answer of a mutation or a value in the address,
+ * is what the page shows. `keycloakOrigin` is server-rendered from
+ * `OIDC_ISSUER` and is the only origin the link may navigate to.
  */
-export function IdentityManager() {
+export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -793,7 +824,7 @@ export function IdentityManager() {
 
   // The notices region exists only once the identity is shown; a notice seeded from `?ytu=` waits for it.
   useEffect(() => {
-    if (!focusNotice.current || notices.length === 0 || !noticeRef.current) return;
+    if (!focusNotice.current || !noticeRef.current) return;
     focusNotice.current = false;
     noticeRef.current.focus();
   }, [notices, payload]);
@@ -846,15 +877,17 @@ export function IdentityManager() {
   }
 
   const busy = flow !== null;
+  // A notice that states the account is linked is shown only while the server's identity agrees.
+  const visibleNotices = notices.filter((notice) => !notice.assertsLink || payload.verifiedYtu);
   const cooldown = payload.usernameChangeAvailableAt ? describeCooldown(new Date(payload.usernameChangeAvailableAt)) : null;
   const cooldownId = `${soonId}-cooldown`;
   const emailSoonId = `${soonId}-email`;
 
   return (
     <>
-      {notices.length > 0 ? (
+      {visibleNotices.length > 0 ? (
         <div ref={noticeRef} className="identity-notices" role="status" tabIndex={-1}>
-          {notices.map((notice) => (
+          {visibleNotices.map((notice) => (
             <div key={notice.detail} className="action-notice security-notice" data-tone={notice.tone}>
               <strong>{notice.title}</strong>
               <span>{notice.detail}</span>
@@ -972,8 +1005,10 @@ export function IdentityManager() {
         {flow?.kind === "ytu-link" && !payload.verifiedYtu ? (
           <YtuLinkDialog
             payload={payload}
+            keycloakOrigin={keycloakOrigin}
+            ensureSudo={ensureSudo}
             onDismiss={closeFlow}
-            onAlreadyLinked={() => void finishFlow([identityCopy.ytu.notices.already_linked])}
+            onAlreadyLinked={() => void finishFlow([identityCopy.ytu.alreadyLinkedNotice])}
             onCsrfRenewed={csrfRenewed}
             onAuthenticationRequired={onAuthenticationRequired}
           />

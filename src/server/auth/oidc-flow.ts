@@ -14,8 +14,12 @@ import type {
 } from "@/server/auth/types";
 import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
 
-/** How Keycloak reported the `idp_link` action; `success` still has to be proven by re-reading the identity. */
-export type YtuLinkCallbackStatus = "success" | "cancelled" | "error";
+/**
+ * How the `idp_link` round trip ended: Keycloak's own `kc_action_status`, or
+ * `unverified` when the fresh token set could not be stored on this session.
+ * `success` still has to be proven by re-reading the identity.
+ */
+export type YtuLinkCallbackStatus = "success" | "cancelled" | "error" | "unverified";
 
 export type OidcFlowOptions = {
   /** Alias of the YTÜ Microsoft identity provider, the only `kc_action_parameter` ever pushed. */
@@ -337,8 +341,11 @@ export class OidcFlowService {
    * have rotated the session at Microsoft: the fresh token set replaces the
    * stored one (the `sid` may change) so the BFF session stays usable. The
    * identity at Keycloak must still be this session's person; the bound
-   * session and subject are checked before anything is stored. `success` is a
-   * claim, not proof: the route re-reads the identity before announcing it.
+   * session and subject are checked before anything is stored, and a token set
+   * another request replaced meanwhile (a lost compare-and-swap) ends the
+   * round trip as `unverified` rather than passing an unproven claim on.
+   * `success` is a claim, not proof: the route re-reads the identity before
+   * announcing it.
    */
   async #ytuLinkCallback(
     callbackUrl: URL,
@@ -372,13 +379,13 @@ export class OidcFlowService {
     await this.accountAccess.requireActive(authorization.subject);
     const currentTokens = await this.sessions.readTokens(session.id);
     if (!currentTokens) throw new InvalidOidcTransactionError();
-    await this.sessions.replaceTokens(
+    const replaced = await this.sessions.replaceTokens(
       session.id,
       currentTokens.version,
       authorization.tokens,
       authorization.keycloakSid,
     );
-    return outcome(status);
+    return outcome(replaced ? status : "unverified");
   }
 
   async callback(
