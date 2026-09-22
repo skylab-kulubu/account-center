@@ -11,7 +11,7 @@ function validCoreProof(payload: OidcTransactionPayload) {
     /^[A-Za-z0-9_-]{32,256}$/.test(payload.state) &&
     /^[A-Za-z0-9_-]{32,256}$/.test(payload.nonce) &&
     /^[A-Za-z0-9._~-]{43,128}$/.test(payload.codeVerifier) &&
-    ["/", "/personal-information", "/security", "/sessions", "/delete-account"]
+    ["/", "/personal-information", "/security", "/sessions", "/permissions", "/club-profile", "/delete-account"]
       .includes(payload.returnTo)
   );
 }
@@ -66,7 +66,10 @@ function validTransactionPayload(payload: OidcTransactionPayload) {
       );
     });
   }
-  if (payload.purpose === "account-deletion-reauthentication") {
+  if (
+    payload.purpose === "account-deletion-reauthentication" ||
+    payload.purpose === "sudo-reauthentication"
+  ) {
     return (
       typeof payload.expectedSubject === "string" &&
       payload.expectedSubject.length > 0 &&

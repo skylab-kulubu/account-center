@@ -220,6 +220,109 @@ describe("Account Center application-initiated actions", () => {
     }
   });
 
+  it("re-authenticates for sudo with a forced login bound to the session and returns the auth_time", async () => {
+    const { flow, protocol, sessions } = fixture();
+    const started = await flow.beginSudoReauthentication(activeSession, "/security");
+    expect(protocol.proof).toMatchObject({ forceReauthentication: true });
+    expect(protocol.proof?.accountAction).toBeUndefined();
+    expect(started.authorizationUrl.href).not.toContain(activeSession.subject);
+
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("code", "authorization-code");
+    callback.searchParams.set("state", protocol.proof!.state);
+    const result = await flow.callback(callback, started.browserBinding, handle);
+
+    expect(result).toEqual({
+      sudoReauthentication: "success",
+      session: activeSession,
+      authenticatedAt: now,
+      returnTo: "/security",
+    });
+    expect(JSON.stringify(result)).not.toContain("fresh-server");
+    expect(protocol.exchanged).toMatchObject({ forceReauthentication: true });
+    expect(sessions.replaceTokens).toHaveBeenCalledWith(
+      activeSession.id,
+      "encrypted-v1",
+      protocol.authorization.tokens,
+      protocol.authorization.keycloakSid,
+    );
+  });
+
+  it.each(["/", "/personal-information", "/security", "/sessions", "/permissions", "/club-profile", "/delete-account"])(
+    "round-trips the allowlisted sudo return path %s through the transaction store",
+    async (path) => {
+      const { flow, protocol } = fixture();
+      const started = await flow.beginSudoReauthentication(activeSession, path);
+      const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+      callback.searchParams.set("code", "authorization-code");
+      callback.searchParams.set("state", protocol.proof!.state);
+      await expect(flow.callback(callback, started.browserBinding, handle)).resolves.toMatchObject({
+        sudoReauthentication: "success",
+        returnTo: path,
+      });
+    },
+  );
+
+  it.each([
+    ["/admin", "/"],
+    ["//attacker.invalid/", "/"],
+    ["https://my.yildizskylab.com/permissions", "/"],
+    ["/club-profile/edit", "/"],
+    // Only the pathname survives: traversal and query/fragment collapse onto the allowlisted page.
+    ["/permissions/../security", "/security"],
+    ["/security?x=1#f", "/security"],
+  ])("normalises the sudo return path %s to %s", async (path, expected) => {
+    const { flow, protocol } = fixture();
+    const started = await flow.beginSudoReauthentication(activeSession, path);
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("code", "authorization-code");
+    callback.searchParams.set("state", protocol.proof!.state);
+    await expect(flow.callback(callback, started.browserBinding, handle)).resolves.toMatchObject({
+      returnTo: expected,
+    });
+  });
+
+  it("normalises the sudo return path and reports a cancelled Microsoft re-authentication", async () => {
+    const { flow, protocol, sessions } = fixture();
+    const started = await flow.beginSudoReauthentication(activeSession, "https://attacker.invalid/phish");
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("error", "access_denied");
+    callback.searchParams.set("state", protocol.proof!.state);
+    await expect(flow.callback(callback, started.browserBinding, handle)).resolves.toEqual({
+      sudoReauthentication: "cancelled",
+      returnTo: "/",
+    });
+    expect(protocol.exchanged).toBeUndefined();
+    expect(sessions.replaceTokens).not.toHaveBeenCalled();
+  });
+
+  it("rejects sudo re-authentication bound to another session, subject, or stale auth_time", async () => {
+    const missing = fixture();
+    const missingStarted = await missing.flow.beginSudoReauthentication(activeSession, "/security");
+    const missingCallback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    missingCallback.searchParams.set("code", "authorization-code");
+    missingCallback.searchParams.set("state", missing.protocol.proof!.state);
+    await expect(missing.flow.callback(missingCallback, missingStarted.browserBinding, "x".repeat(43)))
+      .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+    expect(missing.protocol.exchanged).toBeUndefined();
+
+    for (const mutate of [
+      (protocol: FakeProtocol) => { protocol.authorization.subject = "different-user"; },
+      (protocol: FakeProtocol) => { protocol.authorization.authenticatedAt = new Date("2026-09-20T11:50:00Z"); },
+      (protocol: FakeProtocol) => { protocol.authorization.keycloakSid = undefined; },
+    ]) {
+      const current = fixture();
+      const started = await current.flow.beginSudoReauthentication(activeSession, "/security");
+      mutate(current.protocol);
+      const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+      callback.searchParams.set("code", "authorization-code");
+      callback.searchParams.set("state", current.protocol.proof!.state);
+      await expect(current.flow.callback(callback, started.browserBinding, handle))
+        .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+      expect(current.sessions.replaceTokens).not.toHaveBeenCalled();
+    }
+  });
+
   it.each([
     ["password", "UPDATE_PASSWORD"],
     ["otp", "CONFIGURE_TOTP"],

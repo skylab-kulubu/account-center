@@ -2,6 +2,8 @@
 
 Account Center does not embed or redirect to the Keycloak Account Console. Password, TOTP and passwordless WebAuthn changes use Keycloak 26.7.4 application-initiated actions (AIA) through the existing confidential `account-center` OIDC client. The built-in Keycloak `DELETE_ACCOUNT` action is not a destination in this product.
 
+> **Transition (ADR-0043).** The AIA hop below is the v1 path and is being replaced. Sudo mode is already in the product: before any sensitive action the person proves it is them inside `my.` with their password, a passkey or a verification code (`POST /api/account/sudo/*`, [architecture, "Sudo modu"](architecture.md#sudo-modu)), and the proof is kept encrypted in the session record for five minutes. The security-page ticket (A5) moves password change, TOTP setup, passkey registration and credential deletion onto the sky-account SPI behind that proof (`requireFreshSudoOrChallenge` → `428 sudo_required`), after which the AIA code paths in this document are removed; `delete_credential` stays only until the SPI delete ships. A person with none of the three methods re-authenticates with Microsoft through `POST /api/account/sudo/reauthenticate`, which reuses the forced-login transaction described here but returns to the page instead of running a Keycloak action.
+
 ## Allowed actions
 
 The application accepts only these product actions and maps them server-side:

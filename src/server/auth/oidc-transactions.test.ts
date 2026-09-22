@@ -64,4 +64,38 @@ describe("OidcTransactionStore", () => {
     now = new Date("2026-09-20T00:00:02Z");
     await expect(store.consume(state, browserBinding)).resolves.toBeNull();
   });
+
+  it("round-trips a sudo re-authentication transaction and fails closed on drifted payloads", async () => {
+    const repository = new MemoryTransactions();
+    const store = new OidcTransactionStore(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 5)),
+      300,
+      () => new Date("2026-09-21T13:10:00Z"),
+    );
+    const payload = {
+      state: "s".repeat(43),
+      nonce: "n".repeat(43),
+      codeVerifier: "v".repeat(43),
+      returnTo: "/security",
+      purpose: "sudo-reauthentication" as const,
+      expectedSubject: "person",
+      expectedSessionId: "11111111-1111-4111-8111-111111111111",
+      initiatedAt: "2026-09-21T13:10:00.000Z",
+    };
+    const browserBinding = "b".repeat(43);
+    await store.create(payload, browserBinding);
+    await expect(store.consume(payload.state, browserBinding)).resolves.toEqual(payload);
+
+    const drifted = [
+      { ...payload, state: "t".repeat(43), expectedSessionId: "not-a-session" },
+      { ...payload, state: "u".repeat(43), expectedSubject: "" },
+      { ...payload, state: "w".repeat(43), initiatedAt: "yesterday" },
+      { ...payload, state: "x".repeat(43), returnTo: "/admin" },
+    ];
+    for (const candidate of drifted) {
+      await store.create(candidate as typeof payload, browserBinding);
+      await expect(store.consume(candidate.state, browserBinding)).resolves.toBeNull();
+    }
+  });
 });

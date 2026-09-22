@@ -6,6 +6,8 @@ import problemsFixture from "../../../tests/fixtures/sky-account-v1-problems.jso
 import sudoGrantFixture from "../../../tests/fixtures/sky-account-v1-sudo-grant.json";
 import totpCredentialFixture from "../../../tests/fixtures/sky-account-v1-totp-credential.json";
 import totpSetupFixture from "../../../tests/fixtures/sky-account-v1-totp-setup.json";
+import assertionJson from "../../../tests/fixtures/sky-account-v1-webauthn-assertion.json";
+import assertionOptionsFixture from "../../../tests/fixtures/sky-account-v1-webauthn-assertion-options.json";
 import {
   SkyAccountContractError,
   SkyAccountHttpClient,
@@ -14,11 +16,12 @@ import {
   SkyAccountUnavailableError,
   SKY_ACCOUNT_API_VERSION,
 } from "@/server/sky-account/client";
-import type { SkyAccountProblemCode } from "@/server/sky-account/client";
+import type { SkyAccountProblemCode, WebauthnAssertion } from "@/server/sky-account/client";
 
 const issuer = new URL("https://e.yildizskylab.com/realms/e-skylab");
 const base = "https://e.yildizskylab.com/realms/e-skylab/sky-account/v1";
 const bearer = { accessToken: "server-held-user-token" };
+const assertionFixture = assertionJson as WebauthnAssertion;
 const sudo = { accessToken: "server-held-user-token", sudoToken: "opaque-sudo-token" };
 
 type Recorded = { url: string; method: string; headers: Headers; body: string | null };
@@ -160,6 +163,130 @@ describe("SkyAccountHttpClient", () => {
       ["/sudo/totp", JSON.stringify({ code: "123456" })],
     ]);
     expect(calls.every((call) => call.headers.get("x-sky-sudo") === null)).toBe(true);
+  });
+
+  it("relays passkey assertion options and forwards the browser assertion for sudo", async () => {
+    const { client, calls } = transport((recorded) => {
+      if (recorded.url.endsWith("/sudo/webauthn/options")) return json(assertionOptionsFixture);
+      if (recorded.url.endsWith("/sudo/webauthn/verify")) return json(sudoGrantFixture);
+      throw new Error(`unexpected ${recorded.url}`);
+    });
+    const options = await client.sudoWebauthnOptions(bearer);
+    expect(options).toEqual(assertionOptionsFixture);
+    const grant = await client.sudoWebauthnVerify(bearer, {
+      ...assertionFixture,
+      authenticatorAttachment: "platform",
+      clientExtensionResults: { appid: true, injected: "page-data" },
+    } as never);
+    expect(grant).toEqual({
+      sudoToken: sudoGrantFixture.sudoToken,
+      expiresAt: new Date("2026-09-21T13:15:18Z"),
+    });
+    // Exactly the sudo contract's members: no attachment (registration only), no extension results.
+    expect(calls.map((call) => [call.method, call.url.replace(base, ""), call.body])).toEqual([
+      ["POST", "/sudo/webauthn/options", null],
+      ["POST", "/sudo/webauthn/verify", JSON.stringify({
+        id: assertionFixture.id,
+        rawId: assertionFixture.rawId,
+        type: "public-key",
+        response: assertionFixture.response,
+      })],
+    ]);
+    expect(Object.keys(JSON.parse(calls[1]!.body!))).toEqual(["id", "rawId", "type", "response"]);
+    expect(Object.keys(JSON.parse(calls[1]!.body!).response)).toEqual(["clientDataJSON", "authenticatorData", "signature", "userHandle"]);
+    expect(calls[0]?.headers.get("content-type")).toBeNull();
+    expect(calls[1]?.headers.get("content-type")).toBe("application/json");
+    expect(calls.every((call) => call.headers.get("x-sky-sudo") === null)).toBe(true);
+  });
+
+  it("accepts ceremony bodies above the 8 KB default up to the documented member bounds", async () => {
+    const { client, request } = transport(() => json(sudoGrantFixture));
+    const large = { ...assertionFixture, response: { ...assertionFixture.response, clientDataJSON: "A".repeat(8_000) } };
+    await expect(client.sudoWebauthnVerify(bearer, large)).resolves.toMatchObject({ sudoToken: sudoGrantFixture.sudoToken });
+    const maximal = {
+      ...assertionFixture,
+      response: {
+        ...assertionFixture.response,
+        clientDataJSON: "A".repeat(8_192),
+        authenticatorData: "B".repeat(8_192),
+        signature: "C".repeat(4_096),
+        userHandle: "D".repeat(1_024),
+      },
+      id: "E".repeat(1_366),
+      rawId: "E".repeat(1_366),
+    };
+    await expect(client.sudoWebauthnVerify(bearer, maximal)).resolves.toBeDefined();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(Buffer.byteLength(String(request.mock.calls[1]?.[1]?.body), "utf8")).toBeGreaterThan(8 * 1_024);
+    expect(Buffer.byteLength(String(request.mock.calls[1]?.[1]?.body), "utf8")).toBeLessThanOrEqual(64 * 1_024);
+  });
+
+  it("rejects malformed browser assertions before contacting the extension", async () => {
+    const { client, request } = transport(() => json(sudoGrantFixture));
+    const malformed: unknown[] = [
+      { ...assertionFixture, rawId: "different" },
+      { ...assertionFixture, type: "public-key-credential" },
+      { ...assertionFixture, id: "not base64url!" },
+      { ...assertionFixture, response: { ...assertionFixture.response, signature: "" } },
+      { ...assertionFixture, response: { ...assertionFixture.response, clientDataJSON: "A" } },
+      { ...assertionFixture, response: { ...assertionFixture.response, userHandle: 42 } },
+      { ...assertionFixture, clientExtensionResults: "yes" },
+      { ...assertionFixture, response: null },
+      "assertion",
+    ];
+    for (const body of malformed) {
+      await expect(client.sudoWebauthnVerify(bearer, body as never)).rejects.toBeInstanceOf(SkyAccountInvalidInputError);
+    }
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on assertion options that drift from the contract", async () => {
+    const credential = assertionOptionsFixture.allowCredentials[0]!;
+    const drifted: unknown[] = [
+      { ...assertionOptionsFixture, challenge: "" },
+      { ...assertionOptionsFixture, challenge: "not base64url!" },
+      { ...assertionOptionsFixture, rpId: "" },
+      { ...assertionOptionsFixture, userVerification: "optional" },
+      { ...assertionOptionsFixture, timeout: 0 },
+      { ...assertionOptionsFixture, timeout: "90000" },
+      { ...assertionOptionsFixture, allowCredentials: [{ ...credential, type: "public-key-credential" }] },
+      { ...assertionOptionsFixture, allowCredentials: [credential, credential] },
+      { ...assertionOptionsFixture, allowCredentials: [{ ...credential, transports: ["Internal!"] }] },
+      { ...assertionOptionsFixture, allowCredentials: null },
+      Object.fromEntries(Object.entries(assertionOptionsFixture).filter(([key]) => key !== "challenge")),
+    ];
+    for (const body of drifted) {
+      const { client } = transport(() => json(body));
+      await expect(client.sudoWebauthnOptions(bearer)).rejects.toBeInstanceOf(SkyAccountContractError);
+    }
+    const { client } = transport(() => json({
+      ...assertionOptionsFixture,
+      extensions: { appid: "https://e.yildizskylab.com" },
+      allowCredentials: [{ ...credential, aaguid: "00000000-0000-0000-0000-000000000000" }],
+    }));
+    await expect(client.sudoWebauthnOptions(bearer)).resolves.toEqual(assertionOptionsFixture);
+  });
+
+  it("pins both documented statuses of the shared WebAuthn problem codes", async () => {
+    for (const status of [400, 401]) {
+      const { client } = transport(() => json(
+        { ...problemsFixture.webauthn_invalid, status },
+        status,
+        "application/problem+json",
+      ));
+      await expect(client.sudoWebauthnVerify(bearer, assertionFixture)).rejects.toMatchObject({
+        code: "webauthn_invalid",
+        status,
+      });
+    }
+    const { client } = transport(() => json(
+      { ...problemsFixture.webauthn_invalid, status: 403 },
+      403,
+      "application/problem+json",
+    ));
+    await expect(client.sudoWebauthnVerify(bearer, assertionFixture)).rejects.toBeInstanceOf(SkyAccountContractError);
+    const mismatched = transport(() => json(problemsFixture.webauthn_invalid, 400, "application/problem+json"));
+    await expect(mismatched.client.sudoWebauthnVerify(bearer, assertionFixture)).rejects.toBeInstanceOf(SkyAccountContractError);
   });
 
   it.each(Object.keys(problemsFixture) as Array<keyof typeof problemsFixture>)(

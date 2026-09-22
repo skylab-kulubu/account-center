@@ -77,7 +77,7 @@ databaseDescribe("PostgreSQL sudo storage", () => {
 
   it("stores encrypted sudo material on the active session and reads it back once fresh", async () => {
     await seedSession();
-    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"));
+    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password");
 
     const row = await pool.query<{ sudo_token_ciphertext: string; sudo_expires_at: Date; token_ciphertext: string }>(
       "SELECT sudo_token_ciphertext, sudo_expires_at, token_ciphertext FROM account_sessions WHERE id = $1",
@@ -89,7 +89,11 @@ databaseDescribe("PostgreSQL sudo storage", () => {
     expect(JSON.parse(row.rows[0]!.sudo_token_ciphertext)).toMatchObject({ v: 1 });
     expect(row.rows[0]?.token_ciphertext).toBe("encrypted-tokens");
 
-    await expect(vault.requireFreshSudo(sessionId)).resolves.toBe(sudoToken);
+    await expect(vault.requireFreshSudo(sessionId)).resolves.toEqual({
+      sudoToken,
+      method: "password",
+      expiresAt: new Date("2026-09-21T13:15:18.000Z"),
+    });
     current = new Date("2026-09-21T13:15:14.000Z");
     await expect(vault.requireFreshSudo(sessionId)).rejects.toMatchObject({ reason: "expired" });
     const scrubbed = await pool.query<{ sudo_token_ciphertext: string | null; sudo_expires_at: Date | null }>(
@@ -101,30 +105,40 @@ databaseDescribe("PostgreSQL sudo storage", () => {
 
   it("replaces an earlier proof and clears it on demand", async () => {
     await seedSession();
-    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"));
+    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password");
     const replacement = "eyJhbGciOiJIUzUxMiJ9.eyJ0eXAiOiJza3ktc3VkbyIsImp0aSI6IjIifQ.second-signature";
-    await vault.storeSudo(sessionId, replacement, new Date("2026-09-21T13:14:00.000Z"));
-    await expect(vault.requireFreshSudo(sessionId)).resolves.toBe(replacement);
+    await vault.storeSudo(sessionId, replacement, new Date("2026-09-21T13:14:00.000Z"), "passkey");
+    await expect(vault.requireFreshSudo(sessionId)).resolves.toMatchObject({ sudoToken: replacement, method: "passkey" });
+    // A fresh sky-account proof outranks a Microsoft re-authentication and stays.
+    await expect(vault.storeReauthenticationProof(sessionId, new Date("2026-09-21T13:09:00.000Z"))).resolves.toBe(false);
+    await expect(vault.requireFreshSudo(sessionId)).resolves.toMatchObject({ sudoToken: replacement, method: "passkey" });
+    await vault.clearSudo(sessionId);
+    await expect(vault.storeReauthenticationProof(sessionId, new Date("2026-09-21T13:09:00.000Z"))).resolves.toBe(true);
+    await expect(vault.requireFreshSudo(sessionId)).resolves.toEqual({
+      sudoToken: null,
+      method: "reauth",
+      expiresAt: new Date("2026-09-21T13:14:00.000Z"),
+    });
     await vault.clearSudo(sessionId);
     await expect(vault.requireFreshSudo(sessionId)).rejects.toBeInstanceOf(SudoRequiredError);
   });
 
   it("refuses to store or serve sudo material for revoked, expired, or unknown sessions", async () => {
     await seedSession();
-    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"));
+    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password");
     await sessions.revokeById(sessionId, current);
     await expect(vault.requireFreshSudo(sessionId)).rejects.toMatchObject({ reason: "missing" });
-    await expect(vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z")))
+    await expect(vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password"))
       .rejects.toBeInstanceOf(SudoSessionInactiveError);
 
     await pool.query("TRUNCATE account_sessions CASCADE");
     await seedSession();
-    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"));
+    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password");
     await pool.query("UPDATE account_sessions SET idle_expires_at = $2 WHERE id = $1", [sessionId, new Date("2026-09-21T13:12:00.000Z")]);
     current = new Date("2026-09-21T13:12:30.000Z");
     await expect(vault.requireFreshSudo(sessionId)).rejects.toMatchObject({ reason: "missing" });
 
-    await expect(vault.storeSudo("44444444-4444-4444-8444-444444444444", sudoToken, new Date("2026-09-21T13:15:18.000Z")))
+    await expect(vault.storeSudo("44444444-4444-4444-8444-444444444444", sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password"))
       .rejects.toBeInstanceOf(SudoSessionInactiveError);
   });
 
@@ -132,7 +146,7 @@ databaseDescribe("PostgreSQL sudo storage", () => {
     const otherSessionId = "55555555-5555-4555-8555-555555555555";
     await seedSession();
     await seedSession(otherSessionId, 55);
-    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"));
+    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password");
     await pool.query(
       `UPDATE account_sessions AS target
           SET sudo_token_ciphertext = source.sudo_token_ciphertext,
@@ -142,7 +156,7 @@ databaseDescribe("PostgreSQL sudo storage", () => {
       [sessionId, otherSessionId],
     );
     await expect(vault.requireFreshSudo(otherSessionId)).rejects.toMatchObject({ reason: "missing" });
-    await expect(vault.requireFreshSudo(sessionId)).resolves.toBe(sudoToken);
+    await expect(vault.requireFreshSudo(sessionId)).resolves.toMatchObject({ sudoToken });
   });
 
   it("enforces the paired-column and size constraints at the database", async () => {
@@ -163,7 +177,7 @@ databaseDescribe("PostgreSQL sudo storage", () => {
 
   it("drops the sudo material together with the session row", async () => {
     await seedSession();
-    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"));
+    await vault.storeSudo(sessionId, sudoToken, new Date("2026-09-21T13:15:18.000Z"), "password");
     await expect(sessions.deleteByIdReturningToken(sessionId)).resolves.toBe("encrypted-tokens");
     await expect(repository.readSudo(sessionId, current)).resolves.toBeNull();
   });

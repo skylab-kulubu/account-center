@@ -1,0 +1,13 @@
+{
+  "challenge": "Zk9EjfImq9OIMpB-4uumIRd2Y5DPE7qtB9K0GjLC2PY",
+  "rpId": "yildizskylab.com",
+  "allowCredentials": [
+    {
+      "type": "public-key",
+      "id": "PaGGIS6jqmHYGpXjzLHHz6h2xihNMIYS7T_fqm6zELE",
+      "transports": ["internal", "hybrid"]
+    }
+  ],
+  "userVerification": "required",
+  "timeout": 90000
+}

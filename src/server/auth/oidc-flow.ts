@@ -11,16 +11,20 @@ import type {
   AccountDeletionReauthenticationTransactionPayload,
   ActiveSession,
   NativeHandoffIdentity,
+  SudoReauthenticationTransactionPayload,
 } from "@/server/auth/types";
 import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
 import type { AccountReadService } from "@/server/keycloak-account/service";
 import type { KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
 
+/** Account pages a login or a Sudo mode re-authentication may return to; mirrored in `oidc-transactions.ts`. */
 const allowedReturnPaths = new Set([
   "/",
   "/personal-information",
   "/security",
   "/sessions",
+  "/permissions",
+  "/club-profile",
   "/delete-account",
 ]);
 
@@ -208,8 +212,44 @@ export class OidcFlowService {
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
 
+  /**
+   * Sudo mode fallback for a person without password, passkey or TOTP: the
+   * same forced re-authentication as account deletion, returning to the page
+   * that asked for sudo. The callback stores a five-minute proof bound to
+   * the signed `auth_time`; no sky-account token exists for this path.
+   */
+  async beginSudoReauthentication(session: ActiveSession, returnTo?: string | null) {
+    const proof = {
+      state: oauth.generateRandomState(),
+      nonce: oauth.generateRandomNonce(),
+      codeVerifier: oauth.generateRandomCodeVerifier(),
+      forceReauthentication: true,
+    };
+    const authorization = await this.protocol.begin(proof);
+    const browserBinding = randomOpaqueValue();
+    const initiatedAt = this.clock();
+    await this.transactions.create(
+      {
+        state: proof.state,
+        nonce: proof.nonce,
+        codeVerifier: proof.codeVerifier,
+        purpose: "sudo-reauthentication",
+        returnTo: normalizeReturnTo(returnTo),
+        expectedSubject: session.subject,
+        expectedSessionId: session.id,
+        initiatedAt: initiatedAt.toISOString(),
+      },
+      browserBinding,
+      authorization.expiresIn,
+    );
+    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
+  }
+
   async #boundActionSession(
-    transaction: AccountActionTransactionPayload | AccountDeletionReauthenticationTransactionPayload,
+    transaction:
+      | AccountActionTransactionPayload
+      | AccountDeletionReauthenticationTransactionPayload
+      | SudoReauthenticationTransactionPayload,
     sessionHandle: string | undefined,
   ) {
     const candidate = await this.sessions.candidate(sessionHandle);
@@ -378,6 +418,55 @@ export class OidcFlowService {
     };
   }
 
+  async #sudoReauthenticationCallback(
+    callbackUrl: URL,
+    transaction: SudoReauthenticationTransactionPayload,
+    sessionHandle: string | undefined,
+  ) {
+    const session = await this.#boundActionSession(transaction, sessionHandle);
+    if (callbackUrl.searchParams.has("error")) {
+      return {
+        sudoReauthentication: "cancelled" as const,
+        returnTo: transaction.returnTo,
+      };
+    }
+    let authorization;
+    try {
+      authorization = await this.protocol.exchange({
+        callbackUrl,
+        state: transaction.state,
+        nonce: transaction.nonce,
+        codeVerifier: transaction.codeVerifier,
+        forceReauthentication: true,
+      });
+    } catch {
+      throw new InvalidOidcTransactionError();
+    }
+    const initiatedAt = new Date(transaction.initiatedAt);
+    if (
+      authorization.subject !== transaction.expectedSubject ||
+      !authorization.keycloakSid ||
+      authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000
+    ) {
+      throw new InvalidOidcTransactionError();
+    }
+    await this.accountAccess.requireActive(authorization.subject);
+    const currentTokens = await this.sessions.readTokens(session.id);
+    if (!currentTokens) throw new InvalidOidcTransactionError();
+    await this.sessions.replaceTokens(
+      session.id,
+      currentTokens.version,
+      authorization.tokens,
+      authorization.keycloakSid,
+    );
+    return {
+      sudoReauthentication: "success" as const,
+      session,
+      authenticatedAt: authorization.authenticatedAt,
+      returnTo: transaction.returnTo,
+    };
+  }
+
   async callback(
     callbackUrl: URL,
     browserBinding: string | undefined,
@@ -393,6 +482,9 @@ export class OidcFlowService {
     }
     if (transaction.purpose === "account-deletion-reauthentication") {
       return this.#accountDeletionReauthenticationCallback(callbackUrl, transaction, sessionHandle);
+    }
+    if (transaction.purpose === "sudo-reauthentication") {
+      return this.#sudoReauthenticationCallback(callbackUrl, transaction, sessionHandle);
     }
 
     const authorization = await this.protocol.exchange({

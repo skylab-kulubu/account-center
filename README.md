@@ -35,12 +35,17 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 ## Özellikler
 
 - Ad, soyad ve birincil e-posta bilgilerinin güvenli görünümü.
+- Hassas işlemlerden önce ürün içi "kimliğini doğrula" adımı (Sudo modu):
+  parola, passkey ya da doğrulama kodu ile beş dakikalık, sunucuda şifreli
+  saklanan yeniden doğrulama; hiçbiri yoksa Microsoft ile yeniden giriş.
 - Parola, TOTP ve geçiş anahtarı işlemleri için yeniden doğrulamalı Keycloak
-  AIA akışları.
-- Bu sürüm yalnız v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş
-  token sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi,
-  şifreli sudo saklama). Kullanıcı adı, e-posta, kulüp profili ve ürün içi
-  güvenlik yüzeyleri A1–A5 işleriyle gelir; bu sürümde arayüzde yer almaz.
+  AIA akışları (ürün içi güvenlik yüzeyi A5 ile Sudo modu üzerinden sky-account
+  SPI'ye taşınır).
+- Bu sürüm v2 sözleşmelerini, istemcilerini ve Sudo modunu taşır
+  (genişletilmiş token sözleşmesi, sky-account SPI istemcisi, core kulüp
+  profili istemcisi, şifreli sudo saklama ve doğrulama diyaloğu). Kullanıcı
+  adı, e-posta, kulüp profili ve ürün içi güvenlik yüzeyleri A1–A5 işleriyle
+  gelir; bu sürümde arayüzde yer almaz.
 - Açık cihaz ve tarayıcı oturumlarını görüntüleme, tek tek kapatma veya mevcut
   cihaz dışındaki tüm oturumları sonlandırma.
 - Yetkilerim: takımlar, liderlik ve yetki seviyesi (Yönetim/Denetim) ile

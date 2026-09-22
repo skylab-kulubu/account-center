@@ -65,6 +65,37 @@ export async function GET(request: NextRequest) {
       });
       return noStore(response);
     }
+    if ("sudoReauthentication" in result) {
+      const destination = new URL(result.returnTo, services.config.appUrl);
+      if (result.sudoReauthentication === "cancelled") {
+        destination.searchParams.set("sudo", "cancelled");
+      } else {
+        try {
+          await services.sudo.storeReauthenticationProof(result.session.id, result.authenticatedAt);
+          destination.searchParams.set("sudo", "confirmed");
+          logAuthEvent({
+            event: "sudo_reauthentication_completed",
+            requestId,
+            outcome: "success",
+            sudoMethod: "reauth",
+          });
+        } catch {
+          destination.searchParams.set("sudo", "unavailable");
+          logAuthEvent({
+            event: "sudo_reauthentication_completed",
+            requestId,
+            outcome: "failure",
+            reason: "sudo_storage_failed",
+            sudoMethod: "reauth",
+          });
+        }
+      }
+      const response = NextResponse.redirect(destination, 303);
+      clearOidcTransactionCookie(response);
+      response.headers.set("Referrer-Policy", "no-referrer");
+      response.headers.set("x-request-id", requestId);
+      return noStore(response);
+    }
     if ("deletionReauthentication" in result) {
       const destination = new URL(result.returnTo, services.config.appUrl);
       if (result.deletionReauthentication === "cancelled") {

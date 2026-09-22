@@ -63,6 +63,34 @@
     "detail": "Hesabında doğrulama uygulaması tanımlı değil.",
     "code": "totp_not_configured"
   },
+  "passkey_not_registered": {
+    "type": "tag:yildizskylab.com,2026:sky-account:passkey_not_registered",
+    "title": "No passkey is registered",
+    "status": 400,
+    "detail": "Hesabında passkey kayıtlı değil.",
+    "code": "passkey_not_registered"
+  },
+  "webauthn_challenge_expired": {
+    "type": "tag:yildizskylab.com,2026:sky-account:webauthn_challenge_expired",
+    "title": "The passkey challenge has expired",
+    "status": 400,
+    "detail": "Passkey doğrulamasının süresi doldu. Yeniden dene.",
+    "code": "webauthn_challenge_expired"
+  },
+  "webauthn_invalid": {
+    "type": "tag:yildizskylab.com,2026:sky-account:webauthn_invalid",
+    "title": "The passkey assertion could not be verified",
+    "status": 401,
+    "detail": "Passkey doğrulanamadı. Yeniden dene.",
+    "code": "webauthn_invalid"
+  },
+  "webauthn_origin_not_allowed": {
+    "type": "tag:yildizskylab.com,2026:sky-account:webauthn_origin_not_allowed",
+    "title": "The ceremony origin is not allowed",
+    "status": 401,
+    "detail": "Passkey doğrulaması izin verilmeyen bir adresten yapıldı.",
+    "code": "webauthn_origin_not_allowed"
+  },
   "password_policy": {
     "type": "tag:yildizskylab.com,2026:sky-account:password_policy",
     "title": "New password violates the password policy",
@@ -70,7 +98,9 @@
     "detail": "Geçersiz Şifre: En az 12 karakter uzunluğunda olmalı.",
     "code": "password_policy",
     "policy": "invalidPasswordMinLengthMessage",
-    "params": [12]
+    "params": [
+      12
+    ]
   },
   "password_rejected": {
     "type": "tag:yildizskylab.com,2026:sky-account:password_rejected",
@@ -130,6 +160,13 @@
     "detail": "Aynı adda bir doğrulama uygulaması zaten var.",
     "code": "duplicate_label"
   },
+  "passkey_already_registered": {
+    "type": "tag:yildizskylab.com,2026:sky-account:passkey_already_registered",
+    "title": "This passkey is already registered",
+    "status": 409,
+    "detail": "Bu passkey zaten hesabında kayıtlı.",
+    "code": "passkey_already_registered"
+  },
   "username_taken": {
     "type": "tag:yildizskylab.com,2026:sky-account:username_taken",
     "title": "The username is taken",
@@ -160,6 +197,13 @@
     "status": 503,
     "detail": "Hesap değişiklikleri geçici olarak kapalı.",
     "code": "unmanaged_attributes_enabled"
+  },
+  "webauthn_not_configured": {
+    "type": "tag:yildizskylab.com,2026:sky-account:webauthn_not_configured",
+    "title": "Passwordless WebAuthn is not configured",
+    "status": 503,
+    "detail": "Passkey doğrulaması şu anda kullanılamıyor.",
+    "code": "webauthn_not_configured"
   },
   "internal_error": {
     "type": "tag:yildizskylab.com,2026:sky-account:internal_error",
