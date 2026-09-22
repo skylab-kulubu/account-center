@@ -1,0 +1,12 @@
+{
+  "id": "obLD1OX2BxgpOktcbX6PkAARIjNEVWZ3iJmqu8zd7v8",
+  "rawId": "obLD1OX2BxgpOktcbX6PkAARIjNEVWZ3iJmqu8zd7v8",
+  "type": "public-key",
+  "response": {
+    "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoibnp3ZWluMWJTaXh1SHcwN1dueWVMMHR0aWd3dVQycUxEQjAtWDNxYkRDMCIsIm9yaWdpbiI6Imh0dHBzOi8vbXkueWlsZGl6c2t5bGFiLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+    "attestationObject": "EUZ7sOUaT4S57iNYjcL3LGGWywA1ap_UCT5zqN0SR3yx5htQhbrvJFmOw_gtYpfMATZroNUKP3Sp3hNIfbLnHFGGu_AlWo_E-S5jmM0CN2yh1gtAdarfFEl-s-gdUoe8",
+    "transports": ["internal", "hybrid"]
+  },
+  "authenticatorAttachment": "platform",
+  "clientExtensionResults": { "credProps": { "rk": true } }
+}

@@ -38,14 +38,17 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 - Hassas işlemlerden önce ürün içi "kimliğini doğrula" adımı (Sudo modu):
   parola, passkey ya da doğrulama kodu ile beş dakikalık, sunucuda şifreli
   saklanan yeniden doğrulama; hiçbiri yoksa Microsoft ile yeniden giriş.
-- Parola, TOTP ve geçiş anahtarı işlemleri için yeniden doğrulamalı Keycloak
-  AIA akışları (ürün içi güvenlik yüzeyi A5 ile Sudo modu üzerinden sky-account
-  SPI'ye taşınır).
-- Bu sürüm v2 sözleşmelerini, istemcilerini ve Sudo modunu taşır
-  (genişletilmiş token sözleşmesi, sky-account SPI istemcisi, core kulüp
-  profili istemcisi, şifreli sudo saklama ve doğrulama diyaloğu). Kullanıcı
-  adı, e-posta ve ürün içi güvenlik yüzeyleri A1–A5 işleriyle gelir; bu
-  sürümde arayüzde yer almaz.
+- Giriş ve güvenlik sayfası tamamen `my.` içinde: parola değiştirme ya da
+  belirleme (realm parola politikası geri bildirimiyle, isteğe bağlı olarak
+  diğer cihazlardaki oturumları kapatarak), doğrulama uygulaması (TOTP)
+  kurulumu tarayıcıda çizilen QR kodu ve elle giriş anahtarıyla, passkey
+  ekleme WebAuthn ceremony'si `my.` üzerinde çalışarak ve kimlik bilgisi
+  kaldırma. Her adım Sudo modundan geçer ve sky-account SPI ile yapılır;
+  Keycloak'a yönlendirme yoktur.
+- Bu sürüm v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş token
+  sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi, şifreli
+  sudo saklama ve doğrulama diyaloğu). Kullanıcı adı ve e-posta yüzeyleri
+  A1 ve A3 işleriyle gelir; bu sürümde arayüzde yer almaz.
 - Kulüp profili: SKY numarası, öğrenci kartı durumu, okul e-postası ve kendi
   telefonun salt okunur; üniversite, fakülte, bölüm ve LinkedIn bağlantısı
   düzenlenebilir; profil fotoğrafı önizlemeyle yüklenir, değiştirilir veya
@@ -85,8 +88,10 @@ AES-256-GCM ile şifrelenir.
 - Authorization Code + S256 PKCE + PAR zorunludur.
 - Gizli anahtarlar `NEXT_PUBLIC_` değişkenlerine konamaz ve istemci paketine
   giremez.
-- Parola, geçiş anahtarı ve TOTP değişiklikleri uygulama tarafından taklit
-  edilmez; Keycloak'ın yeniden doğrulamalı akışları kullanılır.
+- Parola, geçiş anahtarı ve TOTP değişiklikleri Keycloak'ın kendi servislerini
+  kullanan sky-account uzantısıyla yapılır; BFF beş dakikalık, şifreli saklanan
+  bir Sudo modu kanıtı olmadan hiçbir değişikliği iletmez ve parola, kod, sır
+  ya da attestation hiçbir log ya da yanıta yazılmaz.
 - Oturum kapatma işlemlerinde ham Keycloak oturum kimliği tarayıcıya verilmez.
 - Hesap erişim engeli doğrulanamazsa kimlik doğrulanmış işler güvenli biçimde
   `503` ile kapanır; çıkış ve temizlik yolları çalışmaya devam eder.
@@ -158,7 +163,7 @@ ayrıntı [Keycloak sözleşmesinde](docs/keycloak-26.7.4-contract.md).
 - [Mimari ve güven sınırları](docs/architecture.md)
 - [Keycloak 26.7.4 sözleşmesi](docs/keycloak-26.7.4-contract.md)
 - [sky-account API v1 sözleşmesi](docs/sky-account-api.md)
-- [Parola, TOTP ve geçiş anahtarı işlemleri](docs/account-actions.md)
+- [Parola, TOTP ve passkey işlemleri](docs/account-actions.md)
 - [Native SSO köprüsü](docs/native-handoff-keycloak-contract.md)
 - [Kenar güveni ve mTLS](docs/auth-edge-trust.md)
 - [Kimlik materyali saklama ve temizlik kılavuzu](docs/auth-retention-runbook.md)

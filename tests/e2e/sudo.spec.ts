@@ -26,8 +26,15 @@ type MethodsBody = {
   csrfToken: string;
 };
 
-async function installAuthenticatedSession(context: BrowserContext, label: string) {
+async function installAuthenticatedSession(context: BrowserContext, label: string, page?: Page) {
   const fixture = await seedAuthenticatedSession(label);
+  // The security page reads its inventory from the BFF; the seeded session carries canary tokens, so answer it here.
+  await page?.route("**/api/account/security", (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill({
+      json: { password: true, totp: [], passkeys: [], sudo: { methods: ["password"], fallback: null, active: null }, csrfToken },
+    });
+  });
   await context.addCookies([{
     name: sessionCookieName,
     value: fixture.handle,
@@ -104,7 +111,7 @@ function base64Url(value: Buffer) {
 
 test("password sudo shows the server's Turkish rejection, then verifies and keeps the secret server-side", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
-  await installAuthenticatedSession(context, `sudo-password-${testInfo.retry}`);
+  await installAuthenticatedSession(context, `sudo-password-${testInfo.retry}`, page);
   const errors = failOnPageErrors(page);
   await mockMethods(page, { methods: ["password", "totp"], fallback: null, active: null, csrfToken });
   const attempts: Array<{ headers: Record<string, string>; body: unknown }> = [];
@@ -171,7 +178,7 @@ test("password sudo shows the server's Turkish rejection, then verifies and keep
 
 test("verification-code sudo switches tabs by keyboard, posts the digits only, and dismisses on Escape", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
-  await installAuthenticatedSession(context, `sudo-totp-${testInfo.retry}`);
+  await installAuthenticatedSession(context, `sudo-totp-${testInfo.retry}`, page);
   const errors = failOnPageErrors(page);
   await mockMethods(page, { methods: ["password", "passkey", "totp"], fallback: null, active: null, csrfToken });
   const codes: unknown[] = [];
@@ -182,6 +189,8 @@ test("verification-code sudo switches tabs by keyboard, posts the digits only, a
 
   await gotoAuthenticatedPage(page, "/security");
   const dialog = await openSudoDialog(page);
+  // Escape only cancels the dialog once its first control holds focus.
+  await expect(dialog.getByRole("textbox", { name: "Parola" })).toBeFocused();
   const dismissed = awaitSudoResult(page);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
@@ -212,7 +221,7 @@ test("verification-code sudo switches tabs by keyboard, posts the digits only, a
 
 test("lockout and Microsoft fallback states render the Turkish copy and the allowlisted return form", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
-  await installAuthenticatedSession(context, `sudo-states-${testInfo.retry}`);
+  await installAuthenticatedSession(context, `sudo-states-${testInfo.retry}`, page);
   await mockMethods(page, { methods: ["password"], fallback: null, active: null, csrfToken });
   await page.route("**/api/account/sudo/password", (route) => route.fulfill({
     status: 423,
@@ -249,7 +258,7 @@ test("lockout and Microsoft fallback states render the Turkish copy and the allo
 
 test("the Microsoft re-authentication return is announced, stripped from the address, and proven by the server", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
-  await installAuthenticatedSession(context, `sudo-return-${testInfo.retry}`);
+  await installAuthenticatedSession(context, `sudo-return-${testInfo.retry}`, page);
   const expiresAt = new Date(Date.now() + 4 * 60_000).toISOString();
   let methodsRequests = 0;
   await page.route("**/api/account/sudo/methods", (route) => {
@@ -276,7 +285,7 @@ test("passkey sudo converts the relayed options for the platform API and posts t
   // platform call is stubbed with a fake that checks what the page hands to
   // `navigator.credentials.get()` and answers like an authenticator would;
   // the real ceremony against Keycloak is a production-clone release gate.
-  await installAuthenticatedSession(context, `sudo-passkey-${testInfo.retry}`);
+  await installAuthenticatedSession(context, `sudo-passkey-${testInfo.retry}`, page);
   const errors = failOnPageErrors(page);
   const credentialId = randomBytes(32);
   const challenge = randomBytes(32);
@@ -398,7 +407,7 @@ test("passkey sudo converts the relayed options for the platform API and posts t
 
 test("mobile dialog stays inside the viewport with stacked tabs and a full-width action", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "mobile-only assertion");
-  await installAuthenticatedSession(context, `sudo-mobile-${testInfo.retry}`);
+  await installAuthenticatedSession(context, `sudo-mobile-${testInfo.retry}`, page);
   await mockMethods(page, { methods: ["password", "passkey", "totp"], fallback: null, active: null, csrfToken });
   await gotoAuthenticatedPage(page, "/security");
 

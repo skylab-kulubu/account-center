@@ -17,6 +17,19 @@ Account Center consumes, as specified in `docs/sky-account-api.md` (v1):
   `authenticatorAttachment` belongs to the registration body only and client
   extension results are never forwarded. The signature bytes are synthetic;
   only the shape is pinned.
+- `sky-account-v1-webauthn-registration-options.json`: `POST credentials/webauthn/options`,
+  relayed unchanged to the browser for `navigator.credentials.create()`
+  (`user.id` is `base64url(userId)`, `excludeCredentials` lists the person's
+  existing passkeys).
+- `sky-account-v1-webauthn-attestation.json`: the `PublicKeyCredential` JSON the
+  browser produces for the creation ceremony (base64url members, `id == rawId`;
+  the `clientDataJSON` decodes to a `webauthn.create` document for the options
+  fixture's challenge). The BFF forwards `id`, `rawId`, `type`, `response`
+  (`clientDataJSON`, `attestationObject`, `transports`) and
+  `authenticatorAttachment` plus the label; `clientExtensionResults` is never
+  forwarded. The attestation bytes are synthetic; only the shape is pinned.
+- `sky-account-v1-passkey-credential.json`: `201` body of
+  `POST credentials/webauthn/register` (with `transports`).
 - `sky-account-v1-totp-setup.json`: `POST credentials/totp/setup`.
 - `sky-account-v1-totp-credential.json`: `201` body of `POST credentials/totp/confirm`.
 - `sky-account-v1-problems.json`: one `application/problem+json` body per

@@ -40,31 +40,6 @@ export async function GET(request: NextRequest) {
       request.cookies.get(OIDC_TRANSACTION_COOKIE)?.value,
       request.cookies.get(SESSION_COOKIE)?.value,
     );
-    if ("actionOutcome" in result) {
-      const resultReference = await services.actionResults.create(result.sessionId, {
-        action: result.action,
-        outcome: result.actionOutcome,
-      }).catch(() => null);
-      const destination = new URL(result.returnTo, services.config.appUrl);
-      if (resultReference) destination.searchParams.set("result", resultReference);
-      const response = NextResponse.redirect(destination, 303);
-      clearOidcTransactionCookie(response);
-      response.headers.set("Referrer-Policy", "no-referrer");
-      response.headers.set("x-request-id", requestId);
-      logAuthEvent({
-        event: "account_action_completed",
-        requestId,
-        outcome: resultReference && (result.actionOutcome === "success" || result.actionOutcome === "cancelled")
-          ? "success"
-          : "failure",
-        ...(!resultReference
-          ? { reason: "provider_unavailable" as const }
-          : result.actionOutcome === "unverified"
-            ? { reason: "account_action_unverified" as const }
-            : {}),
-      });
-      return noStore(response);
-    }
     if ("sudoReauthentication" in result) {
       const destination = new URL(result.returnTo, services.config.appUrl);
       if (result.sudoReauthentication === "cancelled") {

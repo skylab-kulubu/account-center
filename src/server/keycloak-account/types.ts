@@ -59,17 +59,6 @@ export type CredentialInventory = {
   credentials: OwnedCredential[];
 };
 
-export type SecurityCredential = {
-  kind: "otp" | "passkey";
-  label: string;
-  createdAt: string | null;
-  deletionReference: string;
-};
-
-export type AccountSecurity = AuthenticationSummary & {
-  credentials: SecurityCredential[];
-};
-
 export type AccountSession = {
   id: string;
   startedAt: string;

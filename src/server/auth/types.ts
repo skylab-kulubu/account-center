@@ -20,39 +20,6 @@ export type LoginOidcTransactionPayload = OidcTransactionBase & {
   expectedAuthenticatedAt?: string;
 };
 
-export type AccountActionKind = "password" | "otp" | "passkey" | "delete-credential";
-export type AccountActionOutcome = "success" | "cancelled" | "error" | "unverified";
-
-export type AccountActionResult = {
-  action: AccountActionKind;
-  outcome: AccountActionOutcome;
-};
-
-export type StoredAccountActionResult = AccountActionResult & {
-  resultHash: Buffer;
-  sessionId: string;
-  createdAt: Date;
-  expiresAt: Date;
-};
-
-export type AccountActionTransactionPayload = OidcTransactionBase & {
-  purpose: "account-action";
-  expectedSubject: string;
-  expectedSessionId: string;
-  initiatedAt: string;
-  action: {
-    kind: AccountActionKind;
-    keycloakAction: string;
-    credentialType: "password" | "otp" | "webauthn-passwordless";
-    credentialId?: string;
-    beforeCredentials: Array<{
-      id: string;
-      type: string;
-      createdAt: string | null;
-    }>;
-  };
-};
-
 export type AccountDeletionReauthenticationTransactionPayload = OidcTransactionBase & {
   purpose: "account-deletion-reauthentication";
   expectedSubject: string;
@@ -74,7 +41,6 @@ export type SudoReauthenticationTransactionPayload = OidcTransactionBase & {
 
 export type OidcTransactionPayload =
   | LoginOidcTransactionPayload
-  | AccountActionTransactionPayload
   | AccountDeletionReauthenticationTransactionPayload
   | SudoReauthenticationTransactionPayload;
 

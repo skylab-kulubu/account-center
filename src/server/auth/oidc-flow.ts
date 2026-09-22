@@ -1,21 +1,17 @@
 import "server-only";
 
 import * as oauth from "oauth4webapi";
-import { constantTimeEqual, randomOpaqueValue } from "@/server/auth/crypto";
+import { randomOpaqueValue } from "@/server/auth/crypto";
 import { OidcContractError, type OidcProtocol } from "@/server/auth/oidc-protocol";
 import type { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import type { SessionManager } from "@/server/auth/sessions";
 import type {
-  AccountActionKind,
-  AccountActionTransactionPayload,
   AccountDeletionReauthenticationTransactionPayload,
   ActiveSession,
   NativeHandoffIdentity,
   SudoReauthenticationTransactionPayload,
 } from "@/server/auth/types";
 import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
-import type { AccountReadService } from "@/server/keycloak-account/service";
-import type { KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
 
 /** Account pages a login or a Sudo mode re-authentication may return to; mirrored in `oidc-transactions.ts`. */
 const allowedReturnPaths = new Set([
@@ -35,18 +31,6 @@ export class InvalidOidcTransactionError extends Error {
   }
 }
 
-export class InvalidAccountActionError extends Error {
-  constructor() {
-    super("The requested account action is not allowed.");
-    this.name = "InvalidAccountActionError";
-  }
-}
-
-export type BeginAccountActionInput = {
-  kind: AccountActionKind;
-  deletionReference?: string;
-};
-
 export function normalizeReturnTo(value: string | null | undefined) {
   if (!value) return "/";
   try {
@@ -64,11 +48,9 @@ export class OidcFlowService {
     private readonly transactions: OidcTransactionStore,
     private readonly sessions: Pick<
       SessionManager,
-      "authenticate" | "candidate" | "create" | "credentialReference" | "readTokens" | "replaceTokens"
+      "authenticate" | "candidate" | "create" | "readTokens" | "replaceTokens"
     >,
     private readonly accountAccess: Pick<AccountAccessAuthorizer, "requireActive">,
-    private readonly account: Pick<AccountReadService, "credentialInventory">,
-    private readonly credentialAdapter: Pick<KeycloakAccountReadAdapter, "credentialInventory">,
     private readonly clock: () => Date = () => new Date(),
   ) {}
 
@@ -106,78 +88,6 @@ export class OidcFlowService {
         returnTo: "/",
         expectedSubject: identity.subject,
         expectedAuthenticatedAt: identity.authenticatedAt.toISOString(),
-      },
-      browserBinding,
-      authorization.expiresIn,
-    );
-    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
-  }
-
-  async beginAccountAction(input: BeginAccountActionInput, session: ActiveSession) {
-    const inventory = await this.account.credentialInventory(session);
-    let credentialType: AccountActionTransactionPayload["action"]["credentialType"];
-    let keycloakAction: string;
-    let credentialId: string | undefined;
-
-    if (input.kind === "password") {
-      credentialType = "password";
-      keycloakAction = "UPDATE_PASSWORD";
-    } else if (input.kind === "otp") {
-      credentialType = "otp";
-      keycloakAction = "CONFIGURE_TOTP";
-    } else if (input.kind === "passkey") {
-      credentialType = "webauthn-passwordless";
-      keycloakAction = "webauthn-register-passwordless";
-    } else {
-      if (!input.deletionReference || !/^[A-Za-z0-9_-]{43}$/.test(input.deletionReference)) {
-        throw new InvalidAccountActionError();
-      }
-      const owned = inventory.credentials.find((credential) =>
-        credential.removeable &&
-        ["otp", "totp", "webauthn-passwordless"].includes(credential.type) &&
-        /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(credential.id) &&
-        constantTimeEqual(
-          this.sessions.credentialReference(session.id, credential.id),
-          input.deletionReference!,
-        ),
-      );
-      if (!owned) throw new InvalidAccountActionError();
-      credentialId = owned.id;
-      credentialType = owned.type === "webauthn-passwordless" ? "webauthn-passwordless" : "otp";
-      keycloakAction = `delete_credential:${owned.id}`;
-    }
-
-    const proof = {
-      state: oauth.generateRandomState(),
-      nonce: oauth.generateRandomNonce(),
-      codeVerifier: oauth.generateRandomCodeVerifier(),
-      accountAction: keycloakAction,
-      forceReauthentication: true,
-    };
-    const authorization = await this.protocol.begin(proof);
-    const browserBinding = randomOpaqueValue();
-    const initiatedAt = this.clock();
-    await this.transactions.create(
-      {
-        state: proof.state,
-        nonce: proof.nonce,
-        codeVerifier: proof.codeVerifier,
-        purpose: "account-action",
-        returnTo: "/security",
-        expectedSubject: session.subject,
-        expectedSessionId: session.id,
-        initiatedAt: initiatedAt.toISOString(),
-        action: {
-          kind: input.kind,
-          keycloakAction,
-          credentialType,
-          ...(credentialId ? { credentialId } : {}),
-          beforeCredentials: inventory.credentials.map(({ id, type, createdAt }) => ({
-            id,
-            type,
-            createdAt,
-          })),
-        },
       },
       browserBinding,
       authorization.expiresIn,
@@ -247,7 +157,6 @@ export class OidcFlowService {
 
   async #boundActionSession(
     transaction:
-      | AccountActionTransactionPayload
       | AccountDeletionReauthenticationTransactionPayload
       | SudoReauthenticationTransactionPayload,
     sessionHandle: string | undefined,
@@ -266,105 +175,6 @@ export class OidcFlowService {
       active.session.subject !== transaction.expectedSubject
     ) throw new InvalidOidcTransactionError();
     return active.session;
-  }
-
-  #accountActionChanged(
-    transaction: AccountActionTransactionPayload,
-    after: Awaited<ReturnType<KeycloakAccountReadAdapter["credentialInventory"]>>,
-  ) {
-    const before = transaction.action.beforeCredentials;
-    if (transaction.action.kind === "delete-credential") {
-      return !after.credentials.some(({ id }) => id === transaction.action.credentialId);
-    }
-    const relevantBefore = before.filter(({ type }) => {
-      if (transaction.action.credentialType === "otp") return type === "otp" || type === "totp";
-      return type === transaction.action.credentialType;
-    });
-    const relevantAfter = after.credentials.filter(({ type }) => {
-      if (transaction.action.credentialType === "otp") return type === "otp" || type === "totp";
-      return type === transaction.action.credentialType;
-    });
-    if (transaction.action.kind === "password") {
-      return relevantAfter.some((credential) => {
-        const previous = relevantBefore.find(({ id }) => id === credential.id);
-        return !previous || previous.createdAt !== credential.createdAt;
-      });
-    }
-    const beforeIds = new Set(relevantBefore.map(({ id }) => id));
-    return relevantAfter.some(({ id }) => !beforeIds.has(id));
-  }
-
-  async #accountActionCallback(
-    callbackUrl: URL,
-    transaction: AccountActionTransactionPayload,
-    sessionHandle: string | undefined,
-  ) {
-    const session = await this.#boundActionSession(transaction, sessionHandle);
-    const result = (actionOutcome: "success" | "cancelled" | "error" | "unverified") => ({
-      actionOutcome,
-      action: transaction.action.kind,
-      returnTo: transaction.returnTo,
-      sessionId: session.id,
-    });
-    if (callbackUrl.searchParams.has("error")) {
-      return result("error");
-    }
-    const returnedAction = callbackUrl.searchParams.get("kc_action");
-    const expectedAction = transaction.action.keycloakAction.split(":", 1)[0]!;
-    const status = callbackUrl.searchParams.get("kc_action_status");
-    if (returnedAction !== expectedAction || (status !== "success" && status !== "cancelled")) {
-      return result("error");
-    }
-
-    let authorization;
-    try {
-      authorization = await this.protocol.exchange({
-        callbackUrl,
-        state: transaction.state,
-        nonce: transaction.nonce,
-        codeVerifier: transaction.codeVerifier,
-      });
-    } catch {
-      return result("error");
-    }
-    if (
-      authorization.subject !== transaction.expectedSubject ||
-      !authorization.keycloakSid
-    ) {
-      return result("error");
-    }
-    const initiatedAt = new Date(transaction.initiatedAt);
-    if (authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000) {
-      return result("error");
-    }
-    await this.accountAccess.requireActive(authorization.subject);
-    // Keycloak can rotate refresh tokens during the fresh-auth code exchange,
-    // including when the user cancels the requested action. Keep the existing
-    // BFF session usable without extending its absolute lifetime.
-    const currentTokens = await this.sessions.readTokens(session.id);
-    if (currentTokens) {
-      await this.sessions.replaceTokens(
-        session.id,
-        currentTokens.version,
-        authorization.tokens,
-        authorization.keycloakSid,
-      );
-    }
-    if (status === "cancelled") {
-      return result("cancelled");
-    }
-
-    let after;
-    try {
-      after = await this.credentialAdapter.credentialInventory(authorization.tokens.accessToken);
-    } catch {
-      return result("unverified");
-    }
-    if (!this.#accountActionChanged(transaction, after)) {
-      return result("unverified");
-    }
-
-    return result("success");
   }
 
   async #accountDeletionReauthenticationCallback(
@@ -477,9 +287,6 @@ export class OidcFlowService {
     const transaction = await this.transactions.consume(state, browserBinding);
     if (!transaction) throw new InvalidOidcTransactionError();
 
-    if (transaction.purpose === "account-action") {
-      return this.#accountActionCallback(callbackUrl, transaction, sessionHandle);
-    }
     if (transaction.purpose === "account-deletion-reauthentication") {
       return this.#accountDeletionReauthenticationCallback(callbackUrl, transaction, sessionHandle);
     }

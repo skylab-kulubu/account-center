@@ -1,67 +1,62 @@
-# Password, passkey and OTP action contract
+# Password, passkey and TOTP changes
 
-Account Center does not embed or redirect to the Keycloak Account Console. Password, TOTP and passwordless WebAuthn changes use Keycloak 26.7.4 application-initiated actions (AIA) through the existing confidential `account-center` OIDC client. The built-in Keycloak `DELETE_ACCOUNT` action is not a destination in this product.
+Account Center changes a person's password, verification app (TOTP) and passkeys **inside `my.`**: the security page (`/security`) runs every step in the browser and the BFF forwards it to the sky-account Keycloak extension (`${OIDC_ISSUER}/sky-account/v1`, contract in [sky-account-api.md](sky-account-api.md)). Nothing on this page redirects to Keycloak, embeds the Account Console or requests a Keycloak application-initiated action; `kc_action` no longer exists in the code base. Every change requires a fresh Sudo mode proof ([architecture, "Sudo modu"](architecture.md#sudo-modu)) and is verified by re-reading the credential inventory, never by trusting the answer of a single call.
 
-> **Transition (ADR-0043).** The AIA hop below is the v1 path and is being replaced. Sudo mode is already in the product: before any sensitive action the person proves it is them inside `my.` with their password, a passkey or a verification code (`POST /api/account/sudo/*`, [architecture, "Sudo modu"](architecture.md#sudo-modu)), and the proof is kept encrypted in the session record for five minutes. The security-page ticket (A5) moves password change, TOTP setup, passkey registration and credential deletion onto the sky-account SPI behind that proof (`requireFreshSudoOrChallenge` → `428 sudo_required`), after which the AIA code paths in this document are removed; `delete_credential` stays only until the SPI delete ships. A person with none of the three methods re-authenticates with Microsoft through `POST /api/account/sudo/reauthenticate`, which reuses the forced-login transaction described here but returns to the page instead of running a Keycloak action.
+## Browser contract
 
-## Allowed actions
+All routes live under `/api/account/security`. The page reads the inventory with the session cookie only; every mutation is a same-origin JSON call that carries the session-bound CSRF proof in `x-csrf-token`, passes the account-access gate, and is refused with `428 sudo_required` until a proof with sky-account material is fresh.
 
-The application accepts only these product actions and maps them server-side:
+| Route | Body | Success | sky-account call |
+| --- | --- | --- | --- |
+| `GET /api/account/security` | — | `{ password, totp[], passkeys[], sudo: { methods, fallback, active }, csrfToken }` | `GET identity` |
+| `POST /api/account/security/password` | `{ newPassword, logoutOtherSessions }` (≤ 4 KB, password ≤ 1024 chars) | `204` | `POST credentials/password` |
+| `POST /api/account/security/totp/setup` | — | `{ setupHandle, secret, otpauthUri, expiresAt, policy }` | `POST credentials/totp/setup` |
+| `POST /api/account/security/totp/confirm` | `{ setupHandle, code, label }` (code 4–10 digits, spaces dropped; label normalised like the SPI — format characters dropped, spaces collapsed — then 1–64 characters) | `201 { credential }` | `POST credentials/totp/confirm` |
+| `POST /api/account/security/passkeys/options` | — | `PublicKeyCredentialCreationOptions` JSON | `POST credentials/webauthn/options` |
+| `POST /api/account/security/passkeys/register` | `{ attestation, label }` (≤ 64 KB; label normalised as above) | `201 { credential }` | `POST credentials/webauthn/register` |
+| `DELETE /api/account/security/credentials/{reference}` | — | `204` | `DELETE credentials/{id}` |
 
-| Product action | Keycloak `kc_action` |
-| --- | --- |
-| Change password | `UPDATE_PASSWORD` |
-| Add authenticator app | `CONFIGURE_TOTP` |
-| Add passkey | `webauthn-register-passwordless` |
-| Remove one owned OTP/passkey | `delete_credential:{credentialId}` |
+Rows (`totp[]`, `passkeys[]`, `credential`) carry `reference`, `label`, `createdAt` and, for passkeys, `transports` and `legacy` (a two-factor `webauthn` credential that is not a passkey and can only be removed). `reference` is a session-bound HMAC of the Keycloak credential id (`SessionManager.credentialReference`): the browser never sees a credential id, and a reference can only be resolved by the same local session, which re-reads `GET identity` before deleting anything. A reference that names nothing of the person's answers `404 credential_not_found` without touching the SPI.
 
-The browser submits `password`, `otp`, `passkey`, or `delete-credential`; it never submits a Keycloak action name or raw credential ID. The security page receives a session-bound HMAC reference for each removable credential. The BFF re-reads `/account/credentials`, resolves that reference against the current user's removable inventory with a constant-time comparison, and only then places the exact owned ID inside the server-to-server PAR body. The authorization URL exposed to the browser contains only `client_id` and `request_uri`.
+Order inside every mutation route: exact `Origin` → CSRF → access gate and session → Sudo mode gate → local per-session budget (`security_mutation` 30 / 15 min, `totp_confirm` 10 / 15 min, mirroring the SPI's own budgets) → body → SPI with `X-Sky-Sudo`. A rotated opaque session handle is written to every answer, including `428` and error answers; only an answer that ended the session (bearer rejected upstream) clears the cookie instead.
 
-## Transaction and callback
+### Sudo mode and the `428` challenge
 
-Every action uses a one-time encrypted PostgreSQL transaction and the host-only `__Host-sky-account-txn` cookie. The transaction binds:
+`requireAccountSpiSudo` (`src/server/auth/sudo-gate.ts`) returns the fresh proof or a ready `428 { error: "sudo_required", reason, methods, fallback }`:
 
-- state, nonce and S256 PKCE verifier;
-- the exact action and pre-action credential inventory;
-- expected Keycloak subject and current opaque BFF session ID;
-- initiation time and the fixed `/security` return path.
+- `reason: "missing" | "expired"`: the page calls `ensureSudo({ challenged: true })`, the dialog opens, and the same request is sent once more. A second `428` is shown as an error, never retried again.
+- `reason: "spi_token_required"`: the person holds a fresh Microsoft re-authentication proof (`method: "reauth"`), which satisfies `my.`-local gates but carries no sky-account token, and the SPI insists on `X-Sky-Sudo`. Such a person has no password, passkey or verification app to prove with, so the page explains that the change is not possible yet instead of reopening the dialog. K3d closes the gap with a Keycloak endpoint that issues a sudo token from the re-authenticated bearer; until it ships, this is the documented dead end for an account without any in-product method.
 
-The POST initiation endpoint requires exact same-origin and the current session CSRF proof, then runs the shared account-access gate before reading credentials or creating state. PAR sends `prompt=login` and `max_age=0`. Keycloak's credential required actions enforce the credential-specific LoA; the BFF also rejects a returned identity whose signed `auth_time` predates the transaction.
+When the SPI itself rejects the stored proof (`401 sudo_required` / `sudo_expired`), the route discards the local copy (`SudoVault.clearSudo`) and answers the same `428` challenge with `reason: "expired"`.
 
-The shared `/api/auth/callback` consumes the transaction once. A success must have the expected Keycloak action/status, signed subject, fresh `auth_time`, active platform account and original BFF session. `kc_action_status=success` is not proof of a change. The BFF re-reads the Keycloak credential inventory with the newly issued, contract-validated user token and requires an observable result:
+### Error mapping
 
-- password credential added or its persisted timestamp/row changed;
-- a new OTP credential ID appeared;
-- a new passwordless WebAuthn credential ID appeared;
-- the exact deleted credential ID disappeared.
+Every other failure answers `{ error, detail, retryAfter?, policy?, params? }` with the SPI's Turkish `detail` where one exists: `password_policy` → `400 password_policy` (+ `policy`, `params`), `password_rejected` → `400`, `invalid_totp_code` → `400 invalid_code`, `totp_setup_expired` → `400 setup_expired`, `duplicate_label` → `409`, `passkey_already_registered` → `409`, `webauthn_invalid` / `webauthn_origin_not_allowed` → `400`, `webauthn_challenge_expired` → `400 challenge_expired`, `credential_not_found` → `404`, `rate_limited` → `429` + `Retry-After`, `user_temporarily_locked` → `423 locked`, `user_disabled` → `403 disabled`, `webauthn_not_configured` / `unmanaged_attributes_enabled` → `503 unavailable`, an unreachable SPI → `503` + `Retry-After: 3`, a response outside the pinned contract → `502 upstream_error`, a rejected bearer → `401` with the local session revoked. Malformed bodies answer `400 invalid_request` (`413` when too large) before anything is sent upstream.
 
-If Keycloak reports success without that evidence, the UI shows `unverified` and does not claim completion. After a valid fresh-auth exchange, the encrypted token set and returned Keycloak `sid` are compare-and-swapped together so sid-only backchannel logout continues to target the current upstream session. This update does not extend the BFF session's absolute lifetime.
+## The page
 
-Success, cancel, provider error and verification-failure feedback is written as a five-minute, session-bound, one-time PostgreSQL result. The browser receives only a 256-bit opaque result reference; the public URL cannot choose an action or status. Server rendering reads the result without consuming it so an aborted navigation cannot lose the message. After the committed page becomes visible, the browser acknowledges it through an exact-origin, session-CSRF-protected endpoint; only then is it atomically consumed. A failed acknowledgement leaves the message retryable until expiry, while another session cannot acknowledge it and reload/replay after acknowledgement cannot reproduce the banner. Callback responses use `no-store` and `Referrer-Policy: no-referrer`; state, code, credential IDs and tokens are never logged or copied to the UI.
+- **Parola**: "Parolayı değiştir" (or "Parola belirle" when `password` is `false`) asks for Sudo mode first, then shows the form: new password, confirmation (checked locally), and "Diğer cihazlardaki oturumları kapat" (checked by default). A realm policy rejection is rendered from the server's `detail`; the static hints (at least 8 characters, not the username or e-mail) stay visible. The password is posted once and never kept.
+- **Doğrulama uygulaması**: Sudo mode → `totp/setup` → the QR is drawn **in the browser** from `otpauthUri` (`src/lib/qr.ts`, a dependency-free ISO/IEC 18004 byte-mode encoder verified by a test-side decoder and published Reed–Solomon and format vectors) next to the manual key in groups of four → label and code → `totp/confirm`. A wrong code keeps the setup handle for another attempt; an expired setup offers "Baştan başla"; a duplicate label is refused inline. Removal opens a confirmation dialog.
+- **Passkey'ler**: rows show the label, the registration date and the transports the browser reported. "Passkey ekle" asks for a label, then Sudo mode, relays the creation options from the SPI, runs `navigator.credentials.create()` on `my.` (`src/lib/webauthn.ts`, no third-party library; the RP ID comes from the realm passwordless policy, `yildizskylab.com`), and registers the serialized attestation with the label. Client extension results are never sent. A browser without `PublicKeyCredential` sees an explanation instead of the button. Removing the last passkey of a person without a password shows a warning (the only remaining login is the YTÜ Microsoft account) but is not blocked.
+- Every success re-reads `GET /api/account/security`: the list is the server's inventory, not the answer of the mutation.
 
-## Environment
+No password, code, secret, attestation, sudo token, bearer token or credential id appears in a log line, an error message or a URL. Logs record only `security_action` events with the action kind (`password`, `totp_setup`, `totp_confirm`, `passkey_options`, `passkey_register`, `credential_delete`), the outcome and a fixed reason code.
 
-No separate Account Console URL, action URL or redirect environment variable exists. Runtime and startup validation require the dedicated `OIDC_CLIENT_ID=account-center`, canonical `APP_URL`, canonical realm `OIDC_ISSUER`, confidential client secret and the existing BFF/access-gate secrets. The only redirect URI remains:
+## Rollback
 
-```text
-https://my.yildizskylab.com/api/auth/callback
-```
+The previous image (`main` before this change) still contains the application-initiated-action path (`POST /api/auth/action`, the `account-action` transaction kind, `kc_action` in PAR and the one-time `account_action_results` feedback). Rolling back is a deployment of that image; no configuration flag switches between the two models. The `account_action_results` table and migration `0004` stay in place so that image keeps working and the readiness probe keeps passing; the hourly prune job still empties the table. A later release drops the table once the previous image is no longer a rollback target.
 
-## Production-clone release gates
+## Release gates
 
-Fixture and unit tests cannot prove browser-required actions. Production remains blocked until a non-production clone of the 26.7.4 realm proves all of the following with the source-controlled SKY LAB theme:
+Fixture and unit tests cannot prove the platform ceremonies. Production stays blocked until the integration harness of the Keycloak repository proves, with the reconciled realm and the source-controlled theme:
 
-1. `UPDATE_PASSWORD`, `CONFIGURE_TOTP`, `webauthn-register-passwordless`, and non-default `delete_credential` are enabled for AIA.
-2. Password success produces the inventory delta expected by this BFF on the actual user store. If the store does not update credential ID or `createdDate`, a separate server-verifiable evidence contract is required; do not weaken verification to trust `kc_action_status`.
-3. Add/delete success and cancel paths work for TOTP and passwordless WebAuthn, including Keycloak's credential-specific LoA challenge.
-4. Subject, nonce, state, PKCE, `auth_time`, callback action/status and Account REST token contracts pass with the real confidential client.
-5. Desktop and mobile WebView browser runs cover passkey registration, WebAuthn error retry, Turkish copy, keyboard/focus behavior, reduced motion and contrast.
-6. A success reported without inventory change is demonstrated to remain `unverified`; an unowned deletion reference is rejected before PAR.
-
-The real production realm is not a smoke-test target. No mobile repository change is part of this implementation.
+1. A password changed on `my.` signs in on `e.` and the realm password policy (`length(8) and notUsername and notEmail`) is reported through `password_policy`.
+2. A verification app enrolled from the `my.` QR proves Sudo mode and passes the login OTP step.
+3. A passkey registered on `my.` (RP ID `yildizskylab.com`, extra origin `https://my.yildizskylab.com`) signs in on `e.` and proves Sudo mode; `excludeCredentials` refuses a second registration of the same authenticator.
+4. `DELETE credentials/{id}` refuses ids that are not the person's own and the page reflects the fresh inventory.
+5. Desktop and mobile WebView runs cover the ceremonies, Turkish copy, keyboard and focus behaviour, reduced motion and contrast; no request leaves for `e.yildizskylab.com` during any flow.
 
 ## Upstream contract references
 
-- [Keycloak 26.7.4 Server Administration Guide — Application initiated actions](https://www.keycloak.org/docs/26.7.4/server_admin/#application-initiated-actions)
-- [Keycloak 26.7.4 `DeleteCredentialAction`](https://github.com/keycloak/keycloak/blob/26.7.4/services/src/main/java/org/keycloak/authentication/requiredactions/DeleteCredentialAction.java)
-- [Keycloak 26.7.4 authorization endpoint action parameter handling](https://github.com/keycloak/keycloak/blob/26.7.4/services/src/main/java/org/keycloak/protocol/oidc/endpoints/AuthorizationEndpoint.java)
+- [sky-account API v1](sky-account-api.md): `credentials/password`, `credentials/totp/setup|confirm`, `credentials/webauthn/options|register`, `DELETE credentials/{id}`, `X-Sky-Sudo`, RFC 7807 codes.
+- [Keycloak 26.7.4 contract](keycloak-26.7.4-contract.md): the forced re-authentication (`prompt=login&max_age=0`) that remains for account deletion and the Sudo mode fallback.

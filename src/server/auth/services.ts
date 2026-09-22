@@ -1,7 +1,6 @@
 import "server-only";
 
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
-import { AccountActionResultStore } from "@/server/auth/account-action-results";
 import {
   BackchannelLogoutService,
   KeycloakBackchannelLogoutVerifier,
@@ -12,7 +11,6 @@ import { OAuth4WebApiProtocol } from "@/server/auth/oidc-protocol";
 import { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import {
   PostgresOidcTransactionRepository,
-  PostgresAccountActionResultRepository,
   PostgresBackchannelLogoutRepository,
   PostgresRateLimitRepository,
   PostgresSessionRepository,
@@ -75,17 +73,7 @@ function createAuthServices() {
     cipher,
     config.oidcTransactionTtlSeconds,
   );
-  const actionResults = new AccountActionResultStore(
-    new PostgresAccountActionResultRepository(pool),
-  );
-  const oidc = new OidcFlowService(
-    protocol,
-    transactions,
-    sessions,
-    accountAccess,
-    account,
-    credentialAdapter,
-  );
+  const oidc = new OidcFlowService(protocol, transactions, sessions, accountAccess);
   const nativeHandoff = new NativeHandoffService(
     createNativeAccessTokenVerifier(config.issuer),
     new PostgresNativeHandoffRepository(pool),
@@ -112,7 +100,6 @@ function createAuthServices() {
     accountAccess,
     oidc,
     account,
-    actionResults,
     nativeHandoff,
     accountDeletion,
     sudo,

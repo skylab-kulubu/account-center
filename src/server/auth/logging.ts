@@ -31,9 +31,8 @@ type AuthLog = {
     | "native_handoff_created"
     | "native_handoff_consumed"
     | "native_bridge_redeemed"
-    | "account_action_started"
-    | "account_action_completed"
     | "account_session_cleanup"
+    | "security_action"
     | "sudo_material_discarded"
     | "sudo_attempt"
     | "sudo_reauthentication_started"
@@ -44,6 +43,14 @@ type AuthLog = {
   providerStage?: OidcProviderStage;
   /** Proof kind of a sudo attempt; never the material itself. */
   sudoMethod?: "password" | "totp" | "passkey" | "reauth";
+  /** Which security-page action ran; never a label, secret, code, attestation or credential id. */
+  securityAction?:
+    | "password"
+    | "totp_setup"
+    | "totp_confirm"
+    | "passkey_options"
+    | "passkey_register"
+    | "credential_delete";
   reason?:
     | "invalid_transaction"
     | "provider_unavailable"
@@ -57,8 +64,6 @@ type AuthLog = {
     | "invalid_token"
     | "invalid_handoff"
     | "invalid_bridge_request"
-    | "invalid_account_action"
-    | "account_action_unverified"
     | "rate_limited"
     | "local_session_revocation_failed"
     | "sudo_decrypt_failed"
@@ -66,7 +71,17 @@ type AuthLog = {
     | "user_locked"
     | "method_unavailable"
     | "method_available"
-    | "sudo_storage_failed";
+    | "sudo_storage_failed"
+    | "sudo_required"
+    | "spi_token_required"
+    | "sudo_rejected_upstream"
+    | "policy_rejected"
+    | "invalid_code"
+    | "setup_expired"
+    | "duplicate_label"
+    | "already_registered"
+    | "credential_not_found"
+    | "webauthn_rejected";
 };
 
 export function logAuthEvent(entry: AuthLog) {
