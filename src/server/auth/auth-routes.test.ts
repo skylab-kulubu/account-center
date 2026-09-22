@@ -15,14 +15,24 @@ import {
 } from "@/server/access-gate/authorization";
 import { logAuthEvent } from "@/server/auth/logging";
 import { OidcProviderStageError } from "@/server/auth/oidc-protocol";
+import {
+  SkyAccountContractError,
+  SkyAccountProblem,
+  SkyAccountUnavailableError,
+} from "@/server/sky-account/client";
+import type { SkyAccountProblemCode } from "@/server/sky-account/client";
 
 const authMocks = vi.hoisted(() => ({
   begin: vi.fn(),
   callback: vi.fn(),
   revokeHandle: vi.fn(),
   rateLimitConsume: vi.fn(),
-  createActionResult: vi.fn(),
   createDeletionIntent: vi.fn(),
+  storeReauthenticationProof: vi.fn(),
+  storeSudo: vi.fn(),
+  sudoAuthentication: vi.fn(),
+  accessToken: vi.fn(),
+  identity: vi.fn(),
 }));
 
 vi.mock("@/server/auth/logging", () => ({
@@ -35,11 +45,67 @@ vi.mock("@/server/auth/services", () => ({
     config: { appUrl: new URL("https://my.yildizskylab.com") },
     oidc: { begin: authMocks.begin, callback: authMocks.callback },
     sessions: { revokeHandle: authMocks.revokeHandle },
-    actionResults: { create: authMocks.createActionResult },
     accountDeletion: { createReauthenticatedIntent: authMocks.createDeletionIntent },
     anonymousRateLimit: { consume: authMocks.rateLimitConsume },
+    sudo: {
+      storeReauthenticationProof: authMocks.storeReauthenticationProof,
+      storeSudo: authMocks.storeSudo,
+    },
+    account: { accessToken: authMocks.accessToken },
+    skyAccount: { identity: authMocks.identity, sudoAuthentication: authMocks.sudoAuthentication },
   }),
 }));
+
+const sudoSession = {
+  id: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
+  subject: "fresh-user",
+  keycloakSid: "fresh-sid",
+  createdAt: new Date("2026-09-20T10:00:00Z"),
+  lastSeenAt: new Date("2026-09-20T12:00:00Z"),
+  idleExpiresAt: new Date("2026-09-20T12:30:00Z"),
+  absoluteExpiresAt: new Date("2026-09-20T18:00:00Z"),
+};
+/** Stands in for the ID token of the forced login; only the server ever sees it. */
+const freshIdToken = "eyJhbGciOiJSUzI1NiJ9.eyJ0eXAiOiJJRCJ9.fresh-login-signature";
+const sudoGrant = {
+  sudoToken: "eyJhbGciOiJIUzUxMiJ9.eyJ0eXAiOiJza3ktc3VkbyJ9.sudo-signature",
+  expiresAt: new Date("2026-09-20T12:05:00Z"),
+};
+
+function skyAccountProblem(code: SkyAccountProblemCode) {
+  return new SkyAccountProblem({
+    code,
+    status: 401,
+    detail: "Doğrulama kabul edilmedi.",
+    retryAfter: null,
+    field: null,
+    policy: null,
+    params: [],
+    availableAt: null,
+  });
+}
+
+/** A verified Microsoft return whose ID token the BFF may still turn into a sudo token. */
+function seedSudoReauthentication() {
+  authMocks.callback.mockResolvedValue({
+    sudoReauthentication: "success",
+    session: sudoSession,
+    authenticatedAt: new Date("2026-09-20T12:00:00Z"),
+    freshIdToken,
+    returnTo: "/security",
+  });
+  authMocks.accessToken.mockResolvedValue("fresh-server-token");
+  authMocks.sudoAuthentication.mockResolvedValue(sudoGrant);
+  authMocks.storeSudo.mockResolvedValue(undefined);
+  authMocks.storeReauthenticationProof.mockResolvedValue(true);
+}
+
+function sudoCallback() {
+  return callbackRoute(new NextRequest(
+    `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+    { headers: { cookie: `${SESSION_COOKIE}=${"h".repeat(43)}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+  ));
+}
 
 describe("authentication routes", () => {
   beforeEach(() => {
@@ -49,7 +115,6 @@ describe("authentication routes", () => {
       count: 1,
       retryAfterSeconds: 60,
     });
-    authMocks.createActionResult.mockResolvedValue("r".repeat(43));
     authMocks.createDeletionIntent.mockResolvedValue({
       proofReference: "p".repeat(43),
       localReceipt: "d".repeat(43),
@@ -181,67 +246,6 @@ describe("authentication routes", () => {
     expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
   });
 
-  it("returns an account action to the fixed security page without replacing the BFF session", async () => {
-    authMocks.callback.mockResolvedValue({
-      actionOutcome: "success",
-      action: "passkey",
-      returnTo: "/security",
-      sessionId: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
-    });
-    const oldHandle = "h".repeat(43);
-    const response = await callbackRoute(new NextRequest(
-      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}&kc_action=webauthn-register-passwordless&kc_action_status=success`,
-      {
-        headers: {
-          cookie: `${SESSION_COOKIE}=${oldHandle}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}`,
-        },
-      },
-    ));
-
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe(
-      `https://my.yildizskylab.com/security?result=${"r".repeat(43)}`,
-    );
-    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
-    expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
-    expect(authMocks.revokeHandle).not.toHaveBeenCalled();
-    expect(authMocks.callback).toHaveBeenCalledWith(
-      expect.anything(),
-      "b".repeat(43),
-      oldHandle,
-    );
-    expect(authMocks.createActionResult).toHaveBeenCalledWith(
-      "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
-      { action: "passkey", outcome: "success" },
-    );
-  });
-
-  it("keeps the BFF session when one-time action feedback cannot be persisted", async () => {
-    authMocks.callback.mockResolvedValue({
-      actionOutcome: "success",
-      action: "otp",
-      returnTo: "/security",
-      sessionId: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
-    });
-    authMocks.createActionResult.mockRejectedValue(new Error("database unavailable"));
-    const oldHandle = "h".repeat(43);
-
-    const response = await callbackRoute(new NextRequest(
-      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
-      {
-        headers: {
-          cookie: `${SESSION_COOKIE}=${oldHandle}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}`,
-        },
-      },
-    ));
-
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
-    expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
-    expect(authMocks.revokeHandle).not.toHaveBeenCalled();
-  });
-
   it("keeps deletion proof and receipt in secure host-only cookies after fresh reauthentication", async () => {
     const activeSession = {
       id: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
@@ -279,6 +283,153 @@ describe("authentication routes", () => {
       freshAccessToken: "fresh-server-token",
       freshIdToken: "fresh-server-id-token",
     });
+  });
+
+  it("turns the fresh Microsoft login into a sky-account sudo token and returns to the page", async () => {
+    seedSudoReauthentication();
+    const response = await sudoCallback();
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security?sudo=confirmed");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+    expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
+    expect(authMocks.accessToken).toHaveBeenCalledWith(sudoSession);
+    expect(authMocks.sudoAuthentication).toHaveBeenCalledWith(
+      { accessToken: "fresh-server-token" },
+      { idToken: freshIdToken },
+    );
+    expect(authMocks.storeSudo).toHaveBeenCalledWith(
+      sudoSession.id,
+      sudoGrant.sudoToken,
+      sudoGrant.expiresAt,
+      "reauth",
+    );
+    // The SPI answered, so no token-less proof is written.
+    expect(authMocks.storeReauthenticationProof).not.toHaveBeenCalled();
+    expect(authMocks.revokeHandle).not.toHaveBeenCalled();
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: "sudo_reauthentication_completed",
+      outcome: "success",
+      sudoMethod: "reauth",
+    }));
+    expect(logAuthEvent).not.toHaveBeenCalledWith(expect.objectContaining({ event: "sudo_authentication_failed" }));
+    // Neither the ID token nor the sudo token may reach the browser or a log line.
+    const exposed = [
+      JSON.stringify([...response.headers]),
+      await response.text(),
+      JSON.stringify(vi.mocked(logAuthEvent).mock.calls),
+    ].join("\n");
+    expect(exposed).not.toContain(freshIdToken);
+    expect(exposed).not.toContain(sudoGrant.sudoToken);
+  });
+
+  it.each([
+    ["stale", () => skyAccountProblem("authentication_stale")],
+    ["refused", () => skyAccountProblem("sudo_required")],
+    ["unavailable", () => new SkyAccountUnavailableError()],
+    ["contract", () => new SkyAccountContractError()],
+  ])("keeps the token-less proof and logs %s when the sudo token cannot be issued", async (reason, failure) => {
+    seedSudoReauthentication();
+    authMocks.sudoAuthentication.mockRejectedValue(failure());
+    const response = await sudoCallback();
+
+    // The person is re-authenticated either way, so the page still hears `confirmed`.
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security?sudo=confirmed");
+    expect(authMocks.storeSudo).not.toHaveBeenCalled();
+    expect(authMocks.storeReauthenticationProof)
+      .toHaveBeenCalledWith(sudoSession.id, new Date("2026-09-20T12:00:00Z"));
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: "sudo_authentication_failed",
+      outcome: "failure",
+      reason,
+      sudoMethod: "reauth",
+    }));
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: "sudo_reauthentication_completed",
+      outcome: "success",
+      sudoMethod: "reauth",
+    }));
+    expect(JSON.stringify(vi.mocked(logAuthEvent).mock.calls)).not.toContain(freshIdToken);
+  });
+
+  it("falls back to the token-less proof when the grant cannot be stored, and gives up when neither can", async () => {
+    seedSudoReauthentication();
+    authMocks.storeSudo.mockRejectedValue(new Error("session gone"));
+    const fallback = await sudoCallback();
+    expect(fallback.headers.get("location")).toBe("https://my.yildizskylab.com/security?sudo=confirmed");
+    expect(authMocks.storeReauthenticationProof).toHaveBeenCalledTimes(1);
+
+    authMocks.storeReauthenticationProof.mockRejectedValue(new Error("session gone"));
+    const failed = await sudoCallback();
+    expect(failed.headers.get("location")).toBe("https://my.yildizskylab.com/security?sudo=unavailable");
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: "sudo_reauthentication_completed",
+      outcome: "failure",
+      reason: "sudo_storage_failed",
+      sudoMethod: "reauth",
+    }));
+  });
+
+  it("returns a cancelled Microsoft re-authentication without proving anything", async () => {
+    seedSudoReauthentication();
+    authMocks.callback.mockResolvedValue({ sudoReauthentication: "cancelled", returnTo: "/security" });
+    const cancelled = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?error=access_denied&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${SESSION_COOKIE}=${"h".repeat(43)}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    ));
+    expect(cancelled.headers.get("location")).toBe("https://my.yildizskylab.com/security?sudo=cancelled");
+    expect(authMocks.sudoAuthentication).not.toHaveBeenCalled();
+    expect(authMocks.storeSudo).not.toHaveBeenCalled();
+    expect(authMocks.storeReauthenticationProof).not.toHaveBeenCalled();
+  });
+
+  it("returns the YTÜ link outcome to the identity page only after re-reading the identity", async () => {
+    const activeSession = {
+      id: "d9a9bb4a-4977-4f07-8eb7-d3ba5c45e5cd",
+      subject: "linking-user",
+      keycloakSid: "rotated-sid",
+      createdAt: new Date("2026-09-22T08:00:00Z"),
+      lastSeenAt: new Date("2026-09-22T09:00:00Z"),
+      idleExpiresAt: new Date("2026-09-22T09:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-22T16:00:00Z"),
+    };
+    const callback = (query: string) => callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?${query}&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${SESSION_COOKIE}=${"h".repeat(43)}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    ));
+    authMocks.callback.mockResolvedValue({ ytuLink: "success", session: activeSession, returnTo: "/identity" });
+    authMocks.accessToken.mockResolvedValue("fresh-server-token");
+    authMocks.identity.mockResolvedValue({ verifiedYtu: true });
+
+    const linked = await callback("code=valid&kc_action=idp_link&kc_action_status=success");
+    expect(linked.status).toBe(303);
+    expect(linked.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=linked");
+    expect(linked.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(linked.headers.get("cache-control")).toBe("no-store");
+    expect(linked.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+    expect(linked.cookies.get(SESSION_COOKIE)).toBeUndefined();
+    expect(linked.headers.get("set-cookie")).not.toContain("fresh-server-token");
+    expect(authMocks.accessToken).toHaveBeenCalledWith(activeSession);
+    expect(authMocks.identity).toHaveBeenCalledWith({ accessToken: "fresh-server-token" });
+    expect(authMocks.revokeHandle).not.toHaveBeenCalled();
+    expect(authMocks.storeReauthenticationProof).not.toHaveBeenCalled();
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "ytu_link_completed", outcome: "success" }));
+
+    authMocks.identity.mockResolvedValue({ verifiedYtu: false });
+    const unverified = await callback("code=valid&kc_action=idp_link&kc_action_status=success");
+    expect(unverified.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=unverified");
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "ytu_link_completed", reason: "link_unverified" }));
+
+    authMocks.callback.mockResolvedValue({ ytuLink: "cancelled", session: activeSession, returnTo: "/identity" });
+    const cancelled = await callback("code=valid&kc_action=idp_link&kc_action_status=cancelled");
+    expect(cancelled.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=cancelled");
+    authMocks.callback.mockResolvedValue({ ytuLink: "error", session: activeSession, returnTo: "/identity" });
+    const failed = await callback("code=valid&kc_action=idp_link&kc_action_status=error");
+    expect(failed.headers.get("location")).toBe("https://my.yildizskylab.com/identity?ytu=error");
+    expect(failed.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
+    expect(authMocks.identity).toHaveBeenCalledTimes(2);
   });
 
   it("returns deletion cancellation to the page without creating a receipt", async () => {

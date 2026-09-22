@@ -1,0 +1,7 @@
+{
+  "setupHandle": "ZW9faHuWMziZ8fm_cttFxSmAMYRW82GJo8I-FBhR468",
+  "secret": "OR4DE4DRNFXDKZTQJZUFMSBSKR4G2Z3B",
+  "otpauthUri": "otpauth://totp/SKY%20LAB:account-fixture?secret=OR4DE4DRNFXDKZTQJZUFMSBSKR4G2Z3B&digits=6&algorithm=SHA1&issuer=SKY%20LAB&period=30",
+  "expiresAt": "2026-09-21T13:20:18Z",
+  "policy": { "type": "totp", "algorithm": "SHA1", "digits": 6, "period": 30 }
+}

@@ -2,7 +2,6 @@ import "server-only";
 
 import type { Pool, PoolClient } from "pg";
 import type {
-  AccountActionResultRepository,
   BackchannelLogoutInput,
   BackchannelLogoutRepository,
   ConsumeNativeHandoffInput,
@@ -13,15 +12,14 @@ import type {
   RedeemNativeBridgeInput,
   SessionRepository,
   SessionUseOutcome,
+  StoredSudo,
+  SudoRepository,
   UseSessionInput,
 } from "@/server/auth/repositories";
 import type {
-  AccountActionKind,
-  AccountActionOutcome,
   ActiveSession,
   NewNativeHandoff,
   NewSessionRecord,
-  StoredAccountActionResult,
   StoredOidcTransaction,
 } from "@/server/auth/types";
 
@@ -92,59 +90,6 @@ export class PostgresOidcTransactionRepository implements OidcTransactionReposit
     );
     const row = result.rows[0];
     return row ? { id: row.id, payloadCiphertext: row.payload_ciphertext } : null;
-  }
-}
-
-export class PostgresAccountActionResultRepository implements AccountActionResultRepository {
-  constructor(private readonly pool: Pool) {}
-
-  async insert(value: StoredAccountActionResult) {
-    await this.pool.query(
-      `INSERT INTO account_action_results
-        (result_hash, session_id, action, outcome, created_at, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        value.resultHash,
-        value.sessionId,
-        value.action,
-        value.outcome,
-        value.createdAt,
-        value.expiresAt,
-      ],
-    );
-  }
-
-  async read(resultHash: Buffer, sessionId: string, now: Date) {
-    const result = await this.pool.query<{
-      action: AccountActionKind;
-      outcome: AccountActionOutcome;
-    }>(
-      `SELECT action, outcome
-         FROM account_action_results
-        WHERE result_hash = $1
-          AND session_id = $2
-          AND consumed_at IS NULL
-          AND expires_at > $3`,
-      [resultHash, sessionId, now],
-    );
-    return result.rows[0] ?? null;
-  }
-
-  async consume(resultHash: Buffer, sessionId: string, now: Date) {
-    const result = await this.pool.query<{
-      action: AccountActionKind;
-      outcome: AccountActionOutcome;
-    }>(
-      `UPDATE account_action_results
-          SET consumed_at = $3
-        WHERE result_hash = $1
-          AND session_id = $2
-          AND consumed_at IS NULL
-          AND expires_at > $3
-      RETURNING action, outcome`,
-      [resultHash, sessionId, now],
-    );
-    return result.rows[0] ?? null;
   }
 }
 
@@ -357,6 +302,51 @@ export class PostgresSessionRepository implements SessionRepository {
       [id],
     );
     return result.rows[0]?.token_ciphertext ?? null;
+  }
+}
+
+export class PostgresSudoRepository implements SudoRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async replaceSudo(sessionId: string, ciphertext: string, expiresAt: Date, now: Date) {
+    const result = await this.pool.query(
+      `UPDATE account_sessions
+          SET sudo_token_ciphertext = $2,
+              sudo_expires_at = $3
+        WHERE id = $1
+          AND revoked_at IS NULL
+          AND idle_expires_at > $4
+          AND absolute_expires_at > $4`,
+      [sessionId, ciphertext, expiresAt, now],
+    );
+    return result.rowCount === 1;
+  }
+
+  async readSudo(sessionId: string, now: Date): Promise<StoredSudo | null> {
+    const result = await this.pool.query<{ sudo_token_ciphertext: string; sudo_expires_at: Date }>(
+      `SELECT sudo_token_ciphertext, sudo_expires_at
+         FROM account_sessions
+        WHERE id = $1
+          AND sudo_token_ciphertext IS NOT NULL
+          AND sudo_expires_at IS NOT NULL
+          AND revoked_at IS NULL
+          AND idle_expires_at > $2
+          AND absolute_expires_at > $2`,
+      [sessionId, now],
+    );
+    const row = result.rows[0];
+    return row ? { ciphertext: row.sudo_token_ciphertext, expiresAt: row.sudo_expires_at } : null;
+  }
+
+  async clearSudo(sessionId: string) {
+    await this.pool.query(
+      `UPDATE account_sessions
+          SET sudo_token_ciphertext = NULL,
+              sudo_expires_at = NULL
+        WHERE id = $1
+          AND (sudo_token_ciphertext IS NOT NULL OR sudo_expires_at IS NOT NULL)`,
+      [sessionId],
+    );
   }
 }
 

@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  PostgresAccountActionResultRepository,
   PostgresBackchannelLogoutRepository,
   PostgresNativeHandoffRepository,
   PostgresOidcTransactionRepository,
@@ -24,6 +23,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "0003_native_handoff.sql",
       "0004_account_action_results.sql",
       "0005_account_deletion_intents.sql",
+      "0006_account_sudo.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);
@@ -66,60 +66,6 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       id: "11111111-1111-4111-8111-111111111111",
       payloadCiphertext: "encrypted",
     });
-  });
-
-  it("reads an action result without loss, then atomically acknowledges it once", async () => {
-    const sessionRepository = new PostgresSessionRepository(pool);
-    const sessionId = "89898989-8989-4989-8989-898989898989";
-    await sessionRepository.insert({
-      id: sessionId,
-      subject: "action-result-user",
-      keycloakSid: "action-result-sid",
-      handleHash: Buffer.alloc(32, 70),
-      tokenCiphertext: "encrypted",
-      createdAt: new Date("2026-09-20T00:00:00Z"),
-      rotatedAt: new Date("2026-09-20T00:00:00Z"),
-      lastSeenAt: new Date("2026-09-20T00:00:00Z"),
-      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
-      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
-    });
-    const repository = new PostgresAccountActionResultRepository(pool);
-    const resultHash = Buffer.alloc(32, 71);
-    await repository.insert({
-      resultHash,
-      sessionId,
-      action: "otp",
-      outcome: "success",
-      createdAt: new Date("2026-09-20T00:00:00Z"),
-      expiresAt: new Date("2026-09-20T00:05:00Z"),
-    });
-
-    await expect(repository.read(
-      resultHash,
-      "79797979-7979-4979-8979-797979797979",
-      new Date("2026-09-20T00:01:00Z"),
-    )).resolves.toBeNull();
-    await expect(repository.read(
-      resultHash,
-      sessionId,
-      new Date("2026-09-20T00:01:00Z"),
-    )).resolves.toEqual({ action: "otp", outcome: "success" });
-    await expect(repository.read(
-      resultHash,
-      sessionId,
-      new Date("2026-09-20T00:01:00Z"),
-    )).resolves.toEqual({ action: "otp", outcome: "success" });
-    const outcomes = await Promise.all([
-      repository.consume(resultHash, sessionId, new Date("2026-09-20T00:01:00Z")),
-      repository.consume(resultHash, sessionId, new Date("2026-09-20T00:01:00Z")),
-    ]);
-    expect(outcomes.filter(Boolean)).toHaveLength(1);
-    expect(outcomes.find(Boolean)).toEqual({ action: "otp", outcome: "success" });
-    await expect(repository.read(
-      resultHash,
-      sessionId,
-      new Date("2026-09-20T00:01:00Z"),
-    )).resolves.toBeNull();
   });
 
   it("rotates a still-valid previous handle so a lost Set-Cookie response can recover", async () => {

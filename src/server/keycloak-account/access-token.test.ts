@@ -1,7 +1,8 @@
 // @vitest-environment node
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ACCEPTED_AUDIENCE_SETS,
   AccountAccessTokenContractError,
   AccountAccessTokenExpiredError,
   validateAccountAccessToken,
@@ -13,6 +14,15 @@ const expected = {
   subject: "user-id",
 };
 const now = new Date("2026-09-20T12:00:00Z");
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function spyOnInfoLog() {
+  return vi.spyOn(console, "info").mockImplementation(() => undefined);
+}
+
+function loggedEvents(info: ReturnType<typeof spyOnInfoLog>) {
+  return info.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+}
 
 function jwt(claims: Record<string, unknown>, header: Record<string, unknown> = { alg: "RS256", typ: "JWT" }) {
   return [header, claims, "signature"]
@@ -25,7 +35,7 @@ function claims(overrides: Record<string, unknown> = {}) {
     iss: expected.issuer.href,
     sub: expected.subject,
     azp: expected.clientId,
-    aud: "account",
+    aud: ["account", "core"],
     scope: "openid",
     resource_access: {
       account: {
@@ -38,21 +48,97 @@ function claims(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Account REST access token contract", () => {
-  it("accepts only a current minimal account audience user token", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("pins the legacy and current audience sets accepted during the K2 cutover", () => {
+    expect(ACCEPTED_AUDIENCE_SETS).toEqual([
+      { name: "legacy", audiences: ["account"] },
+      { name: "current", audiences: ["account", "core"] },
+    ]);
+  });
+
+  it("accepts a current user token with exactly the account and core audiences", () => {
+    const info = spyOnInfoLog();
     expect(validateAccountAccessToken(jwt(claims()), expected, now)).toEqual({
       expiresAt: new Date("2026-09-20T12:05:00.000Z"),
+      authorization: {},
     });
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it("treats the audience as an unordered set", () => {
+    expect(validateAccountAccessToken(jwt(claims({ aud: ["core", "account"] })), expected, now))
+      .toMatchObject({ expiresAt: new Date("2026-09-20T12:05:00.000Z") });
   });
 
   it.each([
-    ["an extra audience", { aud: ["account", "core"] }],
+    ["a list", ["account"]],
+    // Keycloak serializes a one-element audience as a bare string (RFC 7519 §4.1.3).
+    ["a bare string", "account"],
+  ])("accepts the legacy single account audience as %s and logs it once without token material", (_label, aud) => {
+    const info = spyOnInfoLog();
+    const token = jwt(claims({ aud }));
+    expect(validateAccountAccessToken(token, expected, now)).toEqual({
+      expiresAt: new Date("2026-09-20T12:05:00.000Z"),
+      authorization: {},
+    });
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(loggedEvents(info)).toEqual([{
+      event: "token_audience_legacy",
+      requestId: expect.stringMatching(uuid),
+      outcome: "success",
+    }]);
+    const line = String(info.mock.calls[0]?.[0]);
+    expect(line).not.toContain(token);
+    expect(line).not.toContain(expected.subject);
+  });
+
+  it("correlates the legacy audience event with the caller's request id", () => {
+    const info = spyOnInfoLog();
+    validateAccountAccessToken(jwt(claims({ aud: ["account"] })), expected, now, { requestId: "req-12345678" });
+    expect(loggedEvents(info)).toEqual([expect.objectContaining({ requestId: "req-12345678" })]);
+  });
+
+  it("does not log a legacy audience for a token that fails the rest of the contract", () => {
+    const info = spyOnInfoLog();
+    expect(() => validateAccountAccessToken(jwt(claims({ aud: ["account"], scope: "openid profile" })), expected, now))
+      .toThrow(AccountAccessTokenContractError);
+    expect(() => validateAccountAccessToken(jwt(claims({ aud: ["account"], exp: 1_789_900_000 })), expected, now))
+      .toThrow(AccountAccessTokenExpiredError);
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it("parses sky_authorization beside the legacy audience when present and absent", () => {
+    spyOnInfoLog();
+    expect(validateAccountAccessToken(
+      jwt(claims({ aud: ["account"], sky_authorization: { core: { roles: ["admin"] } } })),
+      expected,
+      now,
+    ).authorization).toEqual({ core: ["admin"] });
+    expect(validateAccountAccessToken(jwt(claims({ aud: ["account"] })), expected, now).authorization)
+      .toEqual({});
+  });
+
+  it.each([
+    ["a duplicated legacy audience", { aud: ["account", "account"] }],
+    ["a duplicated audience", { aud: ["account", "account", "core"] }],
+    ["an extra audience", { aud: ["account", "core", "skyforms"] }],
+    ["only the core audience", { aud: ["core"] }],
+    ["only the core audience as a bare string", { aud: "core" }],
+    ["an empty audience", { aud: [] }],
+    ["a missing audience", { aud: undefined }],
+    ["a malformed audience", { aud: { account: true, core: true } }],
     ["another client", { azp: "service-account-client" }],
     ["another subject", { sub: "other-user" }],
     ["profile scope", { scope: "openid profile" }],
     ["another issuer", { iss: "https://attacker.invalid/realms/fake" }],
   ])("rejects %s", (_label, override) => {
+    const info = spyOnInfoLog();
     expect(() => validateAccountAccessToken(jwt(claims(override)), expected, now))
       .toThrow(AccountAccessTokenContractError);
+    expect(info).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -63,6 +149,106 @@ describe("Account REST access token contract", () => {
   ])("rejects %s", (_label, override) => {
     expect(() => validateAccountAccessToken(jwt(claims(override)), expected, now))
       .toThrow(AccountAccessTokenContractError);
+  });
+
+  it.each([
+    ["core roles", { core: { roles: ["admin"] } }],
+    ["an empty core role list", { core: { roles: [] } }],
+    ["a malformed core entry", { core: null }],
+  ])("rejects a token that carries %s beside the account roles", (_label, core) => {
+    const override = {
+      resource_access: {
+        account: { roles: ["manage-account", "view-profile"] },
+        ...core,
+      },
+    };
+    expect(() => validateAccountAccessToken(jwt(claims(override)), expected, now))
+      .toThrow(AccountAccessTokenContractError);
+  });
+
+  it("parses the sky_authorization client-role claim into a flat read model", () => {
+    const token = jwt(claims({
+      sky_authorization: {
+        account: { roles: ["manage-account", "view-profile", "manage-account-links"] },
+        core: { roles: ["admin", "events.manage"] },
+        skyforms: { roles: ["Yönetim Kurulu"] },
+        "my.dotted-client": { roles: [] },
+      },
+    }));
+    expect(validateAccountAccessToken(token, expected, now).authorization).toEqual({
+      account: ["manage-account", "view-profile", "manage-account-links"],
+      core: ["admin", "events.manage"],
+      skyforms: ["Yönetim Kurulu"],
+      "my.dotted-client": [],
+    });
+  });
+
+  it("returns an empty read model when the claim is absent or null", () => {
+    expect(validateAccountAccessToken(jwt(claims()), expected, now).authorization).toEqual({});
+    expect(validateAccountAccessToken(jwt(claims({ sky_authorization: null })), expected, now).authorization)
+      .toEqual({});
+  });
+
+  it("does not let the read model inherit prototype members", () => {
+    const authorization = validateAccountAccessToken(
+      jwt(claims({ sky_authorization: { core: { roles: ["viewer"] } } })),
+      expected,
+      now,
+    ).authorization;
+    expect(Object.getPrototypeOf(authorization)).toBeNull();
+    expect("toString" in authorization).toBe(false);
+  });
+
+  it.each([
+    ["a flat role list", { core: ["admin"] }],
+    ["a scalar client entry", { core: "admin" }],
+    ["a missing roles list", { core: {} }],
+    ["an extra client field", { core: { roles: ["admin"], composite: true } }],
+    ["a non-string role", { core: { roles: [42] } }],
+    ["an empty role", { core: { roles: [""] } }],
+    ["a control character in a role", { core: { roles: ["admin\u0000"] } }],
+    ["an empty client id", { "": { roles: ["admin"] } }],
+    ["whitespace in a client id", { "core api": { roles: ["admin"] } }],
+    ["an oversized client id", { ["c".repeat(256)]: { roles: ["admin"] } }],
+    ["an oversized role", { core: { roles: ["r".repeat(256)] } }],
+    ["a duplicated role", { core: { roles: ["admin", "admin"] } }],
+    ["a __proto__ client id", JSON.parse('{"__proto__":{"roles":["admin"]}}') as unknown],
+    ["a constructor client id", { constructor: { roles: ["admin"] } }],
+    ["a list instead of a map", [{ roles: ["admin"] }]],
+    ["a scalar claim", "core:admin"],
+  ])("rejects %s inside sky_authorization", (_label, skyAuthorization) => {
+    expect(() => validateAccountAccessToken(
+      jwt(claims({ sky_authorization: skyAuthorization })),
+      expected,
+      now,
+    )).toThrow(AccountAccessTokenContractError);
+  });
+
+  it("caps the number of clients and roles in sky_authorization", () => {
+    const tooManyClients = Object.fromEntries(
+      Array.from({ length: 65 }, (_, index) => [`client-${index}`, { roles: ["viewer"] }]),
+    );
+    expect(() => validateAccountAccessToken(
+      jwt(claims({ sky_authorization: tooManyClients })),
+      expected,
+      now,
+    )).toThrow(AccountAccessTokenContractError);
+
+    const tooManyRoles = { core: { roles: Array.from({ length: 257 }, (_, index) => `role-${index}`) } };
+    expect(() => validateAccountAccessToken(
+      jwt(claims({ sky_authorization: tooManyRoles })),
+      expected,
+      now,
+    )).toThrow(AccountAccessTokenContractError);
+
+    const atTheLimit = Object.fromEntries(
+      Array.from({ length: 64 }, (_, index) => [`client-${index}`, { roles: ["viewer"] }]),
+    );
+    expect(Object.keys(validateAccountAccessToken(
+      jwt(claims({ sky_authorization: atTheLimit })),
+      expected,
+      now,
+    ).authorization)).toHaveLength(64);
   });
 
   it("distinguishes expiry so the server can refresh without weakening the contract", () => {

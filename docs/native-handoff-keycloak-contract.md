@@ -68,8 +68,8 @@ Production-clone ortamında gerçek Keycloak browser testi şunları tek akışt
 1. Valid `skyapp` token yalnız bir public handoff üretir; wrong issuer/audience/azp/alg/expired token reddedilir.
 2. İki eşzamanlı `/handoff` tüketicisinden yalnız biri PAR redirect alır.
 3. Authenticator internal bridge'i tek kez redeem eder, disabled/unknown kullanıcıyı reddeder ve real Keycloak SSO cookie oluşturur.
-4. WebView password ekranı görmeden step-up AIA'ya girer, `my.` callback'e döner ve özgün `auth_time` korunur.
+4. WebView password ekranı görmeden `my.` oturumuna girer; parola, passkey ve TOTP değişiklikleri WebView'ı terk etmeden Sudo modu ile tamamlanır, yalnız yöntemi olmayan kişinin Microsoft yeniden doğrulaması (`prompt=login&max_age=0`) `my.` callback'e döner.
 5. Replay, expiry, HMAC nonce replay, mTLS mismatch ve BFF callback subject mismatch testleri fail-closed geçer.
 6. Browser history, redirect URL, storage, source map, Cloudflare/ingress/APM logları access/refresh token veya bridge code içermez.
 
-Bu test ve SPI kurulumu ayrı Keycloak foundation işinin parçasıdır; BFF unit/PostgreSQL testleri gerçek SSO cookie veya AIA davranışının kanıtı değildir.
+Bu test ve SPI kurulumu ayrı Keycloak foundation işinin parçasıdır; BFF unit/PostgreSQL testleri gerçek SSO cookie veya yeniden doğrulama davranışının kanıtı değildir.

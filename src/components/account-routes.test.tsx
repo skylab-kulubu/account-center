@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import nextConfig from "../../next.config";
 import { AccountPageHeader } from "@/components/settings";
 import {
   accountRoute,
@@ -8,12 +9,14 @@ import {
 } from "@/config/account-routes";
 
 describe("account route metadata", () => {
-  it("defines the five live product routes once and in navigation order", () => {
+  it("defines the seven live product routes once and in navigation order", () => {
     expect(accountRoutes.map(({ href }) => href)).toEqual([
       "/",
-      "/personal-information",
+      "/identity",
+      "/club-profile",
       "/security",
       "/sessions",
+      "/permissions",
       "/delete-account",
     ]);
     expect(new Set(accountRoutes.map(({ href }) => href)).size).toBe(accountRoutes.length);
@@ -22,7 +25,7 @@ describe("account route metadata", () => {
   it("keeps exact page lookup inside the AccountRoutePath domain", () => {
     expect(accountRoute("/security").href).toBe("/security");
     expectTypeOf(accountRoute).parameter(0).toEqualTypeOf<
-      "/" | "/personal-information" | "/security" | "/sessions" | "/delete-account"
+      "/" | "/identity" | "/club-profile" | "/security" | "/sessions" | "/permissions" | "/delete-account"
     >();
   });
 
@@ -30,13 +33,23 @@ describe("account route metadata", () => {
     expect(matchAccountRoute("/security")).toBe(accountRoute("/security"));
     expect(matchAccountRoute("/security/")).toBe(accountRoute("/security"));
     expect(matchAccountRoute("/security/result")).toBe(accountRoute("/security"));
+    expect(matchAccountRoute("/club-profile")).toBe(accountRoute("/club-profile"));
+    expect(matchAccountRoute("/identity")).toBe(accountRoute("/identity"));
+    expect(matchAccountRoute("/identity-card")).toBeNull();
+    expect(matchAccountRoute("/personal-information")).toBeNull();
+    expect(matchAccountRoute("/club-profile-picture")).toBeNull();
     expect(matchAccountRoute("/security-center")).toBeNull();
     expect(matchAccountRoute("/unknown")).toBeNull();
     expect(matchAccountRoute("/overview")).toBeNull();
   });
 
+  it("redirects the retired /personal-information path to /identity permanently", async () => {
+    const redirects = await nextConfig.redirects!();
+    expect(redirects).toContainEqual({ source: "/personal-information", destination: "/identity", permanent: true });
+  });
+
   it("drives page chrome from the same metadata used by navigation", () => {
-    const route = accountRoute("/personal-information");
+    const route = accountRoute("/identity");
     render(<AccountPageHeader route={route} />);
 
     expect(screen.getByRole("heading", { level: 1, name: route.title })).toBeInTheDocument();

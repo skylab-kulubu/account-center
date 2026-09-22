@@ -1,7 +1,6 @@
 import "server-only";
 
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
-import { AccountActionResultStore } from "@/server/auth/account-action-results";
 import {
   BackchannelLogoutService,
   KeycloakBackchannelLogoutVerifier,
@@ -12,14 +11,15 @@ import { OAuth4WebApiProtocol } from "@/server/auth/oidc-protocol";
 import { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import {
   PostgresOidcTransactionRepository,
-  PostgresAccountActionResultRepository,
   PostgresBackchannelLogoutRepository,
   PostgresRateLimitRepository,
   PostgresSessionRepository,
+  PostgresSudoRepository,
   PostgresNativeHandoffRepository,
 } from "@/server/auth/postgres-repositories";
 import { AnonymousAuthRateLimiter } from "@/server/auth/rate-limit";
 import { SessionManager } from "@/server/auth/sessions";
+import { SudoVault } from "@/server/auth/sudo";
 import { getDatabasePool } from "@/server/db/pool";
 import { Keycloak26AccountReadAdapter } from "@/server/keycloak-account/adapter";
 import { AccountReadService } from "@/server/keycloak-account/service";
@@ -33,6 +33,8 @@ import { AccountSessionAccess } from "@/server/access-gate/session-access";
 import { AccountDeletionOrchestrator } from "@/server/account-deletion/orchestrator";
 import { CoreAccountDeletionHttpGateway } from "@/server/account-deletion/core-gateway";
 import { PostgresAccountDeletionRepository } from "@/server/account-deletion/postgres-repository";
+import { CoreProfileHttpClient } from "@/server/core/profile-client";
+import { SkyAccountHttpClient } from "@/server/sky-account/client";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
 const globalServices = globalThis as typeof globalThis & { accountCenterAuthServices?: AuthServices };
@@ -71,17 +73,9 @@ function createAuthServices() {
     cipher,
     config.oidcTransactionTtlSeconds,
   );
-  const actionResults = new AccountActionResultStore(
-    new PostgresAccountActionResultRepository(pool),
-  );
-  const oidc = new OidcFlowService(
-    protocol,
-    transactions,
-    sessions,
-    accountAccess,
-    account,
-    credentialAdapter,
-  );
+  const oidc = new OidcFlowService(protocol, transactions, sessions, accountAccess, {
+    ytuIdpAlias: config.ytuIdpAlias,
+  });
   const nativeHandoff = new NativeHandoffService(
     createNativeAccessTokenVerifier(config.issuer),
     new PostgresNativeHandoffRepository(pool),
@@ -89,6 +83,9 @@ function createAuthServices() {
     accountAccess,
     config.appUrl,
   );
+  const sudo = new SudoVault(new PostgresSudoRepository(pool), cipher);
+  const skyAccount = new SkyAccountHttpClient(config.issuer);
+  const coreProfile = config.coreApiUrl ? new CoreProfileHttpClient(config.coreApiUrl) : null;
   const accountDeletion = config.accountErasure.mode === "enforce"
     ? new AccountDeletionOrchestrator(
         new PostgresAccountDeletionRepository(pool),
@@ -105,9 +102,11 @@ function createAuthServices() {
     accountAccess,
     oidc,
     account,
-    actionResults,
     nativeHandoff,
     accountDeletion,
+    sudo,
+    skyAccount,
+    coreProfile,
     nativeBridgeRequest: new NativeBridgeRequestVerifier(
       config.nativeBridgeHmacSecret,
       config.nativeBridgeMtlsClientSha256,

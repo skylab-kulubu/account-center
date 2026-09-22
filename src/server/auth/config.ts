@@ -17,10 +17,22 @@ export type AuthConfig = {
   sessionIdleTtlSeconds: number;
   sessionRotationSeconds: number;
   previousHandleGraceSeconds: number;
+  /** Canonical core origin for the person's own `/v1/users/me` endpoints; `null` keeps club-profile features off. */
+  coreApiUrl: URL | null;
   accountErasure:
     | { mode: "off" }
     | { mode: "enforce"; coreApiUrl: URL };
+  /**
+   * Keycloak alias of the YTÜ Microsoft identity provider (`YTU_IDP_ALIAS`,
+   * default `OBS`): the only `kc_action_parameter` the `idp_link`
+   * application-initiated action may carry.
+   */
+  ytuIdpAlias: string;
 };
+
+/** A Keycloak identity provider alias as this deployment accepts it: one URL-safe path segment. */
+export const YTU_IDP_ALIAS_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const DEFAULT_YTU_IDP_ALIAS = "OBS";
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -75,13 +87,8 @@ function integer(name: string, minimum: number, maximum: number) {
   return parsed;
 }
 
-function accountErasureConfig(): AuthConfig["accountErasure"] {
-  const mode = process.env.ACCOUNT_ERASURE_MODE?.trim() || "off";
-  if (mode === "off") return { mode };
-  if (mode !== "enforce") throw new Error("ACCOUNT_ERASURE_MODE must be off or enforce.");
-  if (process.env.ACCOUNT_ACCESS_GATE_MODE?.trim() !== "enforce") {
-    throw new Error("Account erasure requires the account access gate in enforce mode.");
-  }
+function coreApiUrlConfig(): URL | null {
+  if (!process.env.CORE_API_URL?.trim()) return null;
   const value = required("CORE_API_URL");
   const coreApiUrl = httpsUrl("CORE_API_URL");
   if (
@@ -94,6 +101,26 @@ function accountErasureConfig(): AuthConfig["accountErasure"] {
   ) {
     throw new Error("CORE_API_URL must be a canonical credential-free HTTPS origin.");
   }
+  return coreApiUrl;
+}
+
+function ytuIdpAliasConfig() {
+  const value = process.env.YTU_IDP_ALIAS?.trim();
+  if (!value) return DEFAULT_YTU_IDP_ALIAS;
+  if (!YTU_IDP_ALIAS_PATTERN.test(value)) {
+    throw new Error("YTU_IDP_ALIAS must be a Keycloak identity provider alias of 1–64 URL-safe characters.");
+  }
+  return value;
+}
+
+function accountErasureConfig(coreApiUrl: URL | null): AuthConfig["accountErasure"] {
+  const mode = process.env.ACCOUNT_ERASURE_MODE?.trim() || "off";
+  if (mode === "off") return { mode };
+  if (mode !== "enforce") throw new Error("ACCOUNT_ERASURE_MODE must be off or enforce.");
+  if (process.env.ACCOUNT_ACCESS_GATE_MODE?.trim() !== "enforce") {
+    throw new Error("Account erasure requires the account access gate in enforce mode.");
+  }
+  if (!coreApiUrl) throw new Error("Missing required server configuration: CORE_API_URL");
   return { mode, coreApiUrl };
 }
 
@@ -138,6 +165,8 @@ export function getAuthConfig(): AuthConfig {
     throw new Error("OIDC_CLIENT_ID must be the dedicated account-center client.");
   }
 
+  const coreApiUrl = coreApiUrlConfig();
+
   return {
     appUrl,
     issuer: oidcIssuer(),
@@ -155,7 +184,9 @@ export function getAuthConfig(): AuthConfig {
     sessionIdleTtlSeconds: 30 * 60,
     sessionRotationSeconds: 15 * 60,
     previousHandleGraceSeconds: 30,
-    accountErasure: accountErasureConfig(),
+    coreApiUrl,
+    accountErasure: accountErasureConfig(coreApiUrl),
+    ytuIdpAlias: ytuIdpAliasConfig(),
   };
 }
 

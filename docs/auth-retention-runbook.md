@@ -21,7 +21,8 @@ Komut PostgreSQL transaction-scoped advisory lock alır. Önceki job hâlâ çal
 - Aktif kayıtlar ve grace aralığındaki kayıtlar korunur.
 - Süresi dolmuş backchannel logout JTI replay kayıtları ve anonymous auth rate-limit bucket’ları silinir.
 - Tüketilmiş veya süresi dolmuş public native handoff ve internal bridge kayıtları bir saatlik grace sonrasında; süresi dolmuş internal HMAC nonce kayıtları hemen hard-delete edilir.
-- Süresi dolmuş tek kullanımlık account-action UI sonuçları ve bir saatten eski tüketilmiş sonuçlar hard-delete edilir; session silindiğinde bağlı sonuçlar cascade ile kalkar.
+- `account_action_results` tablosu bu sürümde yazılmaz (parola/TOTP/passkey değişiklikleri artık `my.` içinde sky-account SPI ile yapılır); tablo ve migration `0004`, önceki imaja geri dönüş için yerinde durur. Job süresi dolmuş ya da bir saatten eski tüketilmiş kayıtları yine hard-delete eder; session silindiğinde bağlı kayıtlar cascade ile kalkar. Tablo, önceki imaj geri dönüş hedefi olmaktan çıkınca ayrı bir migration ile kaldırılır.
+- Süresi dolmuş sudo proof’ları (`sudo_token_ciphertext`/`sudo_expires_at`) aktif oturum kayıtlarından hemen scrub edilir; iptal edilmiş veya süresi dolmuş oturumlardaki materyal kaydın kendisiyle birlikte hard-delete edilir.
 - Onaylanmamış hesap silme niyetleri beş dakikalık fresh-auth penceresi biter bitmez şifreli kimlik tokenlarıyla birlikte hard-delete edilir. Core tarafından kabul edilmiş niyetlerde yerel kurtarma receipt'i ve şifreli Core receipt aynı pencerede scrub edilir; yalnız hashlenmiş Core receipt durum yetkisi kendi expiry tarihine kadar kalır, sonra kayıt hard-delete edilir.
 
 `maintenance/prune-auth.sql` yalnız auth-owned tablolara ve açık tarih koşullarına göre silme yapar. Kullanıcı, etkinlik veya başka ürün verilerine dokunmaz.
@@ -31,7 +32,7 @@ Komut PostgreSQL transaction-scoped advisory lock alır. Önceki job hâlâ çal
 Başarılı çalışmada yalnız aşağıdaki alanlar loglanır:
 
 ```json
-{"event":"auth_prune_completed","deletedTransactions":0,"deletedSessions":0,"deletedLogoutReplays":0,"deletedRateLimits":0,"deletedNativeHandoffs":0,"deletedNativeBridges":0,"deletedNativeBridgeNonces":0,"deletedActionResults":0,"deletedDeletionIntents":0,"scrubbedDeletionRecovery":0}
+{"event":"auth_prune_completed","deletedTransactions":0,"deletedSessions":0,"deletedLogoutReplays":0,"deletedRateLimits":0,"deletedNativeHandoffs":0,"deletedNativeBridges":0,"deletedNativeBridgeNonces":0,"deletedActionResults":0,"deletedDeletionIntents":0,"scrubbedDeletionRecovery":0,"scrubbedSudoProofs":0}
 ```
 
 Loglarda token, cookie, state, subject veya PII bulunmaz. `auth_prune_failed` için alert oluşturulmalı; tek bir saatlik hata veri erişimini etkilemez fakat sonraki başarılı koşuya kadar retention uzar. 24 saat boyunca başarılı koşu görülmezse nöbetçiye bildirilmelidir.

@@ -50,6 +50,16 @@ deleted_deletion_intents AS (
       OR (core_receipt_hash IS NOT NULL AND receipt_expires_at <= now())
   RETURNING 1
 ),
+scrubbed_sudo_proofs AS (
+  UPDATE account_sessions
+     SET sudo_token_ciphertext = NULL,
+         sudo_expires_at = NULL
+   WHERE sudo_expires_at <= now()
+     AND revoked_at IS NULL
+     AND absolute_expires_at > now()
+     AND idle_expires_at > now()
+  RETURNING 1
+),
 scrubbed_deletion_recovery AS (
   UPDATE account_deletion_intents
      SET local_receipt_hash = NULL,
@@ -75,4 +85,5 @@ SELECT
   (SELECT count(*)::integer FROM deleted_native_bridge_nonces) AS deleted_native_bridge_nonces,
   (SELECT count(*)::integer FROM deleted_action_results) AS deleted_action_results,
   (SELECT count(*)::integer FROM deleted_deletion_intents) AS deleted_deletion_intents,
-  (SELECT count(*)::integer FROM scrubbed_deletion_recovery) AS scrubbed_deletion_recovery;
+  (SELECT count(*)::integer FROM scrubbed_deletion_recovery) AS scrubbed_deletion_recovery,
+  (SELECT count(*)::integer FROM scrubbed_sudo_proofs) AS scrubbed_sudo_proofs;

@@ -7,12 +7,17 @@ export class RequestBodyError extends Error {
   }
 }
 
-export async function readUtf8Body(
+/**
+ * Reads the whole request body as bytes while enforcing an identity encoding
+ * and a hard byte cap, rejecting early on a declared length above the cap and
+ * cancelling the stream as soon as the cap is exceeded.
+ */
+export async function readBytesBody(
   request: Request,
-  options: { maxBytes: number; exactContentType?: string },
+  options: { maxBytes: number; contentType?: (value: string) => boolean },
 ) {
   const contentType = request.headers.get("content-type")?.trim() ?? "";
-  if (options.exactContentType !== undefined && contentType !== options.exactContentType) {
+  if (options.contentType !== undefined && !options.contentType(contentType)) {
     throw new RequestBodyError(400);
   }
   const contentEncoding = request.headers.get("content-encoding")?.trim().toLowerCase();
@@ -46,6 +51,19 @@ export async function readUtf8Body(
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return body;
+}
+
+export async function readUtf8Body(
+  request: Request,
+  options: { maxBytes: number; exactContentType?: string },
+) {
+  const body = await readBytesBody(request, {
+    maxBytes: options.maxBytes,
+    contentType: options.exactContentType === undefined
+      ? undefined
+      : (value) => value === options.exactContentType,
+  });
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(body);
   } catch {

@@ -1,17 +1,21 @@
 import {
   CircleUserRound,
+  IdCard,
   KeyRound,
   LayoutDashboard,
   MonitorSmartphone,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export type AccountRoutePath =
   | "/"
-  | "/personal-information"
+  | "/identity"
+  | "/club-profile"
   | "/security"
   | "/sessions"
+  | "/permissions"
   | "/delete-account";
 
 export type AccountRoute = Readonly<{
@@ -37,12 +41,21 @@ export const accountRoutes = [
     tone: "default",
   },
   {
-    href: "/personal-information",
-    navigationLabel: "Kişisel bilgiler",
-    documentTitle: "Kişisel bilgiler",
-    title: "Kişisel bilgiler",
-    description: "SKY LAB kimliğindeki adını ve birincil e-posta adresini yalnızca görüntüleyebilirsin.",
+    href: "/identity",
+    navigationLabel: "Kimlik",
+    documentTitle: "Kimlik",
+    title: "Kimlik",
+    description: "Adın, kullanıcı adın ve YTÜ hesabının durumu. Doğrulanmış YTÜ hesabında ad YTÜ kaydından gelir; kullanıcı adını 14 günde bir değiştirebilirsin.",
     icon: CircleUserRound,
+    tone: "default",
+  },
+  {
+    href: "/club-profile",
+    navigationLabel: "Kulüp profili",
+    documentTitle: "Kulüp profili",
+    title: "Kulüp profili",
+    description: "SKY numaran, öğrenci kartı durumun ve telefonun burada görünür; üniversite, fakülte, bölüm, LinkedIn bağlantını ve profil fotoğrafını buradan düzenleyebilirsin.",
+    icon: IdCard,
     tone: "default",
   },
   {
@@ -61,6 +74,15 @@ export const accountRoutes = [
     title: "Oturumlar ve cihazlar",
     description: "Hesabının açık olduğu cihazları gör ve tanımadığın oturumların erişimini kaldır.",
     icon: MonitorSmartphone,
+    tone: "default",
+  },
+  {
+    href: "/permissions",
+    navigationLabel: "Yetkilerim",
+    documentTitle: "Yetkilerim",
+    title: "Yetkilerim",
+    description: "Takımlarını, yetki seviyeni ve SKY LAB uygulamalarında neler yapabildiğini burada görebilirsin. Bu görünüm salt okunurdur.",
+    icon: ShieldCheck,
     tone: "default",
   },
   {

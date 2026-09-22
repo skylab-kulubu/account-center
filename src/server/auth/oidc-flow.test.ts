@@ -16,8 +16,6 @@ import {
   AccountAccessBlockedError,
   AccountAccessUnavailableError,
 } from "@/server/access-gate/authorization";
-import { AccountReadService } from "@/server/keycloak-account/service";
-import type { KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
 
 class MemoryTransactions implements OidcTransactionRepository {
   rows = new Map<string, StoredOidcTransaction & { consumed?: boolean }>();
@@ -93,31 +91,8 @@ function fixture(decision: "active" | "blocked" | "unavailable" = "active") {
     { decide: async () => decision, ready: async () => true },
     sessions,
   );
-  const inventory = {
-    summary: { passwordConfigured: true, otpConfigured: false, passkeyCount: 0 },
-    credentials: [],
-  };
-  const adapter = {
-    profile: async () => ({ firstName: null, lastName: null, email: null, emailVerified: false }),
-    authentication: async () => inventory.summary,
-    credentialInventory: async () => inventory,
-    sessions: async () => [],
-    revokeSession: async () => undefined,
-    revokeOtherSessions: async () => undefined,
-    snapshot: async () => ({
-      profile: { firstName: null, lastName: null, email: null, emailVerified: false },
-      authentication: inventory.summary,
-      sessions: [],
-    }),
-  } satisfies KeycloakAccountReadAdapter;
-  const account = new AccountReadService(
-    adapter,
-    sessions,
-    protocol,
-    { issuer: new URL("https://e.yildizskylab.com/realms/e-skylab"), clientId: "account-center" },
-  );
   return {
-    flow: new OidcFlowService(protocol, transactions, sessions, accountAccess, account, adapter),
+    flow: new OidcFlowService(protocol, transactions, sessions, accountAccess, { ytuIdpAlias: "OBS" }),
     protocol,
     repository,
   };

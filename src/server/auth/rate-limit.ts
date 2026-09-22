@@ -10,14 +10,33 @@ export type AnonymousAuthRateLimitScope =
   | "callback"
   | "native_create"
   | "native_consume"
-  | "native_redeem";
+  | "native_redeem"
+  | "sudo"
+  | "sudo_options"
+  | "security_mutation"
+  | "totp_confirm"
+  | "identity_mutation";
 
+/**
+ * `sudo`, `sudo_options`, `security_mutation`, `totp_confirm` and
+ * `identity_mutation` are keyed by the local session id (`consumeKey`) and
+ * mirror the sky-account budgets (10 proofs, 30 option requests, 30
+ * credential mutations, 10 TOTP confirmations per fixed 15-minute window;
+ * name and username changes share the SPI's 30-wide `mutation` budget with
+ * the credential routes, so they get a tighter 10) so a session cannot burn
+ * the person's upstream budget or the realm brute-force counter from this side.
+ */
 const policies: Record<AnonymousAuthRateLimitScope, { limit: number; windowSeconds: number }> = {
   login: { limit: 10, windowSeconds: 60 },
   callback: { limit: 30, windowSeconds: 60 },
   native_create: { limit: 10, windowSeconds: 60 },
   native_consume: { limit: 30, windowSeconds: 60 },
   native_redeem: { limit: 120, windowSeconds: 60 },
+  sudo: { limit: 10, windowSeconds: 15 * 60 },
+  sudo_options: { limit: 30, windowSeconds: 15 * 60 },
+  security_mutation: { limit: 30, windowSeconds: 15 * 60 },
+  totp_confirm: { limit: 10, windowSeconds: 15 * 60 },
+  identity_mutation: { limit: 10, windowSeconds: 15 * 60 },
 };
 
 function canonicalIp(value: string) {

@@ -1,8 +1,11 @@
 import { Buffer } from "node:buffer";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { parseProfilePictureOrigin } from "@/config/club-profile";
 
 const sessionCookie = "__Host-sky-account";
+/** Read once per process; an invalid value fails the proxy at startup instead of shipping a broken policy. */
+const profilePictureOrigin = parseProfilePictureOrigin(process.env.PROFILE_PICTURE_ORIGIN);
 const publicPages = new Set([
   "/login",
   "/account-deletion",
@@ -19,7 +22,7 @@ function contentSecurityPolicy(nonce: string) {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDevelopment ? " 'unsafe-eval'" : ""}`,
     isDevelopment ? "style-src 'self' 'unsafe-inline'" : `style-src 'self' 'nonce-${nonce}'`,
     `connect-src 'self'${isDevelopment ? " ws:" : ""}`,
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob: ${profilePictureOrigin}`,
     "font-src 'self'",
     "worker-src 'self' blob:",
     "object-src 'none'",

@@ -20,39 +20,6 @@ export type LoginOidcTransactionPayload = OidcTransactionBase & {
   expectedAuthenticatedAt?: string;
 };
 
-export type AccountActionKind = "password" | "otp" | "passkey" | "delete-credential";
-export type AccountActionOutcome = "success" | "cancelled" | "error" | "unverified";
-
-export type AccountActionResult = {
-  action: AccountActionKind;
-  outcome: AccountActionOutcome;
-};
-
-export type StoredAccountActionResult = AccountActionResult & {
-  resultHash: Buffer;
-  sessionId: string;
-  createdAt: Date;
-  expiresAt: Date;
-};
-
-export type AccountActionTransactionPayload = OidcTransactionBase & {
-  purpose: "account-action";
-  expectedSubject: string;
-  expectedSessionId: string;
-  initiatedAt: string;
-  action: {
-    kind: AccountActionKind;
-    keycloakAction: string;
-    credentialType: "password" | "otp" | "webauthn-passwordless";
-    credentialId?: string;
-    beforeCredentials: Array<{
-      id: string;
-      type: string;
-      createdAt: string | null;
-    }>;
-  };
-};
-
 export type AccountDeletionReauthenticationTransactionPayload = OidcTransactionBase & {
   purpose: "account-deletion-reauthentication";
   expectedSubject: string;
@@ -60,10 +27,37 @@ export type AccountDeletionReauthenticationTransactionPayload = OidcTransactionB
   initiatedAt: string;
 };
 
+/**
+ * Sudo mode's Microsoft fallback: a `prompt=login&max_age=0` round trip bound
+ * to the current BFF session that, on return, marks sudo for five minutes
+ * from the signed `auth_time`.
+ */
+export type SudoReauthenticationTransactionPayload = OidcTransactionBase & {
+  purpose: "sudo-reauthentication";
+  expectedSubject: string;
+  expectedSessionId: string;
+  initiatedAt: string;
+};
+
+/**
+ * The YTÜ account link: a `kc_action=idp_link` round trip bound to the current
+ * BFF session that returns to the identity page. No forced login: Keycloak
+ * sends the person to Microsoft, and the callback proves the link by reading
+ * the identity again rather than by trusting `kc_action_status`.
+ */
+export type YtuLinkTransactionPayload = OidcTransactionBase & {
+  purpose: "ytu-link";
+  returnTo: "/identity";
+  expectedSubject: string;
+  expectedSessionId: string;
+  initiatedAt: string;
+};
+
 export type OidcTransactionPayload =
   | LoginOidcTransactionPayload
-  | AccountActionTransactionPayload
-  | AccountDeletionReauthenticationTransactionPayload;
+  | AccountDeletionReauthenticationTransactionPayload
+  | SudoReauthenticationTransactionPayload
+  | YtuLinkTransactionPayload;
 
 export type StoredOidcTransaction = {
   id: string;

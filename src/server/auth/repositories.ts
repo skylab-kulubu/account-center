@@ -5,7 +5,6 @@ import type {
   NewNativeHandoff,
   NewSessionRecord,
   SessionUseResult,
-  StoredAccountActionResult,
   StoredOidcTransaction,
 } from "@/server/auth/types";
 
@@ -16,20 +15,6 @@ export interface OidcTransactionRepository {
     browserBindingHash: Buffer,
     now: Date,
   ): Promise<{ id: string; payloadCiphertext: string } | null>;
-}
-
-export interface AccountActionResultRepository {
-  insert(result: StoredAccountActionResult): Promise<void>;
-  read(
-    resultHash: Buffer,
-    sessionId: string,
-    now: Date,
-  ): Promise<Pick<StoredAccountActionResult, "action" | "outcome"> | null>;
-  consume(
-    resultHash: Buffer,
-    sessionId: string,
-    now: Date,
-  ): Promise<Pick<StoredAccountActionResult, "action" | "outcome"> | null>;
 }
 
 export type UseSessionInput = {
@@ -62,6 +47,22 @@ export interface SessionRepository {
   revokeSubjectBySessionId(sessionId: string, revokedAt: Date): Promise<number>;
   revokeById(id: string, revokedAt: Date): Promise<boolean>;
   deleteByIdReturningToken(id: string): Promise<string | null>;
+}
+
+export type StoredSudo = {
+  ciphertext: string;
+  expiresAt: Date;
+};
+
+/**
+ * Encrypted sudo token material on the active session record. A sudo entry
+ * only exists while the session itself is active; revocation, expiry and
+ * deletion of the session take the sudo material with them.
+ */
+export interface SudoRepository {
+  replaceSudo(sessionId: string, ciphertext: string, expiresAt: Date, now: Date): Promise<boolean>;
+  readSudo(sessionId: string, now: Date): Promise<StoredSudo | null>;
+  clearSudo(sessionId: string): Promise<void>;
 }
 
 export type BackchannelLogoutInput = {

@@ -17,6 +17,8 @@ import {
   OidcProviderStageError,
 } from "@/server/auth/oidc-protocol";
 import { getAuthServices } from "@/server/auth/services";
+import { completeSudoReauthentication } from "@/server/auth/sudo-reauthentication";
+import { completeYtuLink, YTU_LINK_QUERY } from "@/server/identity/ytu-link";
 import {
   AccountAccessBlockedError,
   AccountAccessUnavailableError,
@@ -40,29 +42,35 @@ export async function GET(request: NextRequest) {
       request.cookies.get(OIDC_TRANSACTION_COOKIE)?.value,
       request.cookies.get(SESSION_COOKIE)?.value,
     );
-    if ("actionOutcome" in result) {
-      const resultReference = await services.actionResults.create(result.sessionId, {
-        action: result.action,
-        outcome: result.actionOutcome,
-      }).catch(() => null);
+    if ("sudoReauthentication" in result) {
       const destination = new URL(result.returnTo, services.config.appUrl);
-      if (resultReference) destination.searchParams.set("result", resultReference);
+      if (result.sudoReauthentication === "cancelled") {
+        destination.searchParams.set("sudo", "cancelled");
+      } else {
+        // The fresh ID token becomes a sky-account sudo token here and travels no further.
+        destination.searchParams.set("sudo", await completeSudoReauthentication(
+          services,
+          result.session,
+          { authenticatedAt: result.authenticatedAt, idToken: result.freshIdToken },
+          requestId,
+        ));
+      }
       const response = NextResponse.redirect(destination, 303);
       clearOidcTransactionCookie(response);
       response.headers.set("Referrer-Policy", "no-referrer");
       response.headers.set("x-request-id", requestId);
-      logAuthEvent({
-        event: "account_action_completed",
-        requestId,
-        outcome: resultReference && (result.actionOutcome === "success" || result.actionOutcome === "cancelled")
-          ? "success"
-          : "failure",
-        ...(!resultReference
-          ? { reason: "provider_unavailable" as const }
-          : result.actionOutcome === "unverified"
-            ? { reason: "account_action_unverified" as const }
-            : {}),
-      });
+      return noStore(response);
+    }
+    if ("ytuLink" in result) {
+      const destination = new URL(result.returnTo, services.config.appUrl);
+      destination.searchParams.set(
+        YTU_LINK_QUERY,
+        await completeYtuLink(services, result.session, result.ytuLink, requestId),
+      );
+      const response = NextResponse.redirect(destination, 303);
+      clearOidcTransactionCookie(response);
+      response.headers.set("Referrer-Policy", "no-referrer");
+      response.headers.set("x-request-id", requestId);
       return noStore(response);
     }
     if ("deletionReauthentication" in result) {
