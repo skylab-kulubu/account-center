@@ -74,7 +74,7 @@ export function retryAfterOf(body: unknown, response: Response) {
 }
 
 export type SecurityRequest = {
-  method: "POST" | "DELETE";
+  method: "POST" | "PATCH" | "DELETE";
   path: string;
   csrfToken: string;
   body?: unknown;

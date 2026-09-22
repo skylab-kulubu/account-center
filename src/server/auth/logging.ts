@@ -33,6 +33,8 @@ type AuthLog = {
     | "native_bridge_redeemed"
     | "account_session_cleanup"
     | "security_action"
+    | "identity_action"
+    | "identity_name_core_sync_failed"
     | "sudo_material_discarded"
     | "sudo_attempt"
     | "sudo_reauthentication_started"
@@ -51,6 +53,8 @@ type AuthLog = {
     | "passkey_options"
     | "passkey_register"
     | "credential_delete";
+  /** Which identity-page action ran; never a name or username. */
+  identityAction?: "name" | "username";
   reason?:
     | "invalid_transaction"
     | "provider_unavailable"
@@ -81,7 +85,14 @@ type AuthLog = {
     | "duplicate_label"
     | "already_registered"
     | "credential_not_found"
-    | "webauthn_rejected";
+    | "webauthn_rejected"
+    | "name_locked"
+    | "invalid_name"
+    | "invalid_username"
+    | "username_taken"
+    | "username_cooldown"
+    | "core_disabled"
+    | "core_rejected";
 };
 
 export function logAuthEvent(entry: AuthLog) {

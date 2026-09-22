@@ -16,7 +16,7 @@ import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization
 /** Account pages a login or a Sudo mode re-authentication may return to; mirrored in `oidc-transactions.ts`. */
 const allowedReturnPaths = new Set([
   "/",
-  "/personal-information",
+  "/identity",
   "/security",
   "/sessions",
   "/permissions",

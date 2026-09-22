@@ -2143,6 +2143,35 @@ a.settings-row:hover .settings-row__chevron {
   margin-top: 20px;
 }
 
+/* ---------- Identity page (ad soyad, kullanıcı adı, YTÜ durumu) ---------- */
+
+.identity-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: -10px 0 26px;
+}
+
+.identity-notices .action-notice {
+  margin: 0;
+}
+
+.identity-lock {
+  margin-right: 5px;
+}
+
+.identity-consequences {
+  margin-top: 14px;
+  text-align: left;
+  color: var(--ink-muted);
+}
+
+.identity-consequences__sudo {
+  margin: 12px 0 0;
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+}
+
 @media (max-width: 640px) {
   .security-steps {
     grid-template-columns: minmax(0, 1fr);
@@ -2377,8 +2406,8 @@ a.settings-row:hover .settings-row__chevron {
     margin-left: 45px;
   }
 
+  /* Keeps the `.settings-row__trailing` width (100% minus the icon column) so the 45px margin cannot push the actions past the row. */
   .settings-row[data-has-trailing] .security-row-actions {
-    width: 100%;
     flex-flow: row wrap;
   }
 

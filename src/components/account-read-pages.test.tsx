@@ -2,7 +2,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import OverviewPage from "@/app/(account)/page";
 import PermissionsPage from "@/app/(account)/permissions/page";
-import PersonalInformationPage from "@/app/(account)/personal-information/page";
 import { loadPermissions } from "@/server/permissions/page-data";
 import type { PermissionsPageData } from "@/server/permissions/page-data";
 
@@ -19,15 +18,6 @@ const pageData = vi.hoisted(() => ({
       authentication: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
     },
   },
-  profile: {
-    ok: true as const,
-    value: {
-      firstName: "Ada",
-      lastName: "Lovelace",
-      email: "ada@example.invalid",
-      emailVerified: true,
-    },
-  },
   authentication: {
     ok: true as const,
     value: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
@@ -36,7 +26,6 @@ const pageData = vi.hoisted(() => ({
 
 vi.mock("@/server/keycloak-account/page-data", () => ({
   loadOverview: vi.fn(async () => pageData.overview),
-  loadProfile: vi.fn(async () => pageData.profile),
   loadAuthentication: vi.fn(async () => pageData.authentication),
 }));
 
@@ -98,22 +87,19 @@ describe("Account REST-backed pages", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the normalized overview and personal profile", async () => {
-    const { unmount } = render(await OverviewPage());
+  it("renders the normalized overview", async () => {
+    render(await OverviewPage());
     expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
     expect(screen.getByText("ada@example.invalid")).toBeInTheDocument();
     expect(screen.getByText("E-posta doğrulandı")).toBeInTheDocument();
-    unmount();
-
-    render(await PersonalInformationPage());
-    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
-    expect(screen.getByText("Doğrulandı")).toBeInTheDocument();
-    expect(screen.getByText(/yalnızca görüntüleyebilirsin/i)).toBeInTheDocument();
-    expect(screen.queryByText(/görüntüle ve yönet/i)).not.toBeInTheDocument();
   });
 
-  it("links the overview to the Permissions view, the club profile and the in-product security page", async () => {
+  it("links the overview to the identity page, the Permissions view, the club profile and the in-product security page", async () => {
     render(await OverviewPage());
+    const identity = screen.getByRole("link", { name: /Kimlik/ });
+    expect(identity).toHaveAttribute("href", "/identity");
+    expect(identity).toHaveTextContent("Adını, kullanıcı adını ve YTÜ hesabının durumunu yönet.");
+    expect(screen.queryByRole("link", { name: /Kişisel bilgiler/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Yetkilerim/ })).toHaveAttribute("href", "/permissions");
     expect(screen.getByRole("link", { name: /Kulüp profili/ })).toHaveAttribute("href", "/club-profile");
     const security = screen.getByRole("link", { name: /Giriş ve güvenlik/ });

@@ -7,7 +7,6 @@ import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
 import type {
   AccountOverview,
-  AccountProfile,
   AccountSession,
   AuthenticationSummary,
 } from "@/server/keycloak-account/types";
@@ -36,10 +35,6 @@ async function load<T>(
 
 export function loadOverview(): Promise<AccountPageData<AccountOverview>> {
   return load((services, session) => services.account.overview(session));
-}
-
-export function loadProfile(): Promise<AccountPageData<AccountProfile>> {
-  return load((services, session) => services.account.profile(session));
 }
 
 export function loadAuthentication(): Promise<AccountPageData<AuthenticationSummary>> {

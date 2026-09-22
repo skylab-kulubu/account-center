@@ -7,7 +7,7 @@ const baseUrl = "https://127.0.0.1:3100";
 
 const routes = [
   { href: "/", heading: "Hesabın, tek ve güvenli bir merkezde." },
-  { href: "/personal-information", heading: "Kişisel bilgiler" },
+  { href: "/identity", heading: "Kimlik" },
   { href: "/club-profile", heading: "Kulüp profili" },
   { href: "/security", heading: "Giriş ve güvenlik" },
   { href: "/sessions", heading: "Oturumlar ve cihazlar" },
@@ -84,6 +84,28 @@ test("all seven account routes remain accessible and responsive in the browser m
               status: 200,
               contentType: "application/json",
               body: JSON.stringify({ sessions: [], csrfToken: "session-bound-csrf" }),
+            });
+            return;
+          }
+          await route.continue();
+        });
+        await page.route("**/api/account/identity", async (route) => {
+          if (route.request().method() === "GET") {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                firstName: "Ada",
+                lastName: "Lovelace",
+                nameLocked: false,
+                username: "ada.lovelace",
+                usernameChangeAvailableAt: null,
+                verifiedYtu: false,
+                schoolEmail: null,
+                email: "ada@example.invalid",
+                emailVerified: true,
+                csrfToken: "session-bound-csrf",
+              }),
             });
             return;
           }

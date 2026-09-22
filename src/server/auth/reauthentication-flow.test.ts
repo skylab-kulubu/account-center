@@ -191,7 +191,7 @@ describe("Account Center forced re-authentication", () => {
     );
   });
 
-  it.each(["/", "/personal-information", "/security", "/sessions", "/permissions", "/club-profile", "/delete-account"])(
+  it.each(["/", "/identity", "/security", "/sessions", "/permissions", "/club-profile", "/delete-account"])(
     "round-trips the allowlisted sudo return path %s through the transaction store",
     async (path) => {
       const { flow, protocol } = fixture();

@@ -11,7 +11,7 @@ import type { LucideIcon } from "lucide-react";
 
 export type AccountRoutePath =
   | "/"
-  | "/personal-information"
+  | "/identity"
   | "/club-profile"
   | "/security"
   | "/sessions"
@@ -41,11 +41,11 @@ export const accountRoutes = [
     tone: "default",
   },
   {
-    href: "/personal-information",
-    navigationLabel: "Kişisel bilgiler",
-    documentTitle: "Kişisel bilgiler",
-    title: "Kişisel bilgiler",
-    description: "SKY LAB kimliğindeki adını ve birincil e-posta adresini yalnızca görüntüleyebilirsin.",
+    href: "/identity",
+    navigationLabel: "Kimlik",
+    documentTitle: "Kimlik",
+    title: "Kimlik",
+    description: "Adın, kullanıcı adın ve YTÜ hesabının durumu. Doğrulanmış YTÜ hesabında ad YTÜ kaydından gelir; kullanıcı adını 14 günde bir değiştirebilirsin.",
     icon: CircleUserRound,
     tone: "default",
   },
