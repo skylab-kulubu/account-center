@@ -138,6 +138,16 @@ export type EmailChangeRequest = {
   expiresAt: Date;
 };
 
+/**
+ * `GET email/pending`: the caller's change still waiting for its code, read
+ * without consuming it. Never the code or its hash.
+ */
+export type PendingEmailChange = {
+  address: string;
+  expiresAt: Date;
+  attemptsLeft: number;
+};
+
 export type TotpSetup = {
   setupHandle: string;
   secret: string;
@@ -199,6 +209,8 @@ export interface SkyAccountClient {
   deleteCredential(auth: SudoAuthorization, credentialId: string): Promise<void>;
   requestEmailChange(auth: SudoAuthorization, input: EmailChangeInput): Promise<EmailChangeRequest>;
   confirmEmail(auth: BearerAuthorization, input: EmailConfirmInput): Promise<SkyAccountIdentity>;
+  /** The waiting change, or `null` when nothing waits (`404 no_pending_email_change`). */
+  pendingEmailChange(auth: BearerAuthorization): Promise<PendingEmailChange | null>;
   setPrimaryEmail(auth: SudoAuthorization, input: PrimaryEmailInput): Promise<SkyAccountIdentity>;
   removePersonalEmail(auth: SudoAuthorization): Promise<SkyAccountIdentity>;
 }

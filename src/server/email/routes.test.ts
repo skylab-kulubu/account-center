@@ -6,6 +6,7 @@ import identityFixture from "../../../tests/fixtures/sky-account-v1-identity.jso
 import problemsFixture from "../../../tests/fixtures/sky-account-v1-problems.json";
 import { POST as requestChange } from "@/app/api/account/email/change-request/route";
 import { POST as confirm } from "@/app/api/account/email/confirm/route";
+import { GET as pendingChange } from "@/app/api/account/email/pending/route";
 import { DELETE as removePersonal } from "@/app/api/account/email/personal/route";
 import { POST as selectPrimary } from "@/app/api/account/email/primary/route";
 import { GET as email } from "@/app/api/account/email/route";
@@ -28,6 +29,7 @@ const routeMocks = vi.hoisted(() => ({
   identity: vi.fn(),
   requestEmailChange: vi.fn(),
   confirmEmail: vi.fn(),
+  pendingEmailChange: vi.fn(),
   setPrimaryEmail: vi.fn(),
   removePersonalEmail: vi.fn(),
   requireFreshSudo: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock("@/server/auth/services", () => ({
       identity: routeMocks.identity,
       requestEmailChange: routeMocks.requestEmailChange,
       confirmEmail: routeMocks.confirmEmail,
+      pendingEmailChange: routeMocks.pendingEmailChange,
       setPrimaryEmail: routeMocks.setPrimaryEmail,
       removePersonalEmail: routeMocks.removePersonalEmail,
     },
@@ -111,6 +114,10 @@ function read() {
   return email(request("/api/account/email", undefined, { method: "GET", origin: null, csrf: null }));
 }
 
+function readPending() {
+  return pendingChange(request("/api/account/email/pending", undefined, { method: "GET", origin: null, csrf: null }));
+}
+
 function change(body: unknown, options: RequestOptions = {}) {
   return requestChange(request("/api/account/email/change-request", body, options));
 }
@@ -143,6 +150,7 @@ describe("e-mail BFF routes", () => {
     routeMocks.identity.mockResolvedValue(identityFixture);
     routeMocks.requestEmailChange.mockResolvedValue({ expiresAt });
     routeMocks.confirmEmail.mockResolvedValue(identityFixture);
+    routeMocks.pendingEmailChange.mockResolvedValue(null);
     routeMocks.setPrimaryEmail.mockResolvedValue({ ...identityFixture, primary: "personal" });
     routeMocks.removePersonalEmail.mockResolvedValue({ ...identityFixture, personalEmail: null, personalEmailVerified: false });
     routeMocks.requireFreshSudo.mockResolvedValue(proof);
@@ -198,6 +206,51 @@ describe("e-mail BFF routes", () => {
       const drift = await read();
       expect(drift.status).toBe(502);
       await expect(drift.json()).resolves.toMatchObject({ error: "upstream_error" });
+    });
+  });
+
+  describe("GET /api/account/email/pending", () => {
+    it("answers the change still waiting for its code with the session only, spending nothing", async () => {
+      routeMocks.pendingEmailChange.mockResolvedValue({
+        address: "ada@example.com",
+        expiresAt: new Date("2026-09-23T00:10:00Z"),
+        attemptsLeft: 4,
+      });
+      const response = await readPending();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      await expect(response.json()).resolves.toEqual({
+        pending: { address: "ada@example.com", expiresAt: "2026-09-23T00:10:00.000Z", attemptsLeft: 4 },
+      });
+      expect(routeMocks.pendingEmailChange).toHaveBeenCalledWith(bearer);
+      expect(routeMocks.requireFreshSudo).not.toHaveBeenCalled();
+      expect(routeMocks.consumeKey).not.toHaveBeenCalled();
+      expect(routeMocks.authenticateMutation).not.toHaveBeenCalled();
+      expect(logAuthEvent).not.toHaveBeenCalled();
+    });
+
+    it("answers pending: null when nothing waits, so the page never logs a failed request for it", async () => {
+      const response = await readPending();
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ pending: null });
+    });
+
+    it("maps the session outcomes, an ended bearer and outages like the e-mail read", async () => {
+      routeMocks.authenticate.mockResolvedValueOnce({ status: "missing" });
+      expect((await readPending()).status).toBe(401);
+      routeMocks.authenticate.mockResolvedValueOnce({ status: "unavailable" });
+      expect((await readPending()).status).toBe(503);
+
+      routeMocks.pendingEmailChange.mockRejectedValueOnce(problem("unauthorized"));
+      const ended = await readPending();
+      expect(ended.status).toBe(401);
+      expect(ended.cookies.get(SESSION_COOKIE)?.value).toBe("");
+      expect(routeMocks.revokeSession).toHaveBeenCalledWith(activeSession.id);
+
+      routeMocks.pendingEmailChange.mockRejectedValueOnce(new SkyAccountUnavailableError());
+      const outage = await readPending();
+      expect(outage.status).toBe(503);
+      expect(outage.headers.get("retry-after")).toBe("3");
     });
   });
 
@@ -458,24 +511,14 @@ describe("e-mail BFF routes", () => {
       expect(routeMocks.setPrimaryEmail).not.toHaveBeenCalled();
     });
 
-    it("explains an unproven address in its own words instead of the SPI's link wording", async () => {
+    it("relays the SPI's explanation of an unproven address", async () => {
       routeMocks.setPrimaryEmail.mockRejectedValueOnce(problem("email_not_verified"));
       const school = await primary({ which: "school" });
       expect(school.status).toBe(409);
       await expect(school.json()).resolves.toEqual({
         error: "email_not_verified",
-        detail: "Okul e-postan, YTÜ hesabın bağlanmadan birincil adres yapılamaz. YTÜ hesabını Kimlik sayfasından bağlayabilirsin.",
+        detail: "Bu adres henüz kanıtlanmadı. Kişisel adres için adrese gönderilen kodu gir; okul adresi için YTÜ hesabını bağla.",
       });
-
-      routeMocks.setPrimaryEmail.mockRejectedValueOnce(problem("email_not_verified"));
-      const personal = await primary({ which: "personal" });
-      expect(personal.status).toBe(409);
-      const answer = await personal.json();
-      expect(answer).toEqual({
-        error: "email_not_verified",
-        detail: "Kişisel e-postan doğrulanmadığı için birincil adres yapılamaz. Adresi kaldırıp yeniden ekle ve gelen kodla doğrula.",
-      });
-      expect(JSON.stringify(answer)).not.toContain("bağlantıyla");
       expect(logAuthEvent).toHaveBeenLastCalledWith(expect.objectContaining({ reason: "email_not_verified", addressAction: "primary" }));
     });
   });
@@ -499,7 +542,7 @@ describe("e-mail BFF routes", () => {
       expect(kept.status).toBe(409);
       await expect(kept.json()).resolves.toEqual({
         error: "no_fallback_email",
-        detail: "Kişisel e-postan birincil adresin ve yerine geçebilecek doğrulanmış bir okul e-postan yok; kaldırırsan giriş yapabileceğin bir adres kalmaz. Önce YTÜ hesabını bağla ve okul e-postanı birincil yap.",
+        detail: "Kişisel e-posta şu anda birincil adresin ve yerine geçebilecek, YTÜ hesabıyla kanıtlanmış bir okul e-postan yok; kaldırılırsa giriş yapabileceğin bir adres kalmaz. Önce YTÜ hesabını bağla ya da başka bir kişisel adres ekle.",
       });
       expect(logAuthEvent).toHaveBeenLastCalledWith(expect.objectContaining({ reason: "no_fallback_email", addressAction: "remove" }));
     });

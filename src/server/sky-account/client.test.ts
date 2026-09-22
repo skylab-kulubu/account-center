@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import identityFixture from "../../../tests/fixtures/sky-account-v1-identity.json";
 import emailChangeFixture from "../../../tests/fixtures/sky-account-v1-email-change-request.json";
+import emailPendingFixture from "../../../tests/fixtures/sky-account-v1-email-pending.json";
 import problemsFixture from "../../../tests/fixtures/sky-account-v1-problems.json";
 import sudoGrantFixture from "../../../tests/fixtures/sky-account-v1-sudo-grant.json";
 import authenticationGrantFixture from "../../../tests/fixtures/sky-account-v1-sudo-authentication.json";
@@ -771,6 +772,45 @@ describe("SkyAccountHttpClient", () => {
         ["DELETE", "/email/personal", null],
       ]);
       for (const call of calls) expect(call.headers.get("x-sky-sudo")).toBe("opaque-sudo-token");
+    });
+
+    it("reads the waiting change with the bearer only and never keeps anything but its address, deadline and tries", async () => {
+      const { client, calls } = transport(() => json({ ...emailPendingFixture, code: "123456", codeHash: "x" }));
+      const pending = await client.pendingEmailChange(bearer);
+      expect(pending).toEqual({
+        address: "ada@example.com",
+        expiresAt: new Date("2026-09-23T00:10:00Z"),
+        attemptsLeft: 4,
+      });
+      expect(JSON.stringify(pending)).not.toMatch(/123456|codeHash/);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ url: `${base}/email/pending`, method: "GET", body: null });
+      expect(calls[0]?.headers.get("authorization")).toBe("Bearer server-held-user-token");
+      expect(calls[0]?.headers.get("x-sky-sudo")).toBeNull();
+    });
+
+    it("answers null when nothing waits and still throws every other problem", async () => {
+      const none = transport(() => problem("no_pending_email_change"));
+      await expect(none.client.pendingEmailChange(bearer)).resolves.toBeNull();
+      const ended = transport(() => problem("unauthorized"));
+      await expect(ended.client.pendingEmailChange(bearer)).rejects.toMatchObject({ code: "unauthorized" });
+      const down = transport(() => new Response(null, { status: 503 }));
+      await expect(down.client.pendingEmailChange(bearer)).rejects.toBeInstanceOf(SkyAccountUnavailableError);
+    });
+
+    it("fails closed on a waiting change outside the contract", async () => {
+      for (const body of [
+        { ...emailPendingFixture, address: "" },
+        { ...emailPendingFixture, address: 42 },
+        { ...emailPendingFixture, expiresAt: "in ten minutes" },
+        { ...emailPendingFixture, attemptsLeft: -1 },
+        { ...emailPendingFixture, attemptsLeft: "4" },
+        { ...emailPendingFixture, attemptsLeft: 101 },
+        { address: emailPendingFixture.address, expiresAt: emailPendingFixture.expiresAt },
+      ]) {
+        const { client } = transport(() => json(body));
+        await expect(client.pendingEmailChange(bearer)).rejects.toBeInstanceOf(SkyAccountContractError);
+      }
     });
 
     it("fails closed on change-request answers outside the contract", async () => {

@@ -4,6 +4,7 @@ import { COMPACT_JWS } from "@/server/contract-shapes";
 import { SkyAccountContractError } from "@/server/sky-account/problem";
 import type {
   EmailChangeRequest,
+  PendingEmailChange,
   SkyAccountCredential,
   SkyAccountIdentity,
   SudoGrant,
@@ -163,6 +164,24 @@ export function parseSudoGrant(value: unknown): SudoGrant {
 export function parseEmailChangeRequest(value: unknown): EmailChangeRequest {
   if (!isObject(value) || !isoInstant(value.expiresAt)) throw new SkyAccountContractError();
   return { expiresAt: new Date(value.expiresAt) };
+}
+
+/** The SPI allows five wrong codes per change; anything far above that is drift, not a count. */
+const MAX_ATTEMPTS_LEFT = 100;
+
+export function parsePendingEmailChange(value: unknown): PendingEmailChange {
+  if (
+    !isObject(value) ||
+    !requiredString(value.address, 320) ||
+    !isoInstant(value.expiresAt) ||
+    typeof value.attemptsLeft !== "number" ||
+    !Number.isSafeInteger(value.attemptsLeft) ||
+    value.attemptsLeft < 0 ||
+    value.attemptsLeft > MAX_ATTEMPTS_LEFT
+  ) {
+    throw new SkyAccountContractError();
+  }
+  return { address: value.address, expiresAt: new Date(value.expiresAt), attemptsLeft: value.attemptsLeft };
 }
 
 export function parseTotpSetup(value: unknown): TotpSetup {

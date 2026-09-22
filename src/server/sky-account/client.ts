@@ -4,6 +4,7 @@ import { COMPACT_JWS } from "@/server/contract-shapes";
 import {
   parseSkyAccountProblem,
   SkyAccountContractError,
+  SkyAccountProblem,
   SkyAccountInvalidInputError,
   SkyAccountUnavailableError,
 } from "@/server/sky-account/problem";
@@ -11,6 +12,7 @@ import {
   parseCredential,
   parseEmailChangeRequest,
   parseIdentity,
+  parsePendingEmailChange,
   parseSudoGrant,
   parseTotpSetup,
   parseWebauthnAssertion,
@@ -441,6 +443,25 @@ export class SkyAccountHttpClient implements SkyAccountClient {
       body: { code: requireEmailCode(input.code) },
       expectedStatus: 200,
     }));
+  }
+
+  /**
+   * The caller's change still waiting for its code (address, deadline, tries
+   * left), read without consuming it, so a page reloaded between the mail and
+   * the code can show the code box again. `null` when nothing waits.
+   */
+  async pendingEmailChange(auth: BearerAuthorization) {
+    try {
+      return parsePendingEmailChange(await this.#call({
+        method: "GET",
+        path: "email/pending",
+        auth,
+        expectedStatus: 200,
+      }));
+    } catch (error) {
+      if (error instanceof SkyAccountProblem && error.code === "no_pending_email_change") return null;
+      throw error;
+    }
   }
 
   async setPrimaryEmail(auth: SudoAuthorization, input: PrimaryEmailInput) {

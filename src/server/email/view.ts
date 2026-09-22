@@ -22,6 +22,14 @@ export type EmailView = {
 /** Public JSON of `GET /api/account/email`: the view plus the session CSRF proof. */
 export type EmailPayload = EmailView & { csrfToken: string };
 
+/**
+ * Public JSON of `GET /api/account/email/pending`: the person's own change
+ * still waiting for its code, or `null`. Never the code.
+ */
+export type PendingEmailPayload = {
+  pending: { address: string; expiresAt: string; attemptsLeft: number } | null;
+};
+
 export function emailView(identity: SkyAccountIdentity): EmailView {
   return {
     email: identity.email,

@@ -12,7 +12,7 @@ import { getAuthServices } from "@/server/auth/services";
 import { requireAccountSpiSudo } from "@/server/auth/sudo-gate";
 import type { BrowserSession } from "@/server/auth/types";
 import { emailView } from "@/server/email/view";
-import type { EmailPayload } from "@/server/email/view";
+import type { EmailPayload, PendingEmailPayload } from "@/server/email/view";
 import {
   authenticateMutation,
   failureResponse as accountFailureResponse,
@@ -22,13 +22,11 @@ import {
   readJsonBody,
 } from "@/server/identity/routes";
 import { SkyAccountProblem, SkyAccountUnavailableError } from "@/server/sky-account/client";
-import type { PrimaryEmailInput } from "@/server/sky-account/client";
 
 type Services = ReturnType<typeof getAuthServices>;
 type Session = BrowserSession["session"];
 type AddressAction = NonNullable<Parameters<typeof logAuthEvent>[0]["addressAction"]>;
 type FailureReason = NonNullable<Parameters<typeof logAuthEvent>[0]["reason"]>;
-type PrimaryChoice = PrimaryEmailInput["which"];
 
 /** RFC 5321 path limit; only obvious non-addresses stop here, Keycloak's own validator decides the rest. */
 const MAX_ADDRESS_LENGTH = 254;
@@ -40,8 +38,9 @@ const EMAIL_CODE = /^\d{6}$/;
  * Sudo mode `428`, lockouts, rate limits, outages, contract drift) is
  * answered exactly like the identity routes. `field` names the rejected
  * input, `attemptsLeft` accompanies a wrong code (`0`: the code is dead and a
- * new one must be requested). No address or code ever appears in an answer
- * or a log line.
+ * new one must be requested). No address or code ever appears in an error
+ * answer or a log line; the only answer carrying an address is the person's
+ * own pending change (`GET …/email/pending`), and no answer carries a code.
  */
 export type EmailRouteProblem = {
   error:
@@ -68,9 +67,6 @@ export const emailRouteCopy = {
   refusedAddress: "Bu adres kullanılamıyor: geçerli bir e-posta adresi değil ya da zaten hesabında kayıtlı.",
   invalidCode: "Doğrulama kodu 6 rakamdan oluşur.",
   invalidChoice: "Birincil adres için okul ya da kişisel e-postanı seç.",
-  schoolNotVerified: "Okul e-postan, YTÜ hesabın bağlanmadan birincil adres yapılamaz. YTÜ hesabını Kimlik sayfasından bağlayabilirsin.",
-  personalNotVerified: "Kişisel e-postan doğrulanmadığı için birincil adres yapılamaz. Adresi kaldırıp yeniden ekle ve gelen kodla doğrula.",
-  noFallback: "Kişisel e-postan birincil adresin ve yerine geçebilecek doğrulanmış bir okul e-postan yok; kaldırırsan giriş yapabileceğin bir adres kalmaz. Önce YTÜ hesabını bağla ve okul e-postanı birincil yap.",
 } as const;
 const copy = emailRouteCopy;
 
@@ -82,19 +78,6 @@ class EmailFieldError extends Error {
   ) {
     super(`The e-mail field ${field} is invalid.`);
     this.name = "EmailFieldError";
-  }
-}
-
-/**
- * `409 email_not_verified` from `email/primary`, tied to the address the
- * person chose: the SPI's sentence still speaks of a link, and the two cases
- * (a school address without the YTÜ link, a personal one without its code)
- * need different advice.
- */
-class UnprovenAddressError extends Error {
-  constructor(readonly which: PrimaryChoice) {
-    super("The chosen primary address is not proven.");
-    this.name = "UnprovenAddressError";
   }
 }
 
@@ -116,12 +99,6 @@ function failureResponse(request: NextRequest, services: Services, session: Sess
       field: error.field,
     });
   }
-  if (error instanceof UnprovenAddressError) {
-    return problemResponse(409, {
-      error: "email_not_verified",
-      detail: error.which === "school" ? copy.schoolNotVerified : copy.personalNotVerified,
-    });
-  }
   if (error instanceof SkyAccountProblem) {
     switch (error.code) {
       case "invalid_email_code":
@@ -134,9 +111,10 @@ function failureResponse(request: NextRequest, services: Services, session: Sess
         return problemResponse(404, { error: "no_pending_change", detail: error.detail });
       case "email_taken":
         return problemResponse(409, { error: "email_taken", detail: error.detail, field: "address" });
+      case "email_not_verified":
+        return problemResponse(409, { error: "email_not_verified", detail: error.detail });
       case "no_fallback_email":
-        // The SPI's sentence names only a missing school address; an unlinked one blocks too.
-        return problemResponse(409, { error: "no_fallback_email", detail: copy.noFallback });
+        return problemResponse(409, { error: "no_fallback_email", detail: error.detail });
       case "email_not_sent":
         return problemResponse(503, { error: "email_not_sent", detail: error.detail }, { "Retry-After": "60" });
       case "invalid_request":
@@ -154,7 +132,6 @@ function failureResponse(request: NextRequest, services: Services, session: Sess
 function failureReason(error: unknown): FailureReason {
   if (isReauthenticationRequired(error)) return "invalid_token";
   if (error instanceof EmailFieldError) return error.field === "address" ? "invalid_address" : "contract_blocked";
-  if (error instanceof UnprovenAddressError) return "email_not_verified";
   if (error instanceof SkyAccountProblem) {
     switch (error.code) {
       case "sudo_required":
@@ -204,7 +181,7 @@ function requireCode(value: unknown) {
   return code;
 }
 
-function requireChoice(value: unknown): PrimaryChoice {
+function requireChoice(value: unknown): "school" | "personal" {
   const which = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (which !== "school" && which !== "personal") throw new EmailFieldError("which", copy.invalidChoice);
   return which;
@@ -282,8 +259,14 @@ async function emailMutation(
   }
 }
 
-/** `GET /api/account/email`: both addresses, the primary and the CSRF proof. */
-export async function emailRoute(request: NextRequest) {
+/**
+ * The e-mail page's reads: the session cookie only (no CSRF proof, no Sudo
+ * mode, no budget, no log line), then one SPI read with the session's bearer.
+ */
+async function emailRead(
+  request: NextRequest,
+  read: (services: Services, session: Session, auth: BearerAuth) => Promise<NextResponse>,
+) {
   const services = getAuthServices();
   const requestId = requestCorrelationId(request);
   const authorization = await services.sessionAccess.authenticate(
@@ -297,15 +280,41 @@ export async function emailRoute(request: NextRequest) {
   const session = authorization.value.session;
   try {
     const accessToken = await services.account.accessToken(session);
-    const identity = await services.skyAccount.identity({ accessToken });
+    return await read(services, session, { accessToken });
+  } catch (error) {
+    return failureResponse(request, services, session, error);
+  }
+}
+
+/** `GET /api/account/email`: both addresses, the primary and the CSRF proof. */
+export function emailRoute(request: NextRequest) {
+  return emailRead(request, async (services, session, auth) => {
+    const identity = await services.skyAccount.identity(auth);
     const payload: EmailPayload = {
       ...emailView(identity),
       csrfToken: services.sessions.csrfToken(session.id),
     };
     return noStore(NextResponse.json(payload));
-  } catch (error) {
-    return failureResponse(request, services, session, error);
-  }
+  });
+}
+
+/**
+ * `GET /api/account/email/pending`: the change still waiting for its code
+ * (address, deadline, tries left), read from `GET email/pending` without
+ * consuming it, so a page reloaded between the mail and the code shows the
+ * code box again. `200 { pending: null }` when nothing waits: an empty answer,
+ * not an error, because the page asks on every load.
+ */
+export function pendingEmailChangeRoute(request: NextRequest) {
+  return emailRead(request, async (services, _session, auth) => {
+    const pending = await services.skyAccount.pendingEmailChange(auth);
+    const payload: PendingEmailPayload = {
+      pending: pending === null
+        ? null
+        : { address: pending.address, expiresAt: pending.expiresAt.toISOString(), attemptsLeft: pending.attemptsLeft },
+    };
+    return noStore(NextResponse.json(payload));
+  });
 }
 
 /**
@@ -345,12 +354,7 @@ export function setPrimaryEmailRoute(request: NextRequest) {
   return emailMutation(request, "primary", async (services, auth) => {
     const body = await readJsonBody(request);
     const which = requireChoice(body.which);
-    try {
-      await services.skyAccount.setPrimaryEmail(auth, { which });
-    } catch (error) {
-      if (error instanceof SkyAccountProblem && error.code === "email_not_verified") throw new UnprovenAddressError(which);
-      throw error;
-    }
+    await services.skyAccount.setPrimaryEmail(auth, { which });
     return noStore(new NextResponse(null, { status: 204 }));
   });
 }
