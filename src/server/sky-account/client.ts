@@ -6,7 +6,14 @@ import {
   SkyAccountInvalidInputError,
   SkyAccountUnavailableError,
 } from "@/server/sky-account/problem";
-import { parseCredential, parseIdentity, parseSudoGrant, parseTotpSetup } from "@/server/sky-account/schema";
+import {
+  parseCredential,
+  parseIdentity,
+  parseSudoGrant,
+  parseTotpSetup,
+  parseWebauthnAssertion,
+  parseWebauthnAssertionOptions,
+} from "@/server/sky-account/schema";
 import type {
   BearerAuthorization,
   ChangePasswordInput,
@@ -17,6 +24,7 @@ import type {
   SudoPasswordInput,
   SudoTotpInput,
   TotpConfirmInput,
+  WebauthnAssertion,
 } from "@/server/sky-account/types";
 
 export {
@@ -26,7 +34,12 @@ export {
   SkyAccountUnavailableError,
   skyAccountProblemStatuses,
 } from "@/server/sky-account/problem";
-export type { SkyAccountProblemCode, SkyAccountProblemDetails } from "@/server/sky-account/problem";
+export type {
+  SkyAccountProblemCode,
+  SkyAccountProblemDetails,
+  SkyAccountProblemStatus,
+} from "@/server/sky-account/problem";
+export { parseWebauthnAssertion } from "@/server/sky-account/schema";
 export type * from "@/server/sky-account/types";
 
 /** The sky-account API generation this client is written against. */
@@ -35,6 +48,8 @@ export const SKY_ACCOUNT_API_VERSION = "v1";
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 64 * 1_024;
 const MAX_REQUEST_BYTES = 8 * 1_024;
+/** Passkey ceremony bodies (`sudo/webauthn/verify`) may carry up to 64 KB (contract, Uç noktalar). */
+const MAX_CEREMONY_REQUEST_BYTES = 64 * 1_024;
 const SUDO_HEADER = "x-sky-sudo";
 /** Contract limits (`docs/sky-account-api.md`): names ≤ 64 characters after normalization, username `^[a-z0-9._]{3,30}$`. */
 const MAX_NAME_LENGTH = 64;
@@ -47,12 +62,15 @@ const BEARER_TOKEN = /^[\x21-\x7e]{1,8192}$/;
 
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
+type JsonBody = Record<string, unknown>;
+
 type RequestSpec = {
   method: Method;
   path: string;
   auth: BearerAuthorization;
   sudo?: string;
-  body?: Record<string, string | boolean>;
+  body?: JsonBody;
+  maxRequestBytes?: number;
   expectedStatus: 200 | 201 | 204;
 };
 
@@ -140,7 +158,9 @@ export class SkyAccountHttpClient implements SkyAccountClient {
     let body: string | null = null;
     if (spec.body !== undefined) {
       body = JSON.stringify(spec.body);
-      if (Buffer.byteLength(body, "utf8") > MAX_REQUEST_BYTES) throw new SkyAccountInvalidInputError("body");
+      if (Buffer.byteLength(body, "utf8") > (spec.maxRequestBytes ?? MAX_REQUEST_BYTES)) {
+        throw new SkyAccountInvalidInputError("body");
+      }
       headers["content-type"] = "application/json";
     }
     let response: Response;
@@ -237,6 +257,28 @@ export class SkyAccountHttpClient implements SkyAccountClient {
       path: "sudo/totp",
       auth,
       body: { code: requireCode(input.code, "code") },
+      expectedStatus: 200,
+    }));
+  }
+
+  async sudoWebauthnOptions(auth: BearerAuthorization) {
+    return parseWebauthnAssertionOptions(await this.#call({
+      method: "POST",
+      path: "sudo/webauthn/options",
+      auth,
+      expectedStatus: 200,
+    }));
+  }
+
+  async sudoWebauthnVerify(auth: BearerAuthorization, assertion: WebauthnAssertion) {
+    const validated = parseWebauthnAssertion(assertion);
+    if (!validated) throw new SkyAccountInvalidInputError("assertion");
+    return parseSudoGrant(await this.#call({
+      method: "POST",
+      path: "sudo/webauthn/verify",
+      auth,
+      body: validated,
+      maxRequestBytes: MAX_CEREMONY_REQUEST_BYTES,
       expectedStatus: 200,
     }));
   }

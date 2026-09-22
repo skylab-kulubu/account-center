@@ -35,10 +35,15 @@ type AuthLog = {
     | "account_action_completed"
     | "account_session_cleanup"
     | "sudo_material_discarded"
+    | "sudo_attempt"
+    | "sudo_reauthentication_started"
+    | "sudo_reauthentication_completed"
     | "token_audience_legacy";
   requestId: string;
   outcome: "success" | "failure";
   providerStage?: OidcProviderStage;
+  /** Proof kind of a sudo attempt; never the material itself. */
+  sudoMethod?: "password" | "totp" | "passkey" | "reauth";
   reason?:
     | "invalid_transaction"
     | "provider_unavailable"
@@ -56,7 +61,12 @@ type AuthLog = {
     | "account_action_unverified"
     | "rate_limited"
     | "local_session_revocation_failed"
-    | "sudo_decrypt_failed";
+    | "sudo_decrypt_failed"
+    | "invalid_credentials"
+    | "user_locked"
+    | "method_unavailable"
+    | "method_available"
+    | "sudo_storage_failed";
 };
 
 export function logAuthEvent(entry: AuthLog) {

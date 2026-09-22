@@ -1107,6 +1107,172 @@ a.settings-row:hover .settings-row__chevron {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.sudo-dialog {
+  width: min(100%, 460px);
+}
+
+.sudo-dialog__icon {
+  color: var(--accent);
+  border-color: rgba(224, 200, 229, 0.18);
+  background: var(--accent-muted);
+}
+
+.sudo-notice {
+  margin: 0 0 20px;
+}
+
+.sudo-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 20px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.sudo-tab {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ink-muted);
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sudo-tab:hover:not([aria-selected="true"]):not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.sudo-tab[aria-selected="true"] {
+  color: #161217;
+  background: var(--accent);
+}
+
+.sudo-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.sudo-panel {
+  margin-top: 16px;
+}
+
+.sudo-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sudo-form .primary-button {
+  align-self: flex-end;
+  min-width: 132px;
+}
+
+.sudo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sudo-field label {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  font-weight: 570;
+}
+
+.sudo-field small {
+  color: var(--ink-faint);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+
+.sudo-field input {
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  color: var(--ink);
+  background: rgba(3, 3, 5, 0.32);
+  font-size: 0.82rem;
+}
+
+.sudo-field input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.sudo-dialog .sudo-panel__hint {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.sudo-dialog__feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.16);
+  border-radius: 9px;
+  color: #eab8b8;
+  background: var(--danger-muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.sudo-dialog__feedback[data-tone="warning"] {
+  border-color: rgba(251, 191, 36, 0.2);
+  color: #f3d9a4;
+  background: rgba(245, 158, 11, 0.07);
+}
+
+.sudo-dialog__feedback svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.sudo-dialog__state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.sudo-dialog__state .sudo-dialog__feedback {
+  width: 100%;
+  margin-top: 0;
+}
+
+.sudo-dialog__fallback {
+  margin-top: 18px;
+}
+
+.sudo-dialog__fallback strong {
+  color: var(--ink);
+  font-weight: 620;
+}
+
+.sudo-dialog__fallback form {
+  margin-top: 16px;
+}
+
+.sudo-dialog__fallback .primary-button {
+  width: 100%;
+}
+
 .danger-button--inline {
   width: auto;
   min-height: 36px;
@@ -1630,6 +1796,15 @@ a.settings-row:hover .settings-row__chevron {
 
   .confirmation-dialog__actions button {
     width: 100%;
+  }
+
+  .sudo-tabs {
+    flex-direction: column;
+  }
+
+  .sudo-form .primary-button {
+    width: 100%;
+    align-self: stretch;
   }
 }
 

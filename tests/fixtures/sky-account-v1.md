@@ -5,13 +5,24 @@ Account Center consumes, as specified in `docs/sky-account-api.md` (v1):
 
 - `sky-account-v1-identity.json`: `GET identity`, also the body of
   `PATCH identity/name` and `POST identity/username`.
-- `sky-account-v1-sudo-grant.json`: `POST sudo/password` and `POST sudo/totp`.
-  The token is an opaque, Keycloak-signed JWT; the fixture signature is not
-  verifiable and the client never inspects it.
+- `sky-account-v1-sudo-grant.json`: `POST sudo/password`, `POST sudo/totp` and
+  `POST sudo/webauthn/verify`. The token is an opaque, Keycloak-signed JWT; the
+  fixture signature is not verifiable and the client never inspects it.
+- `sky-account-v1-webauthn-assertion-options.json`: `POST sudo/webauthn/options`,
+  relayed unchanged to the browser for `navigator.credentials.get()`.
+- `sky-account-v1-webauthn-assertion.json`: the body the BFF forwards to
+  `POST sudo/webauthn/verify` (base64url members, `id == rawId`; the
+  `clientDataJSON` decodes to a `webauthn.get` document for the options
+  fixture's challenge). It carries exactly the sudo contract's members:
+  `authenticatorAttachment` belongs to the registration body only and client
+  extension results are never forwarded. The signature bytes are synthetic;
+  only the shape is pinned.
 - `sky-account-v1-totp-setup.json`: `POST credentials/totp/setup`.
 - `sky-account-v1-totp-credential.json`: `201` body of `POST credentials/totp/confirm`.
 - `sky-account-v1-problems.json`: one `application/problem+json` body per
-  documented `code`, with the pinned HTTP status.
+  documented `code`, with the pinned HTTP status (`webauthn_invalid` and
+  `webauthn_origin_not_allowed` are pinned in their sudo form, `401`; the
+  registration form answers `400` and the client accepts both).
 
 `POST credentials/password` and `DELETE credentials/{id}` answer `204` without
 a body. The client rejects unknown fields, unknown problem codes and any

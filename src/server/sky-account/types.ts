@@ -41,6 +41,42 @@ export type SudoGrant = {
   expiresAt: Date;
 };
 
+/**
+ * `POST sudo/webauthn/options`: the assertion options the browser hands to
+ * `navigator.credentials.get()` after base64url → `ArrayBuffer` conversion
+ * (`challenge`, `allowCredentials[].id`). The BFF relays it unchanged.
+ */
+export type WebauthnAssertionOptions = {
+  challenge: string;
+  rpId: string;
+  allowCredentials: Array<{
+    type: "public-key";
+    id: string;
+    transports?: string[];
+  }>;
+  userVerification: "required" | "preferred" | "discouraged";
+  timeout?: number;
+};
+
+/**
+ * `POST sudo/webauthn/verify` body: the `PublicKeyCredential` JSON the browser
+ * produced (base64url members, `id == rawId`). The BFF validates the shape and
+ * forwards exactly these members; it never inspects or reuses the assertion.
+ * `authenticatorAttachment` belongs to the registration body only (contract),
+ * and the SPI rejects unknown members, so it is not part of this type.
+ */
+export type WebauthnAssertion = {
+  id: string;
+  rawId: string;
+  type: "public-key";
+  response: {
+    clientDataJSON: string;
+    authenticatorData: string;
+    signature: string;
+    userHandle?: string | null;
+  };
+};
+
 export type TotpSetup = {
   setupHandle: string;
   secret: string;
@@ -77,6 +113,8 @@ export interface SkyAccountClient {
   changeUsername(auth: SudoAuthorization, input: ChangeUsernameInput): Promise<SkyAccountIdentity>;
   sudoPassword(auth: BearerAuthorization, input: SudoPasswordInput): Promise<SudoGrant>;
   sudoTotp(auth: BearerAuthorization, input: SudoTotpInput): Promise<SudoGrant>;
+  sudoWebauthnOptions(auth: BearerAuthorization): Promise<WebauthnAssertionOptions>;
+  sudoWebauthnVerify(auth: BearerAuthorization, assertion: WebauthnAssertion): Promise<SudoGrant>;
   changePassword(auth: SudoAuthorization, input: ChangePasswordInput): Promise<void>;
   totpSetup(auth: SudoAuthorization): Promise<TotpSetup>;
   totpConfirm(auth: SudoAuthorization, input: TotpConfirmInput): Promise<SkyAccountCredential>;
