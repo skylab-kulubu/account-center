@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { PROFILE_PICTURE_ORIGIN } from "@/config/club-profile";
 
 const sessionCookie = "__Host-sky-account";
 const publicPages = new Set([
@@ -19,7 +20,7 @@ function contentSecurityPolicy(nonce: string) {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDevelopment ? " 'unsafe-eval'" : ""}`,
     isDevelopment ? "style-src 'self' 'unsafe-inline'" : `style-src 'self' 'nonce-${nonce}'`,
     `connect-src 'self'${isDevelopment ? " ws:" : ""}`,
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob: ${PROFILE_PICTURE_ORIGIN}`,
     "font-src 'self'",
     "worker-src 'self' blob:",
     "object-src 'none'",

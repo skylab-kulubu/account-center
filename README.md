@@ -37,10 +37,16 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
 - Ad, soyad ve birincil e-posta bilgilerinin güvenli görünümü.
 - Parola, TOTP ve geçiş anahtarı işlemleri için yeniden doğrulamalı Keycloak
   AIA akışları.
-- Bu sürüm yalnız v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş
-  token sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi,
-  şifreli sudo saklama). Kullanıcı adı, e-posta, kulüp profili ve ürün içi
-  güvenlik yüzeyleri A1–A5 işleriyle gelir; bu sürümde arayüzde yer almaz.
+- Bu sürüm v2 sözleşmelerini ve istemcilerini taşır (genişletilmiş token
+  sözleşmesi, sky-account SPI istemcisi, core kulüp profili istemcisi,
+  şifreli sudo saklama). Kullanıcı adı, e-posta ve ürün içi güvenlik
+  yüzeyleri A1–A5 işleriyle gelir; bu sürümde arayüzde yer almaz.
+- Kulüp profili: SKY numarası, öğrenci kartı durumu, okul e-postası ve kendi
+  telefonun salt okunur; üniversite, fakülte, bölüm ve LinkedIn bağlantısı
+  düzenlenebilir; profil fotoğrafı önizlemeyle yüklenir, değiştirilir veya
+  kaldırılır. Veriler core `/v1/users/me` uçlarından aynı kullanıcı
+  token'ıyla okunup yazılır; `CORE_API_URL` tanımsız ortamlarda sayfa
+  kapalı olduğunu söyler ve kimlik özetini yine gösterir.
 - Açık cihaz ve tarayıcı oturumlarını görüntüleme, tek tek kapatma veya mevcut
   cihaz dışındaki tüm oturumları sonlandırma.
 - Yetkilerim: takımlar, liderlik ve yetki seviyesi (Yönetim/Denetim) ile

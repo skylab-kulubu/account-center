@@ -1,5 +1,6 @@
 import {
   CircleUserRound,
+  IdCard,
   KeyRound,
   MonitorSmartphone,
   ShieldCheck,
@@ -44,6 +45,12 @@ export default async function OverviewPage() {
           icon={<CircleUserRound aria-hidden="true" size={19} />}
           title="Kişisel bilgiler"
           description="Adını ve birincil e-posta adresini görüntüle."
+        />
+        <SettingsRow
+          href="/club-profile"
+          icon={<IdCard aria-hidden="true" size={19} />}
+          title="Kulüp profili"
+          description="SKY numaran, öğrenci kartın, kulüp bilgilerin ve profil fotoğrafın."
         />
         <SettingsRow
           href="/security"

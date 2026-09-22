@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
+import { PROFILE_PICTURE_ORIGIN } from "@/config/club-profile";
 import { proxy } from "@/proxy";
 
 describe("security proxy", () => {
@@ -14,6 +15,17 @@ describe("security proxy", () => {
     expect(firstPolicy).toContain("script-src 'self' 'nonce-");
     expect(firstPolicy).not.toContain("'unsafe-inline'");
     expect(firstPolicy).not.toEqual(secondPolicy);
+  });
+
+  it("allows images only from the same origin, inline data and the platform media CDN", () => {
+    const headers = { cookie: "__Host-sky-account=opaque-session" };
+    const policy = proxy(new NextRequest("https://my.yildizskylab.com/club-profile", { headers }))
+      .headers.get("content-security-policy");
+
+    expect(PROFILE_PICTURE_ORIGIN).toBe("https://cdn.yildizskylab.com");
+    expect(policy).toContain(`img-src 'self' data: blob: ${PROFILE_PICTURE_ORIGIN};`);
+    expect(policy).toContain("connect-src 'self'");
+    expect(policy).not.toMatch(/connect-src[^;]*cdn\.yildizskylab\.com/);
   });
 
   it("optimistically redirects a protected page without a session cookie", () => {
