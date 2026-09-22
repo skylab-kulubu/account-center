@@ -228,4 +228,24 @@ describe("OidcFlowService", () => {
     await expect(flow.callback(callback, started.browserBinding)).rejects.toBeInstanceOf(UpstreamSessionExpiredError);
     expect(repository.inserted).toBeUndefined();
   });
+
+  it("tells the callback which sessions came through a native handoff", async () => {
+    const native = fixture();
+    const authenticatedAt = new Date(Date.now() - 15 * 60 * 1_000);
+    const started = await native.flow.beginNative(
+      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt },
+      "bridge-hint",
+    );
+    const nativeCallback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    nativeCallback.searchParams.set("state", native.protocol.proof!.state);
+    native.protocol.authorization = { ...native.protocol.authorization, subject: "native-user", authenticatedAt };
+    await expect(native.flow.callback(nativeCallback, started.browserBinding)).resolves.toMatchObject({ nativeHandoff: true });
+
+    const plain = fixture();
+    const plainStarted = await plain.flow.begin("/");
+    const plainCallback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    plainCallback.searchParams.set("state", plain.protocol.proof!.state);
+    const result = await plain.flow.callback(plainCallback, plainStarted.browserBinding);
+    expect(result).not.toHaveProperty("nativeHandoff");
+  });
 });

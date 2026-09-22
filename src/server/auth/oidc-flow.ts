@@ -433,17 +433,20 @@ export class OidcFlowService {
       }
     }
     await this.accountAccess.requireActive(authorization.subject);
+    const nativeHandoff = transaction.expectedAuthenticatedAt !== undefined;
     const session = await this.sessions.create({
       subject: authorization.subject,
       keycloakSid: authorization.keycloakSid,
       authenticatedAt: authorization.authenticatedAt,
       // Keycloak opened this web session for the native bridge during this login.
-      ...(transaction.expectedAuthenticatedAt !== undefined
-        ? { upstreamSessionStartedAt: this.clock() }
-        : {}),
+      ...(nativeHandoff ? { upstreamSessionStartedAt: this.clock() } : {}),
       tokens: authorization.tokens,
     });
-    return { ...session, returnTo: transaction.returnTo };
+    return {
+      ...session,
+      returnTo: transaction.returnTo,
+      ...(nativeHandoff ? { nativeHandoff: true as const } : {}),
+    };
   }
 
   revokeRefreshToken(refreshToken: string) {
