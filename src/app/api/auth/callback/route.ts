@@ -17,6 +17,7 @@ import {
   OidcProviderStageError,
 } from "@/server/auth/oidc-protocol";
 import { getAuthServices } from "@/server/auth/services";
+import { UpstreamSessionExpiredError } from "@/server/auth/sessions";
 import { completeSudoReauthentication } from "@/server/auth/sudo-reauthentication";
 import { completeYtuLink, YTU_LINK_QUERY } from "@/server/identity/ytu-link";
 import {
@@ -119,7 +120,9 @@ export async function GET(request: NextRequest) {
         ? "invalid_transaction"
         : error instanceof OidcContractError || blocked
           ? "contract_blocked"
-          : "provider_unavailable",
+          : error instanceof UpstreamSessionExpiredError
+            ? "upstream_session_expired"
+            : "provider_unavailable",
       ...(error instanceof OidcProviderStageError
         ? { providerStage: error.stage }
         : {}),

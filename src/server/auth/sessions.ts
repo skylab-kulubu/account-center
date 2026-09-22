@@ -29,6 +29,14 @@ export class DeletedSessionTokenDecryptError extends Error {
   }
 }
 
+/** The Keycloak session behind a callback outlived `OIDC_UPSTREAM_SESSION_MAX_SECONDS`. */
+export class UpstreamSessionExpiredError extends Error {
+  constructor() {
+    super("Upstream authentication session has expired.");
+    this.name = "UpstreamSessionExpiredError";
+  }
+}
+
 export class ActiveSessionTokenDecryptError extends Error {
   constructor() {
     super("Active session token material could not be decrypted.");
@@ -49,6 +57,13 @@ export class SessionManager {
     subject: string;
     keycloakSid?: string;
     authenticatedAt: Date;
+    /**
+     * When the Keycloak session behind these tokens began, if not at
+     * `authenticatedAt`. A native handoff opens a fresh web session that
+     * carries the app's original `auth_time`; its lifetime starts with the
+     * bridge, while `auth_time` keeps saying when the person last logged in.
+     */
+    upstreamSessionStartedAt?: Date;
     tokens: OidcTokenSet;
   }) {
     if (!input.subject || input.subject.length > 255) throw new Error("Invalid OIDC subject.");
@@ -59,12 +74,16 @@ export class SessionManager {
     if (!Number.isFinite(authenticatedAtMs) || authenticatedAtMs > now.getTime() + 5_000) {
       throw new Error("Invalid upstream authentication time.");
     }
+    const upstreamStartedAtMs = input.upstreamSessionStartedAt?.getTime() ?? authenticatedAtMs;
+    if (!Number.isFinite(upstreamStartedAtMs) || upstreamStartedAtMs > now.getTime() + 5_000) {
+      throw new Error("Invalid upstream session start time.");
+    }
     const absoluteExpiresAt = new Date(Math.min(
       now.getTime() + this.policy.absoluteTtlSeconds * 1_000,
-      authenticatedAtMs + this.policy.upstreamSessionMaxSeconds * 1_000,
+      upstreamStartedAtMs + this.policy.upstreamSessionMaxSeconds * 1_000,
     ));
     if (absoluteExpiresAt <= now) {
-      throw new Error("Upstream authentication session has expired.");
+      throw new UpstreamSessionExpiredError();
     }
     const idleExpiresAt = new Date(
       Math.min(absoluteExpiresAt.getTime(), now.getTime() + this.policy.idleTtlSeconds * 1_000),
