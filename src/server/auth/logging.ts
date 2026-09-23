@@ -26,6 +26,8 @@ type AuthLog = {
     | "oidc_login_started"
     | "oidc_login_completed"
     | "oidc_login_failed"
+    /** A present `sky_session_*` ID-token claim was malformed and ignored; never its value. */
+    | "oidc_session_claims"
     | "local_logout"
     | "backchannel_logout"
     | "native_handoff_created"
@@ -67,8 +69,10 @@ type AuthLog = {
   reason?:
     | "invalid_transaction"
     | "provider_unavailable"
-    /** `oidc_login_failed`: the Keycloak session outlived `OIDC_UPSTREAM_SESSION_MAX_SECONDS`. */
+    /** `oidc_login_failed`: the Keycloak session had ended (`sky_session_expires`, else `OIDC_UPSTREAM_SESSION_MAX_SECONDS` after its start). */
     | "upstream_session_expired"
+    /** `oidc_session_claims`: a malformed claim was dropped; the cap came from the rest, at worst `auth_time` + `OIDC_UPSTREAM_SESSION_MAX_SECONDS`. */
+    | "session_claim_ignored"
     | "contract_blocked"
     | "invalid_csrf"
     | "invalid_logout_token"

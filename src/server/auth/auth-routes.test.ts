@@ -263,6 +263,8 @@ describe("authentication routes", () => {
 
     const response = await callbackRoute(request);
 
+    // The flow logs a dropped session claim under this login's request id.
+    expect(authMocks.callback.mock.calls[0]?.slice(1)).toEqual(["b".repeat(43), oldHandle, "request-id"]);
     expect(authMocks.revokeHandle).toHaveBeenCalledWith(oldHandle);
     expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));
@@ -270,7 +272,7 @@ describe("authentication routes", () => {
     expect(response.cookies.get(EMBEDDED_APP_COOKIE)).toBeUndefined();
   });
 
-  it("marks a native handoff session as embedded in SkyApp for exactly the session's lifetime", async () => {
+  it("marks a session the flow says opened inside SkyApp as embedded for exactly the session's lifetime", async () => {
     // Both cookies derive max-age from Date.now(); a frozen clock keeps them from straddling a second.
     vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-09-20T12:00:00.250Z") });
     try {
@@ -279,7 +281,7 @@ describe("authentication routes", () => {
         handle: "n".repeat(43),
         absoluteExpiresAt,
         returnTo: "/",
-        nativeHandoff: true,
+        embeddedApp: "skyapp",
       });
 
       const response = await callbackRoute(new NextRequest(
