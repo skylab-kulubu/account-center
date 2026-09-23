@@ -1,5 +1,7 @@
 import "server-only";
 
+import { isEmailCodeAttempts } from "@/lib/email-fields";
+
 /**
  * RFC 7807 problem codes of sky-account API v1 with their pinned HTTP
  * statuses. `code` is the stable branching key for the BFF; `detail` is the
@@ -32,13 +34,24 @@ export const skyAccountProblemStatuses = {
   invalid_username: [400],
   name_locked: [403],
   credential_not_found: [404],
+  /** `email/confirm`: the code is wrong; `attemptsLeft` says how many tries remain (`0`: the code is dead). */
+  invalid_email_code: [400],
+  /** `email/confirm`: nothing is waiting (never requested, used, expired or out of attempts). */
+  no_pending_email_change: [404],
   duplicate_label: [409],
   passkey_already_registered: [409],
   username_taken: [409],
   username_cooldown: [409],
+  email_taken: [409],
+  /** `email/primary`: the chosen address is not proven (a personal address without its code, a school address without the YTÜ link). */
+  email_not_verified: [409],
+  /** `DELETE email/personal`: the personal address is primary and no proven school address can take over. */
+  no_fallback_email: [409],
   rate_limited: [429],
   unmanaged_attributes_enabled: [503],
   webauthn_not_configured: [503],
+  /** `email/change-request`: the realm could not send the code; nothing is pending. */
+  email_not_sent: [503],
   internal_error: [500],
 } as const satisfies Record<string, readonly number[]>;
 
@@ -56,6 +69,8 @@ export type SkyAccountProblemDetails = {
   policy: string | null;
   params: ReadonlyArray<string | number>;
   availableAt: Date | null;
+  /** `invalid_email_code` only: tries left before the pending change dies. */
+  attemptsLeft?: number | null;
 };
 
 const PROBLEM_TYPE_PREFIX = "tag:yildizskylab.com,2026:sky-account:";
@@ -73,6 +88,7 @@ export class SkyAccountProblem extends Error {
   readonly policy: string | null;
   readonly params: ReadonlyArray<string | number>;
   readonly availableAt: Date | null;
+  readonly attemptsLeft: number | null;
 
   constructor(details: SkyAccountProblemDetails) {
     super(`sky-account v1 answered ${details.status} ${details.code}.`);
@@ -85,6 +101,7 @@ export class SkyAccountProblem extends Error {
     this.policy = details.policy;
     this.params = details.params;
     this.availableAt = details.availableAt;
+    this.attemptsLeft = details.attemptsLeft ?? null;
   }
 }
 
@@ -119,6 +136,11 @@ function isProblemCode(value: unknown): value is SkyAccountProblemCode {
 
 function optionalString(value: unknown, maximum: number): value is string | undefined | null {
   return value === undefined || value === null || (typeof value === "string" && value.length <= maximum);
+}
+
+function attemptsLeftOf(value: unknown): number | null | false {
+  if (value === undefined || value === null) return null;
+  return isEmailCodeAttempts(value) ? value : false;
 }
 
 function retrySeconds(value: unknown): number | null | false {
@@ -164,6 +186,8 @@ export function parseSkyAccountProblem(
   }
   const bodyRetryAfter = retrySeconds(body.retryAfter);
   if (bodyRetryAfter === false) return null;
+  const attemptsLeft = attemptsLeftOf(body.attemptsLeft);
+  if (attemptsLeft === false) return null;
   const headerRetryAfter = retryAfterHeader !== null && /^\d{1,9}$/.test(retryAfterHeader.trim())
     ? Number(retryAfterHeader.trim())
     : null;
@@ -176,5 +200,6 @@ export function parseSkyAccountProblem(
     policy: body.policy ?? null,
     params: Object.freeze([...((body.params ?? []) as Array<string | number>)]),
     availableAt: body.availableAt ? new Date(body.availableAt) : null,
+    attemptsLeft,
   });
 }

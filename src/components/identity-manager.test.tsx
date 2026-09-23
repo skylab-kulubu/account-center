@@ -125,10 +125,10 @@ describe("IdentityManager", () => {
     expect(screen.getByText("Birincil e-posta")).toBeInTheDocument();
     expect(screen.getByText("Okul e-postası")).toBeInTheDocument();
     expect(screen.getByText("YTÜ hesabından gelir")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "E-posta ayarları" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "E-posta ayarları" })).toHaveAttribute("href", "/email");
+    expect(screen.queryByText("Yakında")).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith("/api/account/identity", { cache: "no-store", credentials: "same-origin" });
     expect(container.innerHTML).not.toContain(csrfToken);
-    expect(container.querySelector("a[href='/email']")).toBeNull();
   });
 
   it("offers the name form and the YTÜ link for an unverified account", async () => {
@@ -139,9 +139,8 @@ describe("IdentityManager", () => {
     expect(screen.getByText("YTÜ hesabın bağlı değil")).toBeInTheDocument();
     expect(screen.getByText("YTÜ Microsoft hesabını bağladığında adın ve okul e-postan YTÜ kaydından gelir ve kilitlenir.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
-    // Only the e-mail settings are still "yakında".
-    expect(screen.getAllByText("Yakında")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "E-posta ayarları" })).toBeDisabled();
+    expect(screen.queryByText("Yakında")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "E-posta ayarları" })).toHaveAttribute("href", "/email");
     expect(screen.getByText("Kayıtlı değil · YTÜ hesabından gelir; buradan değiştirilemez.")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

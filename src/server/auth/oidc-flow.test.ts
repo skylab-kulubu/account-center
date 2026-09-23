@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
-import { InvalidOidcTransactionError, OidcFlowService } from "@/server/auth/oidc-flow";
+import { accountRoutes } from "@/config/account-routes";
+import { InvalidOidcTransactionError, normalizeReturnTo, OidcFlowService } from "@/server/auth/oidc-flow";
 import type {
   AuthorizationResult,
   BeginAuthorizationInput,
@@ -106,6 +107,19 @@ function fixture(
     repository,
   };
 }
+
+describe("normalizeReturnTo", () => {
+  it("accepts every account page a login or a Sudo mode re-authentication may return to, and nothing else", () => {
+    for (const { href } of accountRoutes) {
+      expect(normalizeReturnTo(href)).toBe(href);
+    }
+    expect(normalizeReturnTo("/email")).toBe("/email");
+    expect(normalizeReturnTo("/email?x=1#y")).toBe("/email");
+    for (const rejected of ["/admin", "/emails", "https://attacker.invalid/email", "//attacker.invalid/email", "", null, undefined]) {
+      expect(normalizeReturnTo(rejected)).toBe("/");
+    }
+  });
+});
 
 describe("OidcFlowService", () => {
   it("binds state, nonce and PKCE to a one-time server transaction", async () => {

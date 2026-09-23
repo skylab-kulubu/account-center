@@ -1,3 +1,5 @@
+import type { PendingEmailChange, PrimaryEmailChoice } from "@/lib/email-fields";
+
 /**
  * sky-account API v1 read models. The wire contract is pinned in
  * `docs/sky-account-api.md` (v1) and the fixtures under
@@ -26,6 +28,13 @@ export type SkyAccountIdentity = {
   emailVerified: boolean;
   schoolEmail: string | null;
   personalEmail: string | null;
+  /**
+   * The Personal e-mail was proven with the mailed code (the SPI's
+   * `personalEmailVerifiedAt` stamp). `false` without an address, and also
+   * when an SPI release older than the e-mail endpoints omits the member:
+   * an address nobody is known to have proven is never offered as primary.
+   */
+  personalEmailVerified: boolean;
   primary: SkyAccountPrimaryEmail;
   verifiedYtu: boolean;
   nameLocked: boolean;
@@ -126,6 +135,20 @@ export type WebauthnAttestation = {
   authenticatorAttachment?: "platform" | "cross-platform";
 };
 
+/**
+ * `202` answer of `POST email/change-request`: the six-digit code went out
+ * and dies at `expiresAt` (ten minutes; ISO instant, normalised).
+ */
+export type EmailChangeRequest = Pick<PendingEmailChange, "expiresAt">;
+
+/**
+ * `GET email/pending` as the SPI answers it: the caller's change still
+ * waiting for its code, read without consuming it; the shared
+ * `PendingEmailChange` without the `secondsLeft` the BFF adds. Never the
+ * code or its hash.
+ */
+export type SkyAccountPendingEmailChange = Omit<PendingEmailChange, "secondsLeft">;
+
 export type TotpSetup = {
   setupHandle: string;
   secret: string;
@@ -164,6 +187,11 @@ export type SudoTotpInput = { code: string };
 export type ChangePasswordInput = { newPassword: string; logoutOtherSessions: boolean };
 export type TotpConfirmInput = { setupHandle: string; code: string; label: string };
 export type RegisterPasskeyInput = { attestation: WebauthnAttestation; label: string };
+/** The address to prove; the SPI trims it, lower-cases it with `Locale.ROOT` and runs Keycloak's own validator. */
+export type EmailChangeInput = { address: string };
+/** The six digits from the mail; spaces a copy inserts are dropped before sending. */
+export type EmailConfirmInput = { code: string };
+export type PrimaryEmailInput = { which: PrimaryEmailChoice };
 
 export interface SkyAccountClient {
   identity(auth: BearerAuthorization): Promise<SkyAccountIdentity>;
@@ -180,4 +208,10 @@ export interface SkyAccountClient {
   webauthnRegistrationOptions(auth: SudoAuthorization): Promise<WebauthnRegistrationOptions>;
   registerPasskey(auth: SudoAuthorization, input: RegisterPasskeyInput): Promise<SkyAccountCredential>;
   deleteCredential(auth: SudoAuthorization, credentialId: string): Promise<void>;
+  requestEmailChange(auth: SudoAuthorization, input: EmailChangeInput): Promise<EmailChangeRequest>;
+  confirmEmail(auth: BearerAuthorization, input: EmailConfirmInput): Promise<SkyAccountIdentity>;
+  /** The waiting change, or `null` when nothing waits (`404 no_pending_email_change`). */
+  pendingEmailChange(auth: BearerAuthorization): Promise<SkyAccountPendingEmailChange | null>;
+  setPrimaryEmail(auth: SudoAuthorization, input: PrimaryEmailInput): Promise<SkyAccountIdentity>;
+  removePersonalEmail(auth: SudoAuthorization): Promise<SkyAccountIdentity>;
 }

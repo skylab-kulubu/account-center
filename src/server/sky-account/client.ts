@@ -1,15 +1,19 @@
 import "server-only";
 
+import { checkEmailAddress, checkEmailCode, isPrimaryEmailChoice } from "@/lib/email-fields";
 import { COMPACT_JWS } from "@/server/contract-shapes";
 import {
   parseSkyAccountProblem,
   SkyAccountContractError,
+  SkyAccountProblem,
   SkyAccountInvalidInputError,
   SkyAccountUnavailableError,
 } from "@/server/sky-account/problem";
 import {
   parseCredential,
+  parseEmailChangeRequest,
   parseIdentity,
+  parsePendingEmailChange,
   parseSudoGrant,
   parseTotpSetup,
   parseWebauthnAssertion,
@@ -21,7 +25,10 @@ import type {
   BearerAuthorization,
   ChangePasswordInput,
   ChangeUsernameInput,
+  EmailChangeInput,
+  EmailConfirmInput,
   PatchNameInput,
+  PrimaryEmailInput,
   RegisterPasskeyInput,
   SkyAccountClient,
   SudoAuthenticationInput,
@@ -76,7 +83,7 @@ type RequestSpec = {
   sudo?: string;
   body?: JsonBody;
   maxRequestBytes?: number;
-  expectedStatus: 200 | 201 | 204;
+  expectedStatus: 200 | 201 | 202 | 204;
 };
 
 function requireToken(value: string, field: string) {
@@ -100,6 +107,20 @@ function requireSecret(value: string, field: string, maximum = 1_024) {
 function requireCode(value: string, field: string) {
   if (!TOTP_CODE.test(value)) throw new SkyAccountInvalidInputError(field);
   return value;
+}
+
+/** The shared e-mail rules (`src/lib/email-fields.ts`): trimmed, lower-cased, obviously an address. */
+function requireAddress(value: string) {
+  const check = checkEmailAddress(value);
+  if (!check.ok) throw new SkyAccountInvalidInputError("address");
+  return check.value;
+}
+
+/** Six digits once the spaces a copy inserts are dropped. */
+function requireEmailCode(value: string) {
+  const check = checkEmailCode(value);
+  if (!check.ok) throw new SkyAccountInvalidInputError("code");
+  return check.value;
 }
 
 function requireUsername(value: string) {
@@ -387,5 +408,79 @@ export class SkyAccountHttpClient implements SkyAccountClient {
       sudo: auth.sudoToken,
       expectedStatus: 204,
     });
+  }
+
+  /**
+   * Mails a six-digit code to a new Personal e-mail (`202 { expiresAt }`).
+   * Nothing is written to the person yet; a second request replaces the
+   * first and kills its code. The address is trimmed and lower-cased like
+   * the SPI stores it; Keycloak's validator decides the rest, and the address
+   * never reaches a log line on either side.
+   */
+  async requestEmailChange(auth: SudoAuthorization, input: EmailChangeInput) {
+    return parseEmailChangeRequest(await this.#call({
+      method: "POST",
+      path: "email/change-request",
+      auth,
+      sudo: auth.sudoToken,
+      body: { address: requireAddress(input.address) },
+      expectedStatus: 202,
+    }));
+  }
+
+  /**
+   * Proves the pending address with the mailed code. Bearer only, no sudo:
+   * the SPI compares the code with the caller's own pending change, so a
+   * code read by anyone else cannot attach the address to another account.
+   */
+  async confirmEmail(auth: BearerAuthorization, input: EmailConfirmInput) {
+    return parseIdentity(await this.#call({
+      method: "POST",
+      path: "email/confirm",
+      auth,
+      body: { code: requireEmailCode(input.code) },
+      expectedStatus: 200,
+    }));
+  }
+
+  /**
+   * The caller's change still waiting for its code (address, deadline, tries
+   * left), read without consuming it, so a page reloaded between the mail and
+   * the code can show the code box again. `null` when nothing waits.
+   */
+  async pendingEmailChange(auth: BearerAuthorization) {
+    try {
+      return parsePendingEmailChange(await this.#call({
+        method: "GET",
+        path: "email/pending",
+        auth,
+        expectedStatus: 200,
+      }));
+    } catch (error) {
+      if (error instanceof SkyAccountProblem && error.code === "no_pending_email_change") return null;
+      throw error;
+    }
+  }
+
+  async setPrimaryEmail(auth: SudoAuthorization, input: PrimaryEmailInput) {
+    if (!isPrimaryEmailChoice(input.which)) throw new SkyAccountInvalidInputError("which");
+    return parseIdentity(await this.#call({
+      method: "POST",
+      path: "email/primary",
+      auth,
+      sudo: auth.sudoToken,
+      body: { which: input.which },
+      expectedStatus: 200,
+    }));
+  }
+
+  async removePersonalEmail(auth: SudoAuthorization) {
+    return parseIdentity(await this.#call({
+      method: "DELETE",
+      path: "email/personal",
+      auth,
+      sudo: auth.sudoToken,
+      expectedStatus: 200,
+    }));
   }
 }

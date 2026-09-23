@@ -2,6 +2,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import identityFixture from "../../../tests/fixtures/sky-account-v1-identity.json";
+import emailChangeFixture from "../../../tests/fixtures/sky-account-v1-email-change-request.json";
+import emailPendingFixture from "../../../tests/fixtures/sky-account-v1-email-pending.json";
 import problemsFixture from "../../../tests/fixtures/sky-account-v1-problems.json";
 import sudoGrantFixture from "../../../tests/fixtures/sky-account-v1-sudo-grant.json";
 import authenticationGrantFixture from "../../../tests/fixtures/sky-account-v1-sudo-authentication.json";
@@ -500,6 +502,7 @@ describe("SkyAccountHttpClient", () => {
         policy: "policy" in expected ? expected.policy : null,
         params: "params" in expected ? expected.params : [],
         availableAt: "availableAt" in expected ? new Date(expected.availableAt) : null,
+        attemptsLeft: "attemptsLeft" in expected ? expected.attemptsLeft : null,
       });
       await expect(rejection).rejects.not.toThrow(new RegExp(expected.detail.slice(0, 12)));
     },
@@ -612,7 +615,7 @@ describe("SkyAccountHttpClient", () => {
     }]);
     expect(Object.keys(identity).sort()).toEqual([
       "credentials", "email", "emailVerified", "firstName", "lastName", "nameLocked", "personalEmail",
-      "primary", "schoolEmail", "sub", "username", "usernameChangeAvailableAt", "verifiedYtu",
+      "personalEmailVerified", "primary", "schoolEmail", "sub", "username", "usernameChangeAvailableAt", "verifiedYtu",
     ]);
     expect(Object.keys(identity.credentials).sort()).toEqual(["passkeys", "password", "totp"]);
     expect(JSON.stringify(identity)).not.toContain("aaguid");
@@ -707,6 +710,165 @@ describe("SkyAccountHttpClient", () => {
     expect(request).toHaveBeenCalledTimes(2);
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({ firstName: "A".repeat(64), lastName: "L" });
     expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toEqual({ username: "ada.lovelace_01" });
+  });
+
+  describe("personal e-mail and primary selection", () => {
+    it("reads personalEmailVerified and treats a release without it, or without an address, as not proven", async () => {
+      const verified = transport(() => json(identityFixture));
+      await expect(verified.client.identity(bearer)).resolves.toMatchObject({
+        personalEmail: "ada-personal@example.invalid",
+        personalEmailVerified: true,
+      });
+      const unproven = transport(() => json({ ...identityFixture, personalEmailVerified: false }));
+      await expect(unproven.client.identity(bearer)).resolves.toMatchObject({ personalEmailVerified: false });
+      // An SPI release before the e-mail endpoints (K3c) omits the member: never assume the address was proven.
+      const older = transport(() => json(Object.fromEntries(
+        Object.entries(identityFixture).filter(([key]) => key !== "personalEmailVerified"),
+      )));
+      await expect(older.client.identity(bearer)).resolves.toMatchObject({ personalEmailVerified: false });
+      const orphaned = transport(() => json({ ...identityFixture, personalEmail: null, personalEmailVerified: true }));
+      await expect(orphaned.client.identity(bearer)).resolves.toMatchObject({ personalEmail: null, personalEmailVerified: false });
+      const drifted = transport(() => json({ ...identityFixture, personalEmailVerified: "yes" }));
+      await expect(drifted.client.identity(bearer)).rejects.toBeInstanceOf(SkyAccountContractError);
+    });
+
+    it("requests a change under sudo with the normalised address and returns the code's deadline", async () => {
+      const { client, calls } = transport(() => json(emailChangeFixture, 202));
+      await expect(client.requestEmailChange(sudo, { address: "  Ada@Example.com " })).resolves.toEqual({
+        expiresAt: "2026-09-21T13:45:18.000Z",
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        url: `${base}/email/change-request`,
+        method: "POST",
+        body: JSON.stringify({ address: "ada@example.com" }),
+      });
+      expect(calls[0]?.headers.get("x-sky-sudo")).toBe("opaque-sudo-token");
+      expect(calls[0]?.headers.get("content-type")).toBe("application/json");
+    });
+
+    it("confirms the code with the bearer only, dropping the spaces a copy inserts", async () => {
+      const { client, calls } = transport(() => json({ ...identityFixture, primary: "personal" }));
+      const identity = await client.confirmEmail(bearer, { code: " 123 456 " });
+      expect(identity.primary).toBe("personal");
+      expect(calls[0]).toMatchObject({
+        url: `${base}/email/confirm`,
+        method: "POST",
+        body: JSON.stringify({ code: "123456" }),
+      });
+      expect(calls[0]?.headers.get("x-sky-sudo")).toBeNull();
+    });
+
+    it("selects the primary and removes the personal address under sudo, returning the fresh identity", async () => {
+      const { client, calls } = transport((recorded) => {
+        if (recorded.url.endsWith("/email/primary")) return json({ ...identityFixture, primary: "personal" });
+        if (recorded.url.endsWith("/email/personal")) return json({ ...identityFixture, personalEmail: null, personalEmailVerified: false });
+        throw new Error(`unexpected ${recorded.url}`);
+      });
+      await expect(client.setPrimaryEmail(sudo, { which: "personal" })).resolves.toMatchObject({ primary: "personal" });
+      await expect(client.removePersonalEmail(sudo)).resolves.toMatchObject({ personalEmail: null });
+      expect(calls.map((call) => [call.method, call.url.replace(base, ""), call.body])).toEqual([
+        ["POST", "/email/primary", JSON.stringify({ which: "personal" })],
+        ["DELETE", "/email/personal", null],
+      ]);
+      for (const call of calls) expect(call.headers.get("x-sky-sudo")).toBe("opaque-sudo-token");
+    });
+
+    it("reads the waiting change with the bearer only and never keeps anything but its address, deadline and tries", async () => {
+      const { client, calls } = transport(() => json({ ...emailPendingFixture, code: "123456", codeHash: "x" }));
+      const pending = await client.pendingEmailChange(bearer);
+      expect(pending).toEqual({
+        address: "ada@example.com",
+        expiresAt: "2026-09-23T00:10:00.000Z",
+        attemptsLeft: 4,
+      });
+      expect(JSON.stringify(pending)).not.toMatch(/123456|codeHash/);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ url: `${base}/email/pending`, method: "GET", body: null });
+      expect(calls[0]?.headers.get("authorization")).toBe("Bearer server-held-user-token");
+      expect(calls[0]?.headers.get("x-sky-sudo")).toBeNull();
+    });
+
+    it("answers null when nothing waits and still throws every other problem", async () => {
+      const none = transport(() => problem("no_pending_email_change"));
+      await expect(none.client.pendingEmailChange(bearer)).resolves.toBeNull();
+      const ended = transport(() => problem("unauthorized"));
+      await expect(ended.client.pendingEmailChange(bearer)).rejects.toMatchObject({ code: "unauthorized" });
+      const down = transport(() => new Response(null, { status: 503 }));
+      await expect(down.client.pendingEmailChange(bearer)).rejects.toBeInstanceOf(SkyAccountUnavailableError);
+    });
+
+    it("fails closed on a waiting change outside the contract", async () => {
+      for (const body of [
+        { ...emailPendingFixture, address: "" },
+        { ...emailPendingFixture, address: 42 },
+        { ...emailPendingFixture, expiresAt: "in ten minutes" },
+        { ...emailPendingFixture, attemptsLeft: -1 },
+        { ...emailPendingFixture, attemptsLeft: "4" },
+        { ...emailPendingFixture, attemptsLeft: 101 },
+        { address: emailPendingFixture.address, expiresAt: emailPendingFixture.expiresAt },
+      ]) {
+        const { client } = transport(() => json(body));
+        await expect(client.pendingEmailChange(bearer)).rejects.toBeInstanceOf(SkyAccountContractError);
+      }
+    });
+
+    it("fails closed on change-request answers outside the contract", async () => {
+      for (const [body, status] of [
+        [emailChangeFixture, 200],
+        [{ expiresAt: "in ten minutes" }, 202],
+        [{}, 202],
+      ] as const) {
+        const { client } = transport(() => json(body, status));
+        await expect(client.requestEmailChange(sudo, { address: "ada@example.com" }))
+          .rejects.toBeInstanceOf(SkyAccountContractError);
+      }
+      const additive = transport(() => json({ ...emailChangeFixture, attemptsLeft: 5 }, 202));
+      await expect(additive.client.requestEmailChange(sudo, { address: "ada@example.com" }))
+        .resolves.toEqual({ expiresAt: "2026-09-21T13:45:18.000Z" });
+    });
+
+    it("carries attemptsLeft on a wrong code and refuses a value outside the contract", async () => {
+      const exhausted = transport(() => json(
+        { ...problemsFixture.invalid_email_code, attemptsLeft: 0 },
+        400,
+        "application/problem+json",
+      ));
+      await expect(exhausted.client.confirmEmail(bearer, { code: "000000" })).rejects.toMatchObject({
+        code: "invalid_email_code",
+        attemptsLeft: 0,
+      });
+      for (const attemptsLeft of [-1, 1.5, "4", 101]) {
+        const { client } = transport(() => json(
+          { ...problemsFixture.invalid_email_code, attemptsLeft },
+          400,
+          "application/problem+json",
+        ));
+        await expect(client.confirmEmail(bearer, { code: "000000" })).rejects.toBeInstanceOf(SkyAccountContractError);
+      }
+    });
+
+    it("validates addresses, codes and the primary choice before sending anything", async () => {
+      const { client, request } = transport(() => json(identityFixture));
+      const invalid: Array<() => Promise<unknown>> = [
+        () => client.requestEmailChange(sudo, { address: "" }),
+        () => client.requestEmailChange(sudo, { address: "   " }),
+        () => client.requestEmailChange(sudo, { address: "ada.example.com" }),
+        () => client.requestEmailChange(sudo, { address: "ada lovelace@example.com" }),
+        () => client.requestEmailChange(sudo, { address: `${"a".repeat(250)}@example.com` }),
+        () => client.requestEmailChange({ ...sudo, sudoToken: "" }, { address: "ada@example.com" }),
+        () => client.confirmEmail(bearer, { code: "12345" }),
+        () => client.confirmEmail(bearer, { code: "1234567" }),
+        () => client.confirmEmail(bearer, { code: "12a456" }),
+        () => client.confirmEmail(bearer, { code: "" }),
+        () => client.setPrimaryEmail(sudo, { which: "work" as "school" }),
+        () => client.removePersonalEmail({ ...sudo, sudoToken: "" }),
+      ];
+      for (const attempt of invalid) {
+        await expect(attempt()).rejects.toBeInstanceOf(SkyAccountInvalidInputError);
+      }
+      expect(request).not.toHaveBeenCalled();
+    });
   });
 
   it("never retries a request", async () => {
