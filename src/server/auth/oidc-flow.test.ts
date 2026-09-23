@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { InvalidOidcTransactionError, OidcFlowService } from "@/server/auth/oidc-flow";
 import type {
@@ -16,6 +16,12 @@ import {
   AccountAccessBlockedError,
   AccountAccessUnavailableError,
 } from "@/server/access-gate/authorization";
+import { logAuthEvent } from "@/server/auth/logging";
+
+vi.mock("@/server/auth/logging", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/server/auth/logging")>(),
+  logAuthEvent: vi.fn(),
+}));
 
 class MemoryTransactions implements OidcTransactionRepository {
   rows = new Map<string, StoredOidcTransaction & { consumed?: boolean }>();
@@ -76,7 +82,10 @@ class FakeProtocol implements OidcProtocol {
   async refresh(): Promise<never> { throw new Error("not used"); }
 }
 
-function fixture(decision: "active" | "blocked" | "unavailable" = "active") {
+function fixture(
+  decision: "active" | "blocked" | "unavailable" = "active",
+  lifetimes = { absoluteTtlSeconds: 3600, upstreamSessionMaxSeconds: 3600 },
+) {
   const repository = new CapturingSessions();
   const protocol = new FakeProtocol();
   const cipher = new AesGcmSecretCipher(Buffer.alloc(32, 5));
@@ -85,7 +94,7 @@ function fixture(decision: "active" | "blocked" | "unavailable" = "active") {
     repository,
     cipher,
     Buffer.alloc(32, 6),
-    { absoluteTtlSeconds: 3600, upstreamSessionMaxSeconds: 3600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+    { ...lifetimes, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
   );
   const accountAccess = new AccountAccessAuthorizer(
     { decide: async () => decision, ready: async () => true },
@@ -229,7 +238,149 @@ describe("OidcFlowService", () => {
     expect(repository.inserted).toBeUndefined();
   });
 
-  it("tells the callback which sessions came through a native handoff", async () => {
+  describe("with Keycloak's session claims", () => {
+    const eightHours = { absoluteTtlSeconds: 8 * 60 * 60, upstreamSessionMaxSeconds: 8 * 60 * 60 };
+
+    async function login(
+      authorization: Partial<AuthorizationResult>,
+      options: { native?: boolean; requestId?: string } = {},
+    ) {
+      const current = fixture("active", eightHours);
+      current.protocol.authorization = { ...current.protocol.authorization, ...authorization };
+      const started = options.native
+        ? await current.flow.beginNative(
+          {
+            subject: current.protocol.authorization.subject,
+            keycloakSid: "native-sid",
+            authenticatedAt: current.protocol.authorization.authenticatedAt,
+          },
+          "bridge-hint",
+        )
+        : await current.flow.begin("/");
+      const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+      callback.searchParams.set("state", current.protocol.proof!.state);
+      return {
+        ...current,
+        result: current.flow.callback(callback, started.browserBinding, undefined, options.requestId),
+      };
+    }
+
+    // Every cap is compared exactly, so every Date.now() inside the flow must agree.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-09-20T12:00:00.250Z") });
+      vi.mocked(logAuthEvent).mockClear();
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it("keeps the cap at auth_time + the upstream max when the ID token has no session claims", async () => {
+      const { result, repository } = await login({ authenticatedAt: new Date("2026-09-20T11:30:00Z") });
+
+      await expect(result).resolves.not.toHaveProperty("embeddedApp");
+      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T19:30:00Z"));
+      expect(logAuthEvent).not.toHaveBeenCalled();
+    });
+
+    it("opens a remember-me session logged in 20 days ago with the 8-hour local cap", async () => {
+      const { result, repository } = await login({
+        authenticatedAt: new Date("2026-08-31T12:00:00Z"),
+        upstreamSessionStartedAt: new Date("2026-08-31T12:00:00Z"),
+        upstreamSessionExpiresAt: new Date("2026-09-30T12:00:00Z"),
+      });
+
+      await expect(result).resolves.toMatchObject({ returnTo: "/" });
+      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T20:00:00.250Z"));
+      expect(logAuthEvent).not.toHaveBeenCalled();
+    });
+
+    it("prefers Keycloak's session end over the start-based estimate", async () => {
+      const { result, repository } = await login({
+        authenticatedAt: new Date("2026-08-31T12:00:00Z"),
+        upstreamSessionStartedAt: new Date("2026-09-20T11:59:57Z"),
+        upstreamSessionExpiresAt: new Date("2026-09-20T12:30:00Z"),
+      });
+
+      await result;
+      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T12:30:00Z"));
+    });
+
+    it("refuses a login whose Keycloak session has already ended", async () => {
+      // auth_time + 8 h would still be open; Keycloak's own end is what counts.
+      const { result, repository } = await login({
+        authenticatedAt: new Date("2026-09-20T11:00:00Z"),
+        upstreamSessionExpiresAt: new Date("2026-09-20T11:59:59Z"),
+      });
+
+      await expect(result).rejects.toBeInstanceOf(UpstreamSessionExpiredError);
+      expect(repository.inserted).toBeUndefined();
+    });
+
+    it("opens a Web handoff session from an app login older than the upstream max at the Keycloak session start", async () => {
+      const { result, repository } = await login({
+        authenticatedAt: new Date("2026-08-31T12:00:00Z"),
+        upstreamSessionStartedAt: new Date("2026-09-20T11:59:57Z"),
+      });
+
+      await expect(result).resolves.toMatchObject({ returnTo: "/" });
+      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T19:59:57Z"));
+    });
+
+    it("falls back to auth_time and logs once, without values, when a session claim was malformed", async () => {
+      const { result, repository } = await login({
+        authenticatedAt: new Date("2026-09-20T11:30:00Z"),
+        sessionClaimIgnored: true,
+      }, { requestId: "callback-request" });
+
+      await result;
+      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T19:30:00Z"));
+      expect(logAuthEvent).toHaveBeenCalledTimes(1);
+      expect(logAuthEvent).toHaveBeenCalledWith({
+        event: "oidc_session_claims",
+        requestId: "callback-request",
+        outcome: "failure",
+        reason: "session_claim_ignored",
+      });
+    });
+
+    it("still logs the malformed claim when the fallback cap refuses the login", async () => {
+      const { result } = await login({
+        authenticatedAt: new Date("2026-08-31T12:00:00Z"),
+        sessionClaimIgnored: true,
+      }, { requestId: "callback-request" });
+
+      await expect(result).rejects.toBeInstanceOf(UpstreamSessionExpiredError);
+      expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "session_claim_ignored" }));
+    });
+
+    it("starts a native handoff session at the callback when the ID token has no session claims", async () => {
+      const { result, repository } = await login({ authenticatedAt: new Date("2026-08-31T12:00:00Z") }, { native: true });
+
+      await expect(result).resolves.toMatchObject({ returnTo: "/", embeddedApp: "skyapp" });
+      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T20:00:00.250Z"));
+    });
+
+    it("lets Keycloak's session end outrank the native handoff's callback start", async () => {
+      const { result, repository } = await login({
+        authenticatedAt: new Date("2026-08-31T12:00:00Z"),
+        upstreamSessionStartedAt: new Date("2026-09-20T11:59:57Z"),
+        upstreamSessionExpiresAt: new Date("2026-09-20T14:00:00Z"),
+      }, { native: true });
+
+      await result;
+      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T14:00:00Z"));
+    });
+
+    it("keeps the native handoff's callback start over an earlier sky_session_started", async () => {
+      const { result, repository } = await login({
+        authenticatedAt: new Date("2026-09-20T09:00:00Z"),
+        upstreamSessionStartedAt: new Date("2026-09-20T09:00:00Z"),
+      }, { native: true });
+
+      await result;
+      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T20:00:00.250Z"));
+    });
+  });
+
+  it("tells the callback which sessions open inside SkyApp: a native handoff or an ID token marked sky_embed", async () => {
     const native = fixture();
     const authenticatedAt = new Date(Date.now() - 15 * 60 * 1_000);
     const started = await native.flow.beginNative(
@@ -239,13 +390,21 @@ describe("OidcFlowService", () => {
     const nativeCallback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
     nativeCallback.searchParams.set("state", native.protocol.proof!.state);
     native.protocol.authorization = { ...native.protocol.authorization, subject: "native-user", authenticatedAt };
-    await expect(native.flow.callback(nativeCallback, started.browserBinding)).resolves.toMatchObject({ nativeHandoff: true });
+    await expect(native.flow.callback(nativeCallback, started.browserBinding)).resolves.toMatchObject({ embeddedApp: "skyapp" });
+
+    const embedded = fixture();
+    const embeddedStarted = await embedded.flow.begin("/");
+    const embeddedCallback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    embeddedCallback.searchParams.set("state", embedded.protocol.proof!.state);
+    embedded.protocol.authorization = { ...embedded.protocol.authorization, embeddedApp: "skyapp" };
+    await expect(embedded.flow.callback(embeddedCallback, embeddedStarted.browserBinding))
+      .resolves.toMatchObject({ embeddedApp: "skyapp" });
 
     const plain = fixture();
     const plainStarted = await plain.flow.begin("/");
     const plainCallback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
     plainCallback.searchParams.set("state", plain.protocol.proof!.state);
     const result = await plain.flow.callback(plainCallback, plainStarted.browserBinding);
-    expect(result).not.toHaveProperty("nativeHandoff");
+    expect(result).not.toHaveProperty("embeddedApp");
   });
 });
