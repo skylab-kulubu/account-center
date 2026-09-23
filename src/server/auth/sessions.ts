@@ -29,7 +29,11 @@ export class DeletedSessionTokenDecryptError extends Error {
   }
 }
 
-/** The Keycloak session behind a callback outlived `OIDC_UPSTREAM_SESSION_MAX_SECONDS`. */
+/**
+ * The Keycloak session behind a callback has ended: at Keycloak's own
+ * `sky_session_expires`, or, without it, `OIDC_UPSTREAM_SESSION_MAX_SECONDS`
+ * after it began.
+ */
 export class UpstreamSessionExpiredError extends Error {
   constructor() {
     super("Upstream authentication session has expired.");
@@ -59,11 +63,20 @@ export class SessionManager {
     authenticatedAt: Date;
     /**
      * When the Keycloak session behind these tokens began, if not at
-     * `authenticatedAt`. A native handoff opens a fresh web session that
-     * carries the app's original `auth_time`; its lifetime starts with the
-     * bridge, while `auth_time` keeps saying when the person last logged in.
+     * `authenticatedAt` (Keycloak's `sky_session_started`, or the callback
+     * time of a native handoff). A native or Web handoff opens a fresh
+     * Keycloak session that carries the app's original `auth_time`; its
+     * lifetime starts with the handoff, while `auth_time` keeps saying when
+     * the person last logged in.
      */
     upstreamSessionStartedAt?: Date;
+    /**
+     * When Keycloak itself ends the session behind these tokens
+     * (`sky_session_expires`: its max lifespan, remember-me and client
+     * overrides included). When given it replaces the start +
+     * `upstreamSessionMaxSeconds` estimate; the local cap still applies.
+     */
+    upstreamSessionExpiresAt?: Date;
     tokens: OidcTokenSet;
   }) {
     if (!input.subject || input.subject.length > 255) throw new Error("Invalid OIDC subject.");
@@ -74,13 +87,9 @@ export class SessionManager {
     if (!Number.isFinite(authenticatedAtMs) || authenticatedAtMs > now.getTime() + 5_000) {
       throw new Error("Invalid upstream authentication time.");
     }
-    const upstreamStartedAtMs = input.upstreamSessionStartedAt?.getTime() ?? authenticatedAtMs;
-    if (!Number.isFinite(upstreamStartedAtMs) || upstreamStartedAtMs > now.getTime() + 5_000) {
-      throw new Error("Invalid upstream session start time.");
-    }
     const absoluteExpiresAt = new Date(Math.min(
       now.getTime() + this.policy.absoluteTtlSeconds * 1_000,
-      upstreamStartedAtMs + this.policy.upstreamSessionMaxSeconds * 1_000,
+      this.#upstreamSessionEnd(input, authenticatedAtMs, now),
     ));
     if (absoluteExpiresAt <= now) {
       throw new UpstreamSessionExpiredError();
@@ -103,6 +112,23 @@ export class SessionManager {
     });
 
     return { handle, absoluteExpiresAt };
+  }
+
+  #upstreamSessionEnd(
+    input: { upstreamSessionStartedAt?: Date; upstreamSessionExpiresAt?: Date },
+    authenticatedAtMs: number,
+    now: Date,
+  ) {
+    if (input.upstreamSessionExpiresAt) {
+      const expiresAtMs = input.upstreamSessionExpiresAt.getTime();
+      if (!Number.isFinite(expiresAtMs)) throw new Error("Invalid upstream session expiry.");
+      return expiresAtMs;
+    }
+    const upstreamStartedAtMs = input.upstreamSessionStartedAt?.getTime() ?? authenticatedAtMs;
+    if (!Number.isFinite(upstreamStartedAtMs) || upstreamStartedAtMs > now.getTime() + 5_000) {
+      throw new Error("Invalid upstream session start time.");
+    }
+    return upstreamStartedAtMs + this.policy.upstreamSessionMaxSeconds * 1_000;
   }
 
   async #useHandle(

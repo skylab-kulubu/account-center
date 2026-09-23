@@ -8,6 +8,7 @@ import {
   OidcContractError,
   OidcProviderStageError,
   OAuth4WebApiProtocol,
+  upstreamSessionBounds,
   validateAuthenticationTime,
 } from "@/server/auth/oidc-protocol";
 import discovery from "../../../tests/fixtures/keycloak-26.7.4-discovery.json";
@@ -21,6 +22,73 @@ const config = {
 } as AuthConfig;
 
 afterEach(() => vi.unstubAllGlobals());
+
+const signingKeys = generateKeyPair("RS256", { modulusLength: 2048 });
+
+/**
+ * Runs a real code exchange against a stubbed Keycloak whose ID token carries
+ * `idClaims` next to the fixed identity claims, signed with a key the stubbed
+ * JWKS publishes, so every claim reaches the protocol only through signature
+ * validation.
+ */
+async function signedExchange(idClaims: Record<string, unknown>) {
+  const keys = await signingKeys;
+  const publicKey = await exportJWK(keys.publicKey);
+  publicKey.kid = "exchange-test-key";
+  const issuedAt = Math.floor(Date.now() / 1_000);
+  const idToken = await new SignJWT({
+    nonce: "nonce-value",
+    sid: "keycloak-session",
+    ...idClaims,
+  })
+    .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
+    .setIssuer(config.issuer.href)
+    .setAudience(config.clientId)
+    .setSubject("user-id")
+    .setIssuedAt(issuedAt)
+    .setExpirationTime(issuedAt + 300)
+    .sign(keys.privateKey);
+  const accessToken = await new SignJWT({
+    azp: config.clientId,
+    scope: "openid",
+    resource_access: {
+      account: {
+        roles: ["manage-account", "view-profile"],
+      },
+    },
+  })
+    .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
+    .setIssuer(config.issuer.href)
+    .setAudience(["account", "core"])
+    .setSubject("user-id")
+    .setIssuedAt(issuedAt)
+    .setExpirationTime(issuedAt + 300)
+    .sign(keys.privateKey);
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url.includes(".well-known")) return Response.json(discovery);
+    if (url === discovery.token_endpoint) {
+      return Response.json({
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: 300,
+        id_token: idToken,
+      });
+    }
+    if (url === discovery.jwks_uri) return Response.json({ keys: [publicKey] });
+    throw new Error(`Unexpected OIDC request: ${url}`);
+  }));
+  const callbackUrl = new URL("https://my.yildizskylab.com/api/auth/callback");
+  callbackUrl.searchParams.set("code", "authorization-code");
+  callbackUrl.searchParams.set("state", "state-value");
+  callbackUrl.searchParams.set("iss", config.issuer.href);
+  return new OAuth4WebApiProtocol(config).exchange({
+    callbackUrl,
+    state: "state-value",
+    nonce: "nonce-value",
+    codeVerifier: "v".repeat(43),
+  });
+}
 
 describe("OAuth4WebApiProtocol", () => {
   it("sends the minimal exact openid scope in its pushed authorization request", async () => {
@@ -228,74 +296,124 @@ describe("OAuth4WebApiProtocol", () => {
     }
   });
 
+  describe("upstreamSessionBounds", () => {
+    const now = new Date("2026-09-20T01:00:00Z");
+    const authenticatedAt = new Date("2026-09-01T09:00:00Z");
+    const seconds = (date: Date) => date.getTime() / 1_000;
+
+    it("uses a sky_session_started between auth_time and now as the Keycloak session start", () => {
+      for (const started of [
+        authenticatedAt,
+        new Date("2026-09-01T08:59:55Z"),
+        new Date("2026-09-20T00:59:57Z"),
+        new Date("2026-09-20T01:00:05Z"),
+      ]) {
+        expect(upstreamSessionBounds({ sky_session_started: seconds(started) }, authenticatedAt, now))
+          .toEqual({ startedAt: started, claimIgnored: false });
+      }
+    });
+
+    it("uses a sky_session_expires after auth_time and at most 31 days ahead as Keycloak's session end", () => {
+      for (const expires of [
+        new Date("2026-09-01T09:00:01Z"),
+        new Date("2026-09-20T00:00:00Z"),
+        new Date("2026-10-01T09:00:00Z"),
+        new Date("2026-10-21T01:00:00Z"),
+      ]) {
+        expect(upstreamSessionBounds({ sky_session_expires: seconds(expires) }, authenticatedAt, now))
+          .toEqual({ expiresAt: expires, claimIgnored: false });
+      }
+    });
+
+    it("reads nothing and ignores nothing when the claims are absent", () => {
+      expect(upstreamSessionBounds({}, authenticatedAt, now)).toEqual({ claimIgnored: false });
+    });
+
+    it("drops a sky_session_started before auth_time without calling it malformed", () => {
+      // Normal after a prompt=login re-authentication inside a live Keycloak session.
+      expect(upstreamSessionBounds({ sky_session_started: 1_788_253_194 }, authenticatedAt, now))
+        .toEqual({ claimIgnored: false });
+    });
+
+    it.each([
+      ["sky_session_started", "a string", "1789862400"],
+      ["sky_session_started", "a fraction", 1_789_862_400.5],
+      ["sky_session_started", "not a number", Number.NaN],
+      ["sky_session_started", "infinite", Number.POSITIVE_INFINITY],
+      ["sky_session_started", "negative", -1],
+      ["sky_session_started", "in the future", 1_789_866_006],
+      ["sky_session_started", "in milliseconds", 1_789_866_000_000],
+      ["sky_session_expires", "a string", "1790000000"],
+      ["sky_session_expires", "a fraction", 1_790_000_000.5],
+      ["sky_session_expires", "at auth_time", 1_788_253_200],
+      ["sky_session_expires", "before auth_time", 1_788_253_199],
+      ["sky_session_expires", "more than 31 days ahead", 1_792_544_401],
+      ["sky_session_expires", "in milliseconds", 1_790_000_000_000],
+    ])("ignores %s when it is %s and says so", (claim, _label, value) => {
+      expect(upstreamSessionBounds({ [claim]: value }, authenticatedAt, now)).toEqual({ claimIgnored: true });
+    });
+  });
+
   it("accepts auth_time only from a signature-validated ID token", async () => {
-    const keys = await generateKeyPair("RS256", { modulusLength: 2048 });
-    const publicKey = await exportJWK(keys.publicKey);
-    publicKey.kid = "exchange-test-key";
     const issuedAt = Math.floor(Date.now() / 1_000);
-    const makeIdToken = (includeAuthTime: boolean) => new SignJWT({
-      nonce: "nonce-value",
-      sid: "keycloak-session",
-      ...(includeAuthTime ? { auth_time: issuedAt - 60 } : {}),
-    })
-      .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
-      .setIssuer(config.issuer.href)
-      .setAudience(config.clientId)
-      .setSubject("user-id")
-      .setIssuedAt(issuedAt)
-      .setExpirationTime(issuedAt + 300)
-      .sign(keys.privateKey);
-    const makeAccessToken = () => new SignJWT({
-      azp: config.clientId,
-      scope: "openid",
-      resource_access: {
-        account: {
-          roles: ["manage-account", "view-profile"],
-        },
-      },
-    })
-      .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
-      .setIssuer(config.issuer.href)
-      .setAudience(["account", "core"])
-      .setSubject("user-id")
-      .setIssuedAt(issuedAt)
-      .setExpirationTime(issuedAt + 300)
-      .sign(keys.privateKey);
 
-    const exchange = async (includeAuthTime: boolean) => {
-      const idToken = await makeIdToken(includeAuthTime);
-      const accessToken = await makeAccessToken();
-      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-        const url = input instanceof Request ? input.url : String(input);
-        if (url.includes(".well-known")) return Response.json(discovery);
-        if (url === discovery.token_endpoint) {
-          return Response.json({
-            access_token: accessToken,
-            token_type: "Bearer",
-            expires_in: 300,
-            id_token: idToken,
-          });
-        }
-        if (url === discovery.jwks_uri) return Response.json({ keys: [publicKey] });
-        throw new Error(`Unexpected OIDC request: ${url}`);
-      }));
-      const callbackUrl = new URL("https://my.yildizskylab.com/api/auth/callback");
-      callbackUrl.searchParams.set("code", "authorization-code");
-      callbackUrl.searchParams.set("state", "state-value");
-      callbackUrl.searchParams.set("iss", config.issuer.href);
-      return new OAuth4WebApiProtocol(config).exchange({
-        callbackUrl,
-        state: "state-value",
-        nonce: "nonce-value",
-        codeVerifier: "v".repeat(43),
-      });
-    };
-
-    await expect(exchange(true)).resolves.toMatchObject({
+    await expect(signedExchange({ auth_time: issuedAt - 60 })).resolves.toMatchObject({
       subject: "user-id",
       authenticatedAt: new Date((issuedAt - 60) * 1_000),
     });
-    await expect(exchange(false)).rejects.toBeInstanceOf(OidcContractError);
+    await expect(signedExchange({})).rejects.toBeInstanceOf(OidcContractError);
+  });
+
+  it("reads the Keycloak session start and the SkyApp marker from the signature-validated ID token", async () => {
+    const issuedAt = Math.floor(Date.now() / 1_000);
+    const appLogin = issuedAt - 20 * 24 * 60 * 60;
+
+    const handoff = await signedExchange({
+      auth_time: appLogin,
+      sky_session_started: issuedAt - 3,
+      sky_embed: "skyapp",
+    });
+    expect(handoff.authenticatedAt).toEqual(new Date(appLogin * 1_000));
+    expect(handoff.upstreamSessionStartedAt).toEqual(new Date((issuedAt - 3) * 1_000));
+    expect(handoff.embeddedApp).toBe("skyapp");
+
+    const plain = await signedExchange({ auth_time: issuedAt - 60 });
+    expect(plain).not.toHaveProperty("upstreamSessionStartedAt");
+    expect(plain).not.toHaveProperty("upstreamSessionExpiresAt");
+    expect(plain).not.toHaveProperty("embeddedApp");
+    expect(plain).not.toHaveProperty("sessionClaimIgnored");
+  });
+
+  it("reads Keycloak's own session end from the signature-validated ID token", async () => {
+    const issuedAt = Math.floor(Date.now() / 1_000);
+    const rememberedLogin = issuedAt - 20 * 24 * 60 * 60;
+
+    const remembered = await signedExchange({
+      auth_time: rememberedLogin,
+      sky_session_started: rememberedLogin,
+      sky_session_expires: rememberedLogin + 30 * 24 * 60 * 60,
+    });
+    expect(remembered.upstreamSessionExpiresAt).toEqual(new Date((rememberedLogin + 30 * 24 * 60 * 60) * 1_000));
+    expect(remembered).not.toHaveProperty("sessionClaimIgnored");
+  });
+
+  it("reports a malformed session claim it ignored without passing its value on", async () => {
+    const issuedAt = Math.floor(Date.now() / 1_000);
+    const result = await signedExchange({ auth_time: issuedAt - 60, sky_session_expires: "soon" });
+    expect(result.sessionClaimIgnored).toBe(true);
+    expect(result).not.toHaveProperty("upstreamSessionExpiresAt");
+    expect(JSON.stringify({ ...result, tokens: undefined })).not.toContain("soon");
+  });
+
+  it.each([
+    ["another app", "otherapp"],
+    ["a different case", "SkyApp"],
+    ["a boolean", true],
+    ["an array", ["skyapp"]],
+  ])("does not treat sky_embed with %s as SkyApp", async (_label, value) => {
+    const issuedAt = Math.floor(Date.now() / 1_000);
+    const result = await signedExchange({ auth_time: issuedAt - 60, sky_embed: value });
+    expect(result).not.toHaveProperty("embeddedApp");
   });
 
   it("classifies callback validation failures without exposing authorization material", async () => {

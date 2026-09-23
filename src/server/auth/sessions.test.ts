@@ -215,6 +215,55 @@ describe("SessionManager", () => {
     ).rejects.toThrow(/upstream session start/i);
   });
 
+  it("ends a session with Keycloak's own session expiry when the ID token states it", async () => {
+    const now = new Date("2026-09-20T01:00:00Z");
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 9)),
+      Buffer.alloc(32, 8),
+      {
+        absoluteTtlSeconds: 8 * 60 * 60,
+        upstreamSessionMaxSeconds: 8 * 60 * 60,
+        idleTtlSeconds: 600,
+        rotationSeconds: 60,
+        previousHandleGraceSeconds: 30,
+      },
+      () => now,
+    );
+    // A remember-me Keycloak session: logged in 20 days ago, Keycloak keeps it 30 days.
+    const rememberedLogin = new Date("2026-08-31T01:00:00Z");
+
+    await manager.create({
+      subject: "remembered-user",
+      authenticatedAt: rememberedLogin,
+      upstreamSessionStartedAt: rememberedLogin,
+      upstreamSessionExpiresAt: new Date("2026-09-30T01:00:00Z"),
+      tokens,
+    });
+    expect(repository.record?.absoluteExpiresAt).toEqual(new Date("2026-09-20T09:00:00Z"));
+
+    await manager.create({
+      subject: "ending-soon-user",
+      authenticatedAt: new Date("2026-09-19T20:00:00Z"),
+      upstreamSessionStartedAt: now,
+      upstreamSessionExpiresAt: new Date("2026-09-20T02:30:00Z"),
+      tokens,
+    });
+    expect(repository.record?.absoluteExpiresAt).toEqual(new Date("2026-09-20T02:30:00Z"));
+
+    for (const upstreamSessionExpiresAt of [now, new Date("2026-09-20T00:59:59Z")]) {
+      await expect(
+        manager.create({
+          subject: "ended-user",
+          authenticatedAt: new Date("2026-09-19T20:00:00Z"),
+          upstreamSessionExpiresAt,
+          tokens,
+        }),
+      ).rejects.toBeInstanceOf(UpstreamSessionExpiredError);
+    }
+  });
+
   it("stores only a handle hash, encrypts tokens, and rotates due handles", async () => {
     let now = new Date("2026-09-20T00:00:00Z");
     const repository = new MemorySessions();
