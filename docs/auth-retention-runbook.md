@@ -2,7 +2,7 @@
 
 ## Amaç
 
-OIDC transaction, BFF session ve native handoff tablolarında artık doğrulama için kullanılamayan auth materyalinin süresiz kalmasını engeller. Bu bakım işi uygulama prosesinde timer çalıştırmaz; deployment scheduler tarafından tekil bir job olarak başlatılır.
+OIDC transaction, BFF session ve emekli native handoff tablolarında artık doğrulama için kullanılamayan auth materyalinin süresiz kalmasını engeller. Bu bakım işi uygulama prosesinde timer çalıştırmaz; deployment scheduler tarafından tekil bir job olarak başlatılır.
 
 ## Zamanlama ve komut
 
@@ -20,7 +20,7 @@ Komut PostgreSQL transaction-scoped advisory lock alır. Önceki job hâlâ çal
 - Revoke olmuş, absolute expiry'yi veya idle expiry'yi geçmiş session kayıtları 24 saatlik operasyonel grace süresinden sonra şifreli access/refresh token materyaliyle birlikte hard-delete edilir.
 - Aktif kayıtlar ve grace aralığındaki kayıtlar korunur.
 - Süresi dolmuş backchannel logout JTI replay kayıtları ve anonymous auth rate-limit bucket’ları silinir.
-- Tüketilmiş veya süresi dolmuş public native handoff ve internal bridge kayıtları bir saatlik grace sonrasında; süresi dolmuş internal HMAC nonce kayıtları hemen hard-delete edilir.
+- Tüketilmiş veya süresi dolmuş public native handoff ve internal bridge kayıtları bir saatlik grace sonrasında; süresi dolmuş internal HMAC nonce kayıtları hemen hard-delete edilir. Native handoff emekli olduğundan (ADR-0048) bu tablolara artık yazılmaz; `0003` migration'ı ve tablolar ayrı bir silme migration'ına kadar yerinde durur, job son kayıtları boşaltmaya devam eder.
 - `account_action_results` tablosu bu sürümde yazılmaz (parola/TOTP/passkey değişiklikleri artık `my.` içinde sky-account SPI ile yapılır); tablo ve migration `0004`, önceki imaja geri dönüş için yerinde durur. Job süresi dolmuş ya da bir saatten eski tüketilmiş kayıtları yine hard-delete eder; session silindiğinde bağlı kayıtlar cascade ile kalkar. Tablo, önceki imaj geri dönüş hedefi olmaktan çıkınca ayrı bir migration ile kaldırılır.
 - Süresi dolmuş sudo proof’ları (`sudo_token_ciphertext`/`sudo_expires_at`) aktif oturum kayıtlarından hemen scrub edilir; iptal edilmiş veya süresi dolmuş oturumlardaki materyal kaydın kendisiyle birlikte hard-delete edilir.
 - Onaylanmamış hesap silme niyetleri beş dakikalık fresh-auth penceresi biter bitmez şifreli kimlik tokenlarıyla birlikte hard-delete edilir. Core tarafından kabul edilmiş niyetlerde yerel kurtarma receipt'i ve şifreli Core receipt aynı pencerede scrub edilir; yalnız hashlenmiş Core receipt durum yetkisi kendi expiry tarihine kadar kalır, sonra kayıt hard-delete edilir.

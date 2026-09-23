@@ -25,8 +25,6 @@ const valid = {
   OIDC_CLIENT_SECRET: "5wr2CLN30UE1phQPkCVpL2G7x6hM8nRc",
   OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800",
   AUTH_TRUSTED_PROXY: "cloudflare",
-  NATIVE_BRIDGE_HMAC_SECRET: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
-  NATIVE_BRIDGE_MTLS_CLIENT_SHA256: "ab".repeat(32),
   ACCOUNT_ACCESS_GATE_MODE: "enforce",
   ACCOUNT_ACCESS_REDIS_HOST: "account-access-redis.internal",
   ACCOUNT_ACCESS_REDIS_PORT: "6379",
@@ -176,23 +174,12 @@ test("accepts only canonical CIDR blocks as trusted proxy ranges", () => {
   }
 });
 
-test("requires pinned native bridge transport credentials", () => {
-  assert.throws(
-    () => validateEnvironment({ ...valid, NATIVE_BRIDGE_HMAC_SECRET: "c2hvcnQ=" }),
-    /32 bytes/,
-  );
-  assert.throws(
-    () => validateEnvironment({ ...valid, NATIVE_BRIDGE_MTLS_CLIENT_SHA256: "AB".repeat(32) }),
-    /NATIVE_BRIDGE_MTLS_CLIENT_SHA256/,
-  );
-  assert.throws(
-    () => validateEnvironment({ ...valid, NATIVE_BRIDGE_HMAC_SECRET: valid.SESSION_SECRET }),
-    /must differ/,
-  );
-  assert.throws(
-    () => validateEnvironment({ ...valid, NATIVE_BRIDGE_HMAC_SECRET: valid.TOKEN_ENCRYPTION_KEY }),
-    /must differ/,
-  );
+test("ignores the retired native bridge credentials a deployment may still carry", () => {
+  assert.doesNotThrow(() => validateEnvironment({
+    ...valid,
+    NATIVE_BRIDGE_HMAC_SECRET: "c2hvcnQ=",
+    NATIVE_BRIDGE_MTLS_CLIENT_SHA256: "<lowercase-sha256-of-keycloak-client-certificate>",
+  }));
 });
 
 test("requires the complete dedicated Redis contract in enforce mode", () => {

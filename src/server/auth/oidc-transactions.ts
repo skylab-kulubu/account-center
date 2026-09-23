@@ -38,19 +38,7 @@ function validTransactionPayload(payload: OidcTransactionPayload) {
       (payload.purpose !== "ytu-link" || payload.returnTo === "/identity")
     );
   }
-  if (payload.purpose !== undefined && payload.purpose !== "login") return false;
-  const hasExpectedSubject = payload.expectedSubject !== undefined;
-  const hasExpectedAuthenticationTime = payload.expectedAuthenticatedAt !== undefined;
-  if (hasExpectedSubject !== hasExpectedAuthenticationTime) return false;
-  if (!hasExpectedSubject) return true;
-  const expectedTime = new Date(payload.expectedAuthenticatedAt!);
-  return (
-    typeof payload.expectedSubject === "string" &&
-    payload.expectedSubject.length > 0 &&
-    payload.expectedSubject.length <= 255 &&
-    Number.isFinite(expectedTime.getTime()) &&
-    expectedTime.toISOString() === payload.expectedAuthenticatedAt
-  );
+  return payload.purpose === undefined || payload.purpose === "login";
 }
 
 export class OidcTransactionStore {

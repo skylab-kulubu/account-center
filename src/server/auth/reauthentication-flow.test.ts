@@ -217,8 +217,8 @@ describe("Account Center forced re-authentication", () => {
     }
   });
 
-  it("keeps demanding a fresh sudo login when Keycloak repeats a native bridge's old app auth_time", async () => {
-    // A native handoff copies the app's original auth_time onto the web session;
+  it("keeps demanding a fresh sudo login when Keycloak repeats a Web handoff's old app auth_time", async () => {
+    // A Web handoff copies the app's original auth_time onto the Keycloak session;
     // widening that session's lifetime must not make it count as a fresh login.
     const { flow, protocol, sessions } = fixture();
     const started = await flow.beginSudoReauthentication(activeSession, "/security");

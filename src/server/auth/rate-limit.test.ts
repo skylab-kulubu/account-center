@@ -182,10 +182,9 @@ describe("anonymous auth rate limiting", () => {
   });
 
   it.each([
-    ["native_create" as const, 10],
-    ["native_consume" as const, 30],
-    ["native_redeem" as const, 120],
-  ])("enforces the %s native policy atomically at %d requests per minute", async (scope, limit) => {
+    ["login" as const, 10],
+    ["callback" as const, 30],
+  ])("enforces the %s policy atomically at %d requests per minute", async (scope, limit) => {
     const repository = new CapturingRateLimits();
     const limiter = new AnonymousAuthRateLimiter(
       repository,

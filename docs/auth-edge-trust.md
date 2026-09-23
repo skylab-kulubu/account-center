@@ -53,18 +53,12 @@ Blokların host bitleri sıfır olmak zorundadır (`10.0.0.1/8` reddedilir, sess
 
 Dönen değer yalnız bir bucket adıdır. Adres IPv4/IPv6 olarak normalize edilir, endpoint scope'uyla birlikte server secret kullanılarak HMAC-SHA256'dan geçirilir ve yalnız 32-byte digest PostgreSQL'e yazılır. Ham IP hiçbir auth logunda ya da tabloda tutulmaz. `unavailable` ortak ve fail-closed bir bucket'tır; header fallback'iyle saldırgana yeni bucket açılmaz.
 
-## Internal mTLS sınırı
-
-`/internal/v1/native-handoff/redeem` public edge'e açık değildir. Internal ingress doğrulanmış Keycloak client certificate fingerprint'ini `X-Sky-mTLS-Client-SHA256` olarak yeniden yazar; dışarıdan gelen aynı isimli header'ı siler. Uygulama ayrıca observed exact pathname, timestamp, canonical nonce ve exact body digest'i session/token key'lerinden farklı bir HMAC secret ile doğrular; query string'i koşulsuz reddeder. Network/mTLS sınırı kanıtlanmadan fingerprint header güvenilir kabul edilmez.
-
 ## Bütçeler
 
 Login için 60 saniyede 10, callback için 60 saniyede 30 istek sınırı atomik fixed-window sorgusuyla uygulanır. Aşım `429` ve tam pencere sonunu gösteren `Retry-After` döndürür. Süresi biten bucket'lar scheduled auth prune job'ında silinir.
-
-Native handoff create için 60 saniyede 10, public consume için 30, doğrulanmış Keycloak internal redemption kimliği için 120 istek sınırı uygulanır.
 
 Bu bütçeler istemci başınadır. Mod kenar topolojisiyle uyuşmazsa istemci adresi okunamaz, bütün anonim ziyaretçiler tek `unavailable` bucket'ını paylaşır ve platform geneli bir availability sınırı ortaya çıkar; bu yüzden mod dağıtımla birlikte doğrulanır.
 
 ## İstek gövdesi sınırı
 
-Edge ve ingress katmanı genel istek gövdesi üst sınırını uygulamalıdır; uygulama içi kontrol bu dış DoS sınırının yerine geçmez. BFF ayrıca `Content-Length` varlığına güvenmeden stream'i byte bazında keser: `/api/auth/backchannel-logout` URL-encoded gövdesi en fazla 16 KiB, `/api/auth/logout` gövdesi en fazla 1 KiB ve internal native redemption JSON gövdesi 256 byte olabilir. Public native create isteği gövdesizdir. Local logout yalnız tam `application/x-www-form-urlencoded`, internal redemption yalnız tam `application/json` media type'ını kabul eder; multipart, media-type parametresi ve sıkıştırılmış gövde reddedilir. Chunked veya eksik `Content-Length` aynı byte sınırına tabidir. Traefik, varsa Cloudflare ve origin ingress limitleri bu değerlerden düşük olmamalı, fakat genel ürün endpoint'leri için ayrıca makul global üst sınır taşımalıdır.
+Edge ve ingress katmanı genel istek gövdesi üst sınırını uygulamalıdır; uygulama içi kontrol bu dış DoS sınırının yerine geçmez. BFF ayrıca `Content-Length` varlığına güvenmeden stream'i byte bazında keser: `/api/auth/backchannel-logout` URL-encoded gövdesi en fazla 16 KiB, `/api/auth/logout` gövdesi en fazla 1 KiB olabilir. Local logout yalnız tam `application/x-www-form-urlencoded` media type'ını kabul eder; multipart, media-type parametresi ve sıkıştırılmış gövde reddedilir. Chunked veya eksik `Content-Length` aynı byte sınırına tabidir. Traefik, varsa Cloudflare ve origin ingress limitleri bu değerlerden düşük olmamalı, fakat genel ürün endpoint'leri için ayrıca makul global üst sınır taşımalıdır.
