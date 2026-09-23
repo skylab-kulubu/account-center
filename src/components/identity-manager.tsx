@@ -10,6 +10,7 @@ import {
   UserRound,
   UserRoundPen,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -168,8 +169,7 @@ export const identityCopy = {
     schoolMissing: "Kayıtlı değil",
     schoolBadge: "YTÜ hesabından gelir",
     manage: "E-posta ayarları",
-    soon: "Yakında",
-    soonDetail: "Kişisel e-posta ekleme ve birincil adres seçimi yakında bu sayfaya gelecek.",
+    manageDetail: "Kişisel e-posta ekleyebilir ve kulüp postalarının gideceği birincil adresi seçebilirsin.",
   },
   note: "Ad ve kullanıcı adı değişiklikleri Keycloak'taki SKY LAB kimliğinde yapılır ve her SKY LAB uygulamasında geçerlidir. Kullanıcı adı değişikliği kimliğini yeniden doğrulamanı ister; YTÜ hesabını bağlamak seni kısa süreliğine Microsoft girişine götürür.",
 } as const;
@@ -774,7 +774,7 @@ export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) 
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const focusNotice = useRef(returnNotice !== null);
   const returnHandled = useRef(false);
-  const soonId = useId();
+  const rowId = useId();
 
   useEffect(() => {
     if (!returnNotice || returnHandled.current) return;
@@ -880,8 +880,8 @@ export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) 
   // A notice that states the account is linked is shown only while the server's identity agrees.
   const visibleNotices = notices.filter((notice) => !notice.assertsLink || payload.verifiedYtu);
   const cooldown = payload.usernameChangeAvailableAt ? describeCooldown(new Date(payload.usernameChangeAvailableAt)) : null;
-  const cooldownId = `${soonId}-cooldown`;
-  const emailSoonId = `${soonId}-email`;
+  const cooldownId = `${rowId}-cooldown`;
+  const emailManageId = `${rowId}-email`;
 
   return (
     <>
@@ -1033,12 +1033,11 @@ export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) 
           trailing={<StatusBadge>{identityCopy.email.schoolBadge}</StatusBadge>}
         />
         <div className="security-group-actions">
-          <StatusBadge tone="warning">{identityCopy.email.soon}</StatusBadge>
-          <button className="security-action" type="button" disabled aria-describedby={emailSoonId}>
+          <Link className="security-action email-link-action" href="/email" aria-describedby={emailManageId}>
             <Mail aria-hidden="true" size={15} />
             {identityCopy.email.manage}
-          </button>
-          <small id={emailSoonId} className="security-group-actions__hint">{identityCopy.email.soonDetail}</small>
+          </Link>
+          <small id={emailManageId} className="security-group-actions__hint">{identityCopy.email.manageDetail}</small>
         </div>
       </SettingsGroup>
 

@@ -33,6 +33,7 @@ describe("AccountShell", () => {
     expect(Array.from(navigation.querySelectorAll("a"), (link) => link.textContent)).toEqual([
       "Özet",
       "Kimlik",
+      "E-posta ve giriş",
       "Kulüp profili",
       "Giriş ve güvenlik",
       "Oturumlar ve cihazlar",
@@ -40,6 +41,7 @@ describe("AccountShell", () => {
       "Hesabı sil",
     ]);
     expect(screen.getByRole("link", { name: "Kimlik" })).toHaveAttribute("href", "/identity");
+    expect(screen.getByRole("link", { name: "E-posta ve giriş" })).toHaveAttribute("href", "/email");
     expect(screen.getByRole("link", { name: "Yetkilerim" })).toHaveAttribute("href", "/permissions");
     expect(screen.getByRole("link", { name: "Kulüp profili" })).toHaveAttribute("href", "/club-profile");
     expect(screen.getByRole("link", { name: "Giriş ve güvenlik" })).toHaveAttribute("aria-current", "page");

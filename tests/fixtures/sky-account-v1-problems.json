@@ -160,6 +160,21 @@
     "detail": "Kimlik bilgisi bulunamadı.",
     "code": "credential_not_found"
   },
+  "invalid_email_code": {
+    "type": "tag:yildizskylab.com,2026:sky-account:invalid_email_code",
+    "title": "Invalid verification code",
+    "status": 400,
+    "detail": "Doğrulama kodu yanlış. 4 deneme hakkın kaldı.",
+    "code": "invalid_email_code",
+    "attemptsLeft": 4
+  },
+  "no_pending_email_change": {
+    "type": "tag:yildizskylab.com,2026:sky-account:no_pending_email_change",
+    "title": "No verification code is waiting",
+    "status": 404,
+    "detail": "Bekleyen bir doğrulama kodu yok: süresi dolmuş ya da zaten kullanılmış olabilir. Yeni bir kod iste.",
+    "code": "no_pending_email_change"
+  },
   "duplicate_label": {
     "type": "tag:yildizskylab.com,2026:sky-account:duplicate_label",
     "title": "An authenticator with this label exists",
@@ -190,6 +205,27 @@
     "retryAfter": 604800,
     "availableAt": "2026-09-28T13:10:41Z"
   },
+  "email_taken": {
+    "type": "tag:yildizskylab.com,2026:sky-account:email_taken",
+    "title": "E-mail address already in use",
+    "status": 409,
+    "detail": "Bu e-posta adresi başka bir hesapta kayıtlı. Başka bir adres dene.",
+    "code": "email_taken"
+  },
+  "email_not_verified": {
+    "type": "tag:yildizskylab.com,2026:sky-account:email_not_verified",
+    "title": "E-mail address is not verified",
+    "status": 409,
+    "detail": "Bu adres henüz kanıtlanmadı. Kişisel adres için adrese gönderilen kodu gir; okul adresi için YTÜ hesabını bağla.",
+    "code": "email_not_verified"
+  },
+  "no_fallback_email": {
+    "type": "tag:yildizskylab.com,2026:sky-account:no_fallback_email",
+    "title": "No address left to be primary",
+    "status": 409,
+    "detail": "Kişisel e-posta şu anda birincil adresin ve yerine geçebilecek, YTÜ hesabıyla kanıtlanmış bir okul e-postan yok; kaldırılırsa giriş yapabileceğin bir adres kalmaz. Önce YTÜ hesabını bağla ya da başka bir kişisel adres ekle.",
+    "code": "no_fallback_email"
+  },
   "rate_limited": {
     "type": "tag:yildizskylab.com,2026:sky-account:rate_limited",
     "title": "Too many requests",
@@ -211,6 +247,13 @@
     "status": 503,
     "detail": "Passkey doğrulaması şu anda kullanılamıyor.",
     "code": "webauthn_not_configured"
+  },
+  "email_not_sent": {
+    "type": "tag:yildizskylab.com,2026:sky-account:email_not_sent",
+    "title": "Verification mail could not be sent",
+    "status": 503,
+    "detail": "Doğrulama e-postası gönderilemedi. Lütfen daha sonra tekrar dene.",
+    "code": "email_not_sent"
   },
   "internal_error": {
     "type": "tag:yildizskylab.com,2026:sky-account:internal_error",

@@ -8,6 +8,7 @@ const baseUrl = "https://127.0.0.1:3100";
 const routes = [
   { href: "/", heading: "Hesabın, tek ve güvenli bir merkezde." },
   { href: "/identity", heading: "Kimlik" },
+  { href: "/email", heading: "E-posta ve giriş" },
   { href: "/club-profile", heading: "Kulüp profili" },
   { href: "/security", heading: "Giriş ve güvenlik" },
   { href: "/sessions", heading: "Oturumlar ve cihazlar" },
@@ -58,7 +59,7 @@ function collectPageErrors(page: Page) {
   return errors;
 }
 
-test("all seven account routes remain accessible and responsive in the browser matrix", async ({
+test("all eight account routes remain accessible and responsive in the browser matrix", async ({
   browser,
 }, testInfo) => {
   test.setTimeout(120_000);
@@ -111,6 +112,31 @@ test("all seven account routes remain accessible and responsive in the browser m
           }
           await route.continue();
         });
+        await page.route("**/api/account/email", async (route) => {
+          if (route.request().method() === "GET") {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                email: "ada@example.invalid",
+                emailVerified: true,
+                primary: "personal",
+                schoolEmail: "ada@std.yildiz.edu.tr",
+                verifiedYtu: false,
+                personalEmail: "ada@example.invalid",
+                personalEmailVerified: true,
+                csrfToken: "session-bound-csrf",
+              }),
+            });
+            return;
+          }
+          await route.continue();
+        });
+        await page.route("**/api/account/email/pending", (route) => route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ pending: null }),
+        }));
         await page.route("**/api/account/security", async (route) => {
           if (route.request().method() === "GET") {
             await route.fulfill({

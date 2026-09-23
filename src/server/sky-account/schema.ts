@@ -1,9 +1,12 @@
 import "server-only";
 
+import { isEmailCodeAttempts } from "@/lib/email-fields";
 import { COMPACT_JWS } from "@/server/contract-shapes";
 import { SkyAccountContractError } from "@/server/sky-account/problem";
 import type {
+  EmailChangeRequest,
   SkyAccountCredential,
+  SkyAccountPendingEmailChange,
   SkyAccountIdentity,
   SudoGrant,
   TotpSetup,
@@ -113,6 +116,7 @@ export function parseIdentity(value: unknown): SkyAccountIdentity {
     typeof value.emailVerified !== "boolean" ||
     !nullableString(value.schoolEmail, 320) ||
     !nullableString(value.personalEmail, 320) ||
+    (value.personalEmailVerified !== undefined && typeof value.personalEmailVerified !== "boolean") ||
     typeof value.primary !== "string" ||
     !primaryValues.has(value.primary) ||
     typeof value.verifiedYtu !== "boolean" ||
@@ -132,6 +136,8 @@ export function parseIdentity(value: unknown): SkyAccountIdentity {
     emailVerified: value.emailVerified,
     schoolEmail: value.schoolEmail,
     personalEmail: value.personalEmail,
+    // Absent in releases before the e-mail endpoints; only a proven, present address counts.
+    personalEmailVerified: value.personalEmail !== null && value.personalEmailVerified === true,
     primary: value.primary as SkyAccountIdentity["primary"],
     verifiedYtu: value.verifiedYtu,
     nameLocked: value.nameLocked,
@@ -154,6 +160,27 @@ export function parseSudoGrant(value: unknown): SudoGrant {
     throw new SkyAccountContractError();
   }
   return { sudoToken: value.sudoToken, expiresAt: new Date(value.expiresAt) };
+}
+
+export function parseEmailChangeRequest(value: unknown): EmailChangeRequest {
+  if (!isObject(value) || !isoInstant(value.expiresAt)) throw new SkyAccountContractError();
+  return { expiresAt: new Date(value.expiresAt).toISOString() };
+}
+
+export function parsePendingEmailChange(value: unknown): SkyAccountPendingEmailChange {
+  if (
+    !isObject(value) ||
+    !requiredString(value.address, 320) ||
+    !isoInstant(value.expiresAt) ||
+    !isEmailCodeAttempts(value.attemptsLeft)
+  ) {
+    throw new SkyAccountContractError();
+  }
+  return {
+    address: value.address,
+    expiresAt: new Date(value.expiresAt).toISOString(),
+    attemptsLeft: value.attemptsLeft,
+  };
 }
 
 export function parseTotpSetup(value: unknown): TotpSetup {
