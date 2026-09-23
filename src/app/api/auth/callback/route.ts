@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
       request.nextUrl,
       request.cookies.get(OIDC_TRANSACTION_COOKIE)?.value,
       request.cookies.get(SESSION_COOKIE)?.value,
+      requestId,
     );
     if ("sudoReauthentication" in result) {
       const destination = new URL(result.returnTo, services.config.appUrl);
@@ -104,7 +105,7 @@ export async function GET(request: NextRequest) {
     await services.sessions.revokeHandle(request.cookies.get(SESSION_COOKIE)?.value);
     const response = NextResponse.redirect(new URL(result.returnTo, services.config.appUrl), 303);
     setSessionCookie(response, result.handle, result.absoluteExpiresAt);
-    if ("nativeHandoff" in result) setEmbeddedAppCookie(response, result.absoluteExpiresAt);
+    if ("embeddedApp" in result) setEmbeddedAppCookie(response, result.absoluteExpiresAt);
     clearOidcTransactionCookie(response);
     response.headers.set("x-request-id", requestId);
     response.headers.set("Referrer-Policy", "no-referrer");

@@ -34,6 +34,19 @@ export type AuthorizationResult = {
   subject: string;
   keycloakSid?: string;
   authenticatedAt: Date;
+  /**
+   * When the Keycloak session behind these tokens began (`sky_session_started`),
+   * if the ID token says so sanely. A Web handoff opens a fresh Keycloak
+   * session that carries the app's original `auth_time`; absent, the session
+   * is taken to have begun at `authenticatedAt`.
+   */
+  upstreamSessionStartedAt?: Date;
+  /** `sky_session_expires`: when Keycloak itself ends that session, if the ID token says so sanely. */
+  upstreamSessionExpiresAt?: Date;
+  /** A `sky_session_*` claim was present but malformed and was dropped. */
+  sessionClaimIgnored?: true;
+  /** `sky_embed`: a Web handoff opened this session inside SkyApp's WebView. */
+  embeddedApp?: "skyapp";
   tokens: OidcTokenSet;
 };
 
@@ -65,20 +78,73 @@ export class OidcProviderStageError extends Error {
   }
 }
 
+/** A claim in whole epoch seconds that is not in the future (5 s of clock skew allowed). */
+function isPastEpochSeconds(value: unknown, now: Date): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= Math.floor(now.getTime() / 1_000) + 5
+  );
+}
+
 export function validateAuthenticationTime(
   claims: Record<string, unknown>,
   now: Date = new Date(),
 ) {
   const value = claims.auth_time;
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0 ||
-    value > Math.floor(now.getTime() / 1_000) + 5
-  ) {
+  if (!isPastEpochSeconds(value, now)) {
     throw new OidcContractError("OIDC ID token has no valid auth_time.");
   }
   return new Date(value * 1_000);
+}
+
+const MAX_UPSTREAM_SESSION_AHEAD_SECONDS = 31 * 24 * 60 * 60;
+
+/**
+ * The Keycloak session behind a login, from the verified `sky_session_*`
+ * claims of the SKY LAB mapper on `account-center`:
+ *
+ * - `expiresAt` (`sky_session_expires`): when Keycloak ends the session,
+ *   remember-me and client overrides included; after `auth_time` and at most
+ *   31 days ahead. A past value is kept: the session has already ended.
+ * - `startedAt` (`sky_session_started`): when the session began; in the past
+ *   and not before `auth_time` (5 s of clock skew either way). An earlier
+ *   value is normal after a `prompt=login` re-authentication inside a live
+ *   session, which keeps its start but moves `auth_time`; it is dropped and
+ *   the cap keeps starting at `auth_time`.
+ *
+ * `claimIgnored` says a present claim was malformed (wrong type, fraction,
+ * out of range) and dropped, so a broken mapper shows up in the logs.
+ */
+export function upstreamSessionBounds(
+  claims: Record<string, unknown>,
+  authenticatedAt: Date,
+  now: Date = new Date(),
+): { startedAt?: Date; expiresAt?: Date; claimIgnored: boolean } {
+  let claimIgnored = false;
+  const bounds: { startedAt?: Date; expiresAt?: Date } = {};
+
+  const started = claims.sky_session_started;
+  if (isPastEpochSeconds(started, now)) {
+    if (started * 1_000 >= authenticatedAt.getTime() - 5_000) bounds.startedAt = new Date(started * 1_000);
+  } else if (started !== undefined) {
+    claimIgnored = true;
+  }
+
+  const expires = claims.sky_session_expires;
+  if (
+    typeof expires === "number" &&
+    Number.isSafeInteger(expires) &&
+    expires * 1_000 > authenticatedAt.getTime() &&
+    expires <= Math.floor(now.getTime() / 1_000) + MAX_UPSTREAM_SESSION_AHEAD_SECONDS
+  ) {
+    bounds.expiresAt = new Date(expires * 1_000);
+  } else if (expires !== undefined) {
+    claimIgnored = true;
+  }
+
+  return { ...bounds, claimIgnored };
 }
 
 function requiredEndpoint(metadata: oauth.AuthorizationServer, field: keyof oauth.AuthorizationServer) {
@@ -276,6 +342,7 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
     const claims = oauth.getValidatedIdTokenClaims(tokens);
     if (!claims?.sub || !tokens.id_token) throw new OidcContractError("OIDC response has no usable identity.");
     const authenticatedAt = validateAuthenticationTime(claims);
+    const upstreamSession = upstreamSessionBounds(claims, authenticatedAt);
     const keycloakSid = typeof claims.sid === "string" ? claims.sid : undefined;
     try {
       if (tokens.token_type !== "bearer") throw new Error("unsupported token type");
@@ -291,6 +358,10 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
       subject: claims.sub,
       ...(keycloakSid ? { keycloakSid } : {}),
       authenticatedAt,
+      ...(upstreamSession.startedAt ? { upstreamSessionStartedAt: upstreamSession.startedAt } : {}),
+      ...(upstreamSession.expiresAt ? { upstreamSessionExpiresAt: upstreamSession.expiresAt } : {}),
+      ...(upstreamSession.claimIgnored ? { sessionClaimIgnored: true as const } : {}),
+      ...(claims.sky_embed === "skyapp" ? { embeddedApp: "skyapp" as const } : {}),
       tokens: {
         accessToken: tokens.access_token,
         ...(tokens.refresh_token ? { refreshToken: tokens.refresh_token } : {}),

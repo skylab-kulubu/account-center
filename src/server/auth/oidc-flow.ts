@@ -1,7 +1,9 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import * as oauth from "oauth4webapi";
 import { randomOpaqueValue } from "@/server/auth/crypto";
+import { logAuthEvent } from "@/server/auth/logging";
 import { OidcContractError, type OidcProtocol } from "@/server/auth/oidc-protocol";
 import type { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import type { SessionManager } from "@/server/auth/sessions";
@@ -395,6 +397,7 @@ export class OidcFlowService {
     callbackUrl: URL,
     browserBinding: string | undefined,
     sessionHandle?: string,
+    requestId: string = randomUUID(),
   ) {
     const state = callbackUrl.searchParams.get("state");
     if (!state) throw new InvalidOidcTransactionError();
@@ -432,20 +435,30 @@ export class OidcFlowService {
         throw new OidcContractError("OIDC callback changed the native authentication time.");
       }
     }
+    if (authorization.sessionClaimIgnored) {
+      // Before the session is created, so a login the fallback cap refuses still shows the cause.
+      logAuthEvent({ event: "oidc_session_claims", requestId, outcome: "failure", reason: "session_claim_ignored" });
+    }
     await this.accountAccess.requireActive(authorization.subject);
     const nativeHandoff = transaction.expectedAuthenticatedAt !== undefined;
+    // Keycloak opened this web session for the native bridge during this login;
+    // otherwise its start is the ID token's `sky_session_started`, if any.
+    // Keycloak's own `sky_session_expires` outranks both in `SessionManager`.
+    const upstreamSessionStartedAt = nativeHandoff ? this.clock() : authorization.upstreamSessionStartedAt;
     const session = await this.sessions.create({
       subject: authorization.subject,
       keycloakSid: authorization.keycloakSid,
       authenticatedAt: authorization.authenticatedAt,
-      // Keycloak opened this web session for the native bridge during this login.
-      ...(nativeHandoff ? { upstreamSessionStartedAt: this.clock() } : {}),
+      ...(upstreamSessionStartedAt ? { upstreamSessionStartedAt } : {}),
+      ...(authorization.upstreamSessionExpiresAt
+        ? { upstreamSessionExpiresAt: authorization.upstreamSessionExpiresAt }
+        : {}),
       tokens: authorization.tokens,
     });
     return {
       ...session,
       returnTo: transaction.returnTo,
-      ...(nativeHandoff ? { nativeHandoff: true as const } : {}),
+      ...(nativeHandoff || authorization.embeddedApp ? { embeddedApp: "skyapp" as const } : {}),
     };
   }
 
