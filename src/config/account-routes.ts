@@ -3,6 +3,7 @@ import {
   IdCard,
   KeyRound,
   LayoutDashboard,
+  Mail,
   MonitorSmartphone,
   ShieldCheck,
   Trash2,
@@ -12,6 +13,7 @@ import type { LucideIcon } from "lucide-react";
 export type AccountRoutePath =
   | "/"
   | "/identity"
+  | "/email"
   | "/club-profile"
   | "/security"
   | "/sessions"
@@ -47,6 +49,15 @@ export const accountRoutes = [
     title: "Kimlik",
     description: "Adın, kullanıcı adın ve YTÜ hesabının durumu. Doğrulanmış YTÜ hesabında ad YTÜ kaydından gelir; kullanıcı adını 14 günde bir değiştirebilirsin.",
     icon: CircleUserRound,
+    tone: "default",
+  },
+  {
+    href: "/email",
+    navigationLabel: "E-posta ve giriş",
+    documentTitle: "E-posta ve giriş",
+    title: "E-posta ve giriş",
+    description: "Okul e-postan, kişisel e-postan ve kulüp postalarının gittiği birincil adres. Adres eklemek, kaldırmak ve birincil adresi değiştirmek yeniden doğrulama ister.",
+    icon: Mail,
     tone: "default",
   },
   {

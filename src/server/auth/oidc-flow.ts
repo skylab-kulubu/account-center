@@ -33,6 +33,7 @@ export type OidcFlowOptions = {
 const allowedReturnPaths = new Set([
   "/",
   "/identity",
+  "/email",
   "/security",
   "/sessions",
   "/permissions",

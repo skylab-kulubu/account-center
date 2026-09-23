@@ -503,6 +503,12 @@ describe("sudo BFF routes", () => {
       );
     });
 
+    it("returns to the e-mail page the dialog was opened on", async () => {
+      const response = await reauthenticate(formRequest("csrfToken=session-bound-csrf&returnTo=%2Femail", { html: true }));
+      expect(response.status).toBe(303);
+      expect(routeMocks.beginSudoReauthentication).toHaveBeenCalledWith(activeSession, "/email");
+    });
+
     it("falls back to the overview for an unknown return path and refuses foreign origins", async () => {
       await reauthenticate(formRequest("csrfToken=session-bound-csrf&returnTo=https%3A%2F%2Fattacker.invalid%2F"));
       expect(routeMocks.beginSudoReauthentication).toHaveBeenLastCalledWith(activeSession, "/");

@@ -160,8 +160,7 @@ test("a Verified YTÜ account sees the locked name, the YTÜ link and the e-mail
 
   await expect(page.getByText("Birincil e-posta")).toBeVisible();
   await expect(page.getByText("Okul e-postası")).toBeVisible();
-  await expect(page.getByRole("button", { name: "E-posta ayarları" })).toBeDisabled();
-  await expect(page.locator("a[href='/email']")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "E-posta ayarları" })).toHaveAttribute("href", "/email");
   // The page itself never asks for Sudo mode.
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -190,9 +189,8 @@ test("an unverified account edits its name in place; the core mirror's soft fail
   await gotoIdentity(page);
   await expect(page.getByText("YTÜ hesabın bağlı değil")).toBeVisible();
   await expect(page.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
-  // Only the e-mail settings are still "yakında".
-  await expect(page.getByText("Yakında", { exact: true })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "E-posta ayarları" })).toBeDisabled();
+  await expect(page.getByText("Yakında", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "E-posta ayarları" })).toHaveAttribute("href", "/email");
 
   const trigger = page.getByRole("button", { name: "Adı düzenle" });
   await trigger.click();
