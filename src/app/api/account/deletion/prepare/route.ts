@@ -10,6 +10,7 @@ import {
 import { requestCorrelationId } from "@/server/auth/logging";
 import { getAuthServices } from "@/server/auth/services";
 import { requireAccountSpiSudo, sudoRequiredResponse } from "@/server/auth/sudo-gate";
+import type { SudoSpiProof } from "@/server/auth/sudo-gate";
 import { resolveSudoMethods } from "@/server/auth/sudo-methods";
 import {
   accountAccessUnavailableResponse,
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
   if (authorization.status === "blocked") return authenticationRequiredResponse(true);
 
   const session = authorization.value.session;
-  let sudo;
+  let sudo: SudoSpiProof;
   try {
     const gate = await requireAccountSpiSudo(services, session, { requestId });
     if (!gate.ok) return gate.response;
