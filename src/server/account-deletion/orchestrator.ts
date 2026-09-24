@@ -19,6 +19,20 @@ import type {
 
 /** An intent never outlives this, whatever deadline the sudo proof carries (sky-account issues five-minute tokens). */
 const FRESH_AUTH_WINDOW_MS = 5 * 60 * 1_000;
+/**
+ * An intent also ends this long before the sealed bearer does. Core answers
+ * a replay of a key it already accepted without introspecting the sudo proof
+ * (whose Keycloak session the deletion closes), but it still verifies the
+ * bearer, against its own clock; thirty seconds is more than any skew
+ * between the two services.
+ */
+const BEARER_FRESHNESS_MARGIN_MS = 30 * 1_000;
+/**
+ * How long the bearer sealed into an intent should still be valid when
+ * `prepare` fetches it: the longest window plus the margin. The session
+ * refreshes a bearer that would lapse sooner.
+ */
+export const ACCOUNT_DELETION_BEARER_VALIDITY_MS = FRESH_AUTH_WINDOW_MS + BEARER_FRESHNESS_MARGIN_MS;
 const REFERENCE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CORE_RECEIPT_PATTERN = /^adr_[A-Za-z0-9_-]{43}$/;
 const CONFIRMATION = "HESABIMI SİL";
@@ -40,6 +54,21 @@ export class AccountDeletionSudoRejectedError extends Error {
   constructor() {
     super("Core refused the Sudo mode proof for account deletion.");
     this.name = "AccountDeletionSudoRejectedError";
+  }
+}
+
+/**
+ * Core refused the sealed credentials on a recovery replay, after an earlier
+ * attempt whose answer was lost. Core answers a replay of a key it already
+ * accepted from the stored request, so the refusal is about the credentials,
+ * not the deletion: whether the earlier attempt was accepted is unknown, and
+ * the same credentials cannot find out. The person is told the request may
+ * already be under way, never that nothing changed.
+ */
+export class AccountDeletionOutcomeUnknownError extends Error {
+  constructor() {
+    super("Core refused the credentials sealed for account deletion recovery.");
+    this.name = "AccountDeletionOutcomeUnknownError";
   }
 }
 
@@ -66,6 +95,8 @@ export function accountDeletionErrorKind(error: unknown) {
       return "sudo_rejected" as const;
     case "AccountDeletionUnavailableError":
       return "unavailable" as const;
+    case "AccountDeletionOutcomeUnknownError":
+      return "outcome_unknown" as const;
     default:
       return null;
   }
@@ -94,13 +125,15 @@ export class AccountDeletionOrchestrator {
   /**
    * Seals the bearer and the session's Sudo mode proof into a durable intent
    * awaiting the typed confirmation. The intent lives no longer than the
-   * proof (minus the vault's freshness margin), so neither the confirmation
-   * nor a recovery replay can present a sudo token core would call expired.
+   * proof (minus the vault's freshness margin) nor the bearer (minus
+   * BEARER_FRESHNESS_MARGIN_MS), so neither the confirmation nor a recovery
+   * replay can present a sudo token or a bearer core would call expired.
    */
   async createReauthenticatedIntent(input: ReauthenticatedDeletionInput) {
     const now = this.clock();
     const deadline = Math.min(
       input.sudo.expiresAt.getTime() - SUDO_FRESHNESS_MARGIN_SECONDS * 1_000,
+      input.accessTokenExpiresAt.getTime() - BEARER_FRESHNESS_MARGIN_MS,
       now.getTime() + FRESH_AUTH_WINDOW_MS,
     );
     if (!Number.isFinite(deadline) || deadline <= now.getTime()) {
@@ -289,10 +322,17 @@ export class AccountDeletionOrchestrator {
     let recorded: { saved: AcceptedAccountDeletionIntent; receipt: string };
     try {
       if (intent.stage === "awaiting_confirmation") {
-        current = await this.core.initiate({
-          ...this.#decryptRecoveryTokens(intent),
-          idempotencyKey: this.#idempotencyKey(intent.id),
-        });
+        try {
+          current = await this.core.initiate({
+            ...this.#decryptRecoveryTokens(intent),
+            idempotencyKey: this.#idempotencyKey(intent.id),
+          });
+        } catch (error) {
+          if (error instanceof CoreAccountDeletionUnauthorizedError) {
+            throw new AccountDeletionOutcomeUnknownError();
+          }
+          throw error;
+        }
         await this.#revokeLocalSessionsBeforeAccepting(intent);
         recorded = await this.#acceptCore(intent, current);
       } else if (intent.stage === "local_recovery") {
@@ -307,7 +347,10 @@ export class AccountDeletionOrchestrator {
         recorded = await this.#recordCoreReceipt(intent, current);
       }
     } catch (error) {
-      if (error instanceof AccountDeletionUnavailableError) throw error;
+      if (
+        error instanceof AccountDeletionUnavailableError ||
+        error instanceof AccountDeletionOutcomeUnknownError
+      ) throw error;
       throw new AccountDeletionUnavailableError();
     }
     return { ...publicStatus(recorded.saved), receipt: recorded.receipt };

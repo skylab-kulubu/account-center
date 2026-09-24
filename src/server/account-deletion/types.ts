@@ -115,11 +115,13 @@ export type SubjectSessionRevoker = {
 
 /**
  * What `POST .../deletion/prepare` hands the orchestrator: the Account REST
- * bearer and the session's current Sudo mode proof, read through the same
- * gate every `X-Sky-Sudo` route uses (`requireAccountSpiSudo`).
+ * bearer with its own expiry, and the session's current Sudo mode proof,
+ * read through the same gate every `X-Sky-Sudo` route uses
+ * (`requireAccountSpiSudo`).
  */
 export type ReauthenticatedDeletionInput = {
   session: ActiveSession;
   accessToken: string;
+  accessTokenExpiresAt: Date;
   sudo: { sudoToken: string; expiresAt: Date };
 };

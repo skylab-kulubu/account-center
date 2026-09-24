@@ -1692,6 +1692,10 @@ a.settings-row:hover .settings-row__chevron {
   margin-top: 20px;
 }
 
+.deletion-status-card .secondary-button {
+  margin-top: 10px;
+}
+
 .deletion-status-card__note {
   width: 100%;
   padding: 10px 12px;

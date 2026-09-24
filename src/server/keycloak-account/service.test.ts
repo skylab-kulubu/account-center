@@ -158,6 +158,34 @@ describe("AccountReadService", () => {
     expect(current.oidc.refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("hands account deletion a bearer that outlives its recovery window, with the bearer's own expiry", async () => {
+    const seconds = Math.floor(now.getTime() / 1_000);
+    // Still valid for ten minutes: it covers a five-and-a-half-minute window as it is.
+    const longLived = jwt({ exp: seconds + 600 });
+    const current = fixture(tokenSet(longLived));
+    await expect(current.service.accessTokenWithExpiry(session, { minimumValidityMs: 330_000 }))
+      .resolves.toEqual({ accessToken: longLived, expiresAt: new Date((seconds + 600) * 1_000) });
+    expect(current.oidc.refresh).not.toHaveBeenCalled();
+
+    // Four minutes left is current for any other caller, but it would lapse
+    // inside the window, so the session refreshes it before it is sealed.
+    const shortLived = tokenSet(jwt({ exp: seconds + 240 }));
+    const refreshed = jwt({ exp: seconds + 900 });
+    const expiring = fixture(shortLived);
+    expiring.oidc.refresh.mockResolvedValueOnce(tokenSet(refreshed));
+    await expect(expiring.service.accessTokenWithExpiry(session, { minimumValidityMs: 330_000 }))
+      .resolves.toEqual({ accessToken: refreshed, expiresAt: new Date((seconds + 900) * 1_000) });
+    expect(expiring.oidc.refresh).toHaveBeenCalledWith(shortLived);
+    expect(expiring.vault.replaceTokens).toHaveBeenCalledTimes(1);
+
+    // A realm that issues shorter tokens than the window gets one refresh; the
+    // caller bounds its window by the expiry it is given.
+    const shortRealm = fixture(shortLived);
+    await expect(shortRealm.service.accessTokenWithExpiry(session, { minimumValidityMs: 900_000 }))
+      .resolves.toMatchObject({ expiresAt: new Date((seconds + 600) * 1_000) });
+    expect(shortRealm.oidc.refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("reads groups and linked accounts through the same refreshing token path", async () => {
     const { service, adapter } = fixture();
     await expect(service.groups(session)).resolves.toEqual([
