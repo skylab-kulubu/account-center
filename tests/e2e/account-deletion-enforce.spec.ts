@@ -19,6 +19,12 @@ import {
  * the way core's introspection does and records which proof headers arrived.
  */
 
+// One worker, in file order: on a cold dev server a route compiled for one
+// test reloads the pages another test has open (see the account-ui-matrix
+// project), and these tests each hold a confirmation page open while the
+// others compile the deletion routes.
+test.describe.configure({ mode: "default" });
+
 const baseUrl = "https://127.0.0.1:3102";
 const mockCoreUrl = `https://127.0.0.1:${process.env.E2E_ERASURE_MOCK_CORE_PORT ?? "3103"}`;
 const sessionCookieName = "__Host-sky-account";
@@ -149,6 +155,76 @@ test("deletes with the Sudo mode proof alone, without a Keycloak step", async ({
   expect([browserVisible, ...fixture.tokenCanaries].join("\n")).not.toContain("adr_");
   // The sudo token travels from the session record to core and nowhere else.
   expect(browserVisible).not.toContain(fixture.sudoToken);
+  expect(errors).toEqual([]);
+});
+
+// A7d: `prepare` gives the browser the local receipt before the typed
+// confirmation (a lost submit answer must stay recoverable). Neither a
+// same-site read of the status endpoint nor a cross-site link to it may turn
+// that receipt into a deletion; only the typed confirmation does.
+test("the receipt from prepare never starts a deletion before the typed confirmation", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `deletion-unconfirmed-${testInfo.retry}`);
+  const errors = failOnPageErrors(page);
+  await mockActiveSudo(page);
+  // Load the public status page (and its endpoint) first, before the delete
+  // page opens, so a cold dev server never rebuilds under the flow.
+  const sameSite = await context.newPage();
+  await sameSite.goto("/account-deletion");
+  await expect(sameSite.getByRole("heading", { name: "Silme isteği bulunamadı" })).toBeVisible();
+  await gotoDeletePage(page);
+
+  const prepare = page.waitForResponse((response) => response.url().endsWith("/api/account/deletion/prepare"));
+  await page.getByRole("button", { name: "Hesabımı silmek istiyorum" }).click();
+  expect((await prepare).status()).toBe(200);
+  await expect(page.getByLabel("Onay metni")).toBeVisible();
+
+  // Same site, now holding the receipt: the public status page, and a
+  // direct read of its endpoint.
+  const statusRead = sameSite.waitForResponse((response) => response.url().endsWith("/api/account/deletion/status"));
+  await sameSite.reload();
+  expect((await statusRead).status()).toBe(404);
+  await expect(sameSite.getByRole("heading", { name: "Silme isteği bulunamadı" })).toBeVisible();
+  expect(await sameSite.evaluate(async () => (
+    await fetch("/api/account/deletion/status", { cache: "no-store", credentials: "same-origin" })
+  ).status)).toBe(404);
+  await sameSite.close();
+
+  // Cross site: a link on another site opens the status endpoint. The
+  // receipt cookie is SameSite=Strict, so it does not even travel.
+  const attacker = await context.newPage();
+  await attacker.route("https://attacker.example/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><a id="go" href="${baseUrl}/api/account/deletion/status">devam</a>`,
+  }));
+  await attacker.goto("https://attacker.example/");
+  const crossSite = attacker.waitForResponse((response) => response.url() === `${baseUrl}/api/account/deletion/status`);
+  await attacker.click("#go");
+  const crossSiteResponse = await crossSite;
+  expect(crossSiteResponse.status()).toBe(404);
+  expect((await crossSiteResponse.request().allHeaders()).cookie ?? "")
+    .not.toContain("__Host-sky-account-delete-receipt");
+  await attacker.close();
+
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    expect(await coreIntakes(inspector, fixture.subject)).toEqual([]);
+
+    // The probes left the pending confirmation intact: typing it still deletes.
+    const confirmation = page.getByLabel("Onay metni");
+    const submit = page.getByRole("button", { name: "Hesabımı kalıcı olarak sil" });
+    await expect(async () => {
+      await confirmation.fill("HESABIMI SİL");
+      await expect(submit).toBeEnabled({ timeout: 1_000 });
+    }).toPass();
+    await submit.click();
+    await expect(page).toHaveURL(/\/account-deletion$/);
+    await expect(page.getByRole("heading", { name: "Silme isteğin sırada" })).toBeVisible();
+    expect(await coreIntakes(inspector, fixture.subject)).toEqual([
+      { sudoProof: true, legacyReauthToken: false, outcome: "accepted" },
+    ]);
+  } finally {
+    await inspector.dispose();
+  }
   expect(errors).toEqual([]);
 });
 

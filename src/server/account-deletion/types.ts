@@ -40,6 +40,11 @@ export type AwaitingConfirmationIntent = IntentIdentity & {
   proofHash: Buffer;
   localReceiptHash: Buffer;
   encryptedIdentityTokens: string;
+  /**
+   * When submit recorded the typed confirmation under the current proof, or
+   * null. Only a confirmed intent may reach core from the status route.
+   */
+  confirmedAt: Date | null;
 };
 
 type AcceptedIntentBase = IntentIdentity & {
@@ -81,6 +86,14 @@ export interface AccountDeletionRepository {
     now: Date,
   ): Promise<AwaitingConfirmationIntent | null>;
   findByReceipt(receiptHash: Buffer, now: Date): Promise<AccountDeletionIntent | null>;
+  /**
+   * Durably records the typed confirmation for this intent under its current
+   * proof, session and local receipt, inside the fresh window. Null when the
+   * intent no longer matches. A repeated confirmation keeps the first time.
+   */
+  confirm(intent: AwaitingConfirmationIntent, now: Date): Promise<AwaitingConfirmationIntent | null>;
+  /** Voids the confirmation recorded under this intent's proof, if any. */
+  withdrawConfirmation(intent: AwaitingConfirmationIntent): Promise<void>;
   acceptCore(
     intent: AwaitingConfirmationIntent,
     status: CoreAccountDeletionStatus,

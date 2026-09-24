@@ -72,6 +72,19 @@ export class AccountDeletionOutcomeUnknownError extends Error {
   }
 }
 
+/**
+ * The status route was asked about an intent whose typed confirmation was
+ * never recorded. The local receipt reaches the browser at `prepare`, before
+ * the confirmation, so it alone must never start a deletion: the route
+ * answers as if there were no request and core is not called.
+ */
+export class AccountDeletionUnconfirmedError extends Error {
+  constructor() {
+    super("The account deletion intent has not been confirmed.");
+    this.name = "AccountDeletionUnconfirmedError";
+  }
+}
+
 export class AccountDeletionUnavailableError extends Error {
   constructor() {
     super("Account deletion is temporarily unavailable.");
@@ -97,6 +110,8 @@ export function accountDeletionErrorKind(error: unknown) {
       return "unavailable" as const;
     case "AccountDeletionOutcomeUnknownError":
       return "outcome_unknown" as const;
+    case "AccountDeletionUnconfirmedError":
+      return "unconfirmed" as const;
     default:
       return null;
   }
@@ -157,6 +172,7 @@ export class AccountDeletionOrchestrator {
         { accessToken: input.accessToken, sudoToken: input.sudo.sudoToken },
         this.#identityRecoveryAad(input.session.id, proofHash),
       ),
+      confirmedAt: null,
       freshUntil: new Date(deadline),
       createdAt: now,
       updatedAt: now,
@@ -293,24 +309,38 @@ export class AccountDeletionOrchestrator {
     );
     if (!intent.subjectDigest.equals(expectedSubject)) throw new AccountDeletionProofError();
 
+    // The typed confirmation is recorded before core hears anything. It is
+    // what lets the status route recover this intent if core's answer is
+    // lost, and nothing else does (A7d).
+    let confirmed: AwaitingConfirmationIntent | null;
+    try {
+      confirmed = await this.repository.confirm(intent, this.clock());
+    } catch {
+      throw new AccountDeletionUnavailableError();
+    }
+    if (!confirmed) throw new AccountDeletionProofError();
+
     let status: CoreAccountDeletionStatus;
     try {
       status = await this.core.initiate({
-        ...this.#decryptRecoveryTokens(intent),
-        idempotencyKey: this.#idempotencyKey(intent.id),
+        ...this.#decryptRecoveryTokens(confirmed),
+        idempotencyKey: this.#idempotencyKey(confirmed.id),
       });
     } catch (error) {
       if (error instanceof AccountDeletionUnavailableError) throw error;
       // A refusal is certain (core checks the credentials before anything
       // durable happens); every other failure may hide an acceptance and stays
-      // on the idempotent recovery path.
+      // on the idempotent recovery path. The refused confirmation is voided,
+      // so the status route cannot replay what the person was told changed
+      // nothing; if that write fails, a replay only meets the same refusal.
       if (error instanceof CoreAccountDeletionUnauthorizedError) {
+        await this.repository.withdrawConfirmation(confirmed).catch(() => undefined);
         throw new AccountDeletionSudoRejectedError();
       }
       throw new AccountDeletionUnavailableError();
     }
-    await this.#revokeLocalSessionsBeforeAccepting(intent);
-    const { saved, receipt } = await this.#acceptCore(intent, status);
+    await this.#revokeLocalSessionsBeforeAccepting(confirmed);
+    const { saved, receipt } = await this.#acceptCore(confirmed, status);
     return { ...publicStatus(saved), receipt };
   }
 
@@ -318,6 +348,11 @@ export class AccountDeletionOrchestrator {
     if (!REFERENCE_PATTERN.test(receipt) && !CORE_RECEIPT_PATTERN.test(receipt)) return null;
     const intent = await this.repository.findByReceipt(sha256(receipt), this.clock());
     if (!intent) return null;
+    // Only a submit that recorded the typed confirmation is recovered; the
+    // local receipt alone exists from `prepare` on and proves nothing.
+    if (intent.stage === "awaiting_confirmation" && intent.confirmedAt === null) {
+      throw new AccountDeletionUnconfirmedError();
+    }
     let current: CoreAccountDeletionStatus;
     let recorded: { saved: AcceptedAccountDeletionIntent; receipt: string };
     try {
