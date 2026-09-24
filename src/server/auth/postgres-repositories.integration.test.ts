@@ -23,6 +23,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "0004_account_action_results.sql",
       "0005_account_deletion_intents.sql",
       "0006_account_sudo.sql",
+      "0007_account_deletion_confirmations.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);
@@ -31,7 +32,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
 
   beforeEach(async () => {
     await pool.query(
-      "TRUNCATE account_deletion_intents, account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_native_handoffs, account_native_bridges, account_native_bridge_request_nonces",
+      "TRUNCATE account_deletion_confirmations, account_deletion_intents, account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_native_handoffs, account_native_bridges, account_native_bridge_request_nonces",
     );
   });
 
@@ -354,6 +355,12 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
         Buffer.alloc(32, 82), Buffer.alloc(32, 83), Buffer.alloc(32, 84),
       ],
     );
+    // A stale intent's typed confirmation goes with it.
+    await pool.query(
+      `INSERT INTO account_deletion_confirmations (intent_id, proof_hash, confirmed_at)
+       VALUES ('a1111111-1111-4111-8111-111111111111', $1, now() - interval '5 minutes')`,
+      [Buffer.alloc(32, 77)],
+    );
     const maintenance = await readFile(resolve(process.cwd(), "maintenance/prune-auth.sql"), "utf8");
     const result = await pool.query(maintenance);
     expect(result.rows[0]?.deleted_transactions).toBe(1);
@@ -381,6 +388,8 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "SELECT action, outcome FROM account_action_results",
     );
     expect(remainingActionResults.rows).toEqual([{ action: "passkey", outcome: "cancelled" }]);
+    await expect(pool.query("SELECT count(*)::integer AS count FROM account_deletion_confirmations"))
+      .resolves.toMatchObject({ rows: [{ count: 0 }] });
     const remainingDeletionIntents = await pool.query(
       `SELECT id, local_receipt_hash, recovery_kind, recovery_ciphertext
          FROM account_deletion_intents

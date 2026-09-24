@@ -12,9 +12,11 @@ import {
   SESSION_COOKIE,
 } from "@/server/auth/http";
 import {
+  AccountDeletionOutcomeUnknownError,
   AccountDeletionProofError,
   AccountDeletionSudoRejectedError,
   AccountDeletionUnavailableError,
+  AccountDeletionUnconfirmedError,
 } from "@/server/account-deletion/orchestrator";
 import { SudoRequiredError } from "@/server/auth/sudo";
 
@@ -29,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   requireFreshSudo: vi.fn(),
   clearSudo: vi.fn(),
   accessToken: vi.fn(),
+  accessTokenWithExpiry: vi.fn(),
   identity: vi.fn(),
 }));
 
@@ -45,7 +48,7 @@ vi.mock("@/server/auth/services", () => ({
       clientId: "account-center",
     },
     sessionAccess: { authenticateMutation: mocks.authenticateMutation },
-    account: { accessToken: mocks.accessToken },
+    account: { accessToken: mocks.accessToken, accessTokenWithExpiry: mocks.accessTokenWithExpiry },
     skyAccount: { identity: mocks.identity },
     sudo: { requireFreshSudo: mocks.requireFreshSudo, clearSudo: mocks.clearSudo },
     accountDeletion: {
@@ -75,6 +78,7 @@ const coreReceipt = `adr_${"r".repeat(43)}`;
 /** The session's sky-account sudo token: opaque to the BFF and never shown to the browser. */
 const sudoToken = "eyJhbGciOiJIUzUxMiJ9.eyJ0eXAiOiJza3ktc3VkbyJ9.signature-fixture";
 const sudoExpiresAt = new Date(Date.now() + 4 * 60_000);
+const bearerExpiresAt = new Date(Date.now() + 5 * 60_000);
 
 function mutation(path: string, body = "csrfToken=csrf", cookie = `${SESSION_COOKIE}=${handle}`) {
   return new NextRequest(`https://my.yildizskylab.com${path}`, {
@@ -156,6 +160,10 @@ describe("account deletion BFF routes", () => {
       credentials: { password: true, passkeys: [], totp: [] },
     });
     mocks.accessToken.mockResolvedValue("account-rest-access-token");
+    mocks.accessTokenWithExpiry.mockResolvedValue({
+      accessToken: "account-rest-access-token",
+      expiresAt: bearerExpiresAt,
+    });
     mocks.clearSudo.mockResolvedValue(undefined);
     mocks.createReauthenticatedIntent.mockResolvedValue({
       proofReference: proof,
@@ -170,13 +178,27 @@ describe("account deletion BFF routes", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toEqual({ step: "confirm" });
+    // The bearer is sealed for the whole recovery window, so the session
+    // hands over one that outlives it (five minutes plus the thirty-second
+    // margin), refreshed if the current one would lapse sooner, and its expiry.
+    expect(mocks.accessTokenWithExpiry).toHaveBeenCalledWith(activeSession, { minimumValidityMs: 330_000 });
+    expect(mocks.accessToken).not.toHaveBeenCalled();
     expect(mocks.createReauthenticatedIntent).toHaveBeenCalledWith({
       session: activeSession,
       accessToken: "account-rest-access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { method: "password", sudoToken, expiresAt: sudoExpiresAt },
     });
     expect(response.cookies.get(ACCOUNT_DELETION_PROOF_COOKIE)?.value).toBe(proof);
     expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)?.value).toBe(localReceipt);
+    // The receipt is the only credential the sessionless status route reads,
+    // so no cross-site request carries it, not even a top-level navigation.
+    expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)).toMatchObject({
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+    });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(JSON.stringify(body)).not.toContain(sudoToken);
     expect(response.headers.get("set-cookie")).not.toContain(sudoToken);
@@ -265,6 +287,7 @@ describe("account deletion BFF routes", () => {
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("");
     expect(response.cookies.get(ACCOUNT_DELETION_PROOF_COOKIE)?.value).toBe("");
     expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)?.value).toBe(coreReceipt);
+    expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)?.sameSite).toBe("strict");
   });
 
   it("redirects an expired browser proof to branded recovery but preserves API 400 semantics", async () => {
@@ -416,6 +439,50 @@ describe("account deletion BFF routes", () => {
       csrfToken: "receipt-csrf",
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("says the outcome is unknown, and keeps the receipt, when core refuses a recovery replay", async () => {
+    mocks.status.mockRejectedValueOnce(new AccountDeletionOutcomeUnknownError());
+    const response = await status(new NextRequest(
+      "https://my.yildizskylab.com/api/account/deletion/status",
+      { headers: { cookie: `${ACCOUNT_DELETION_RECEIPT_COOKIE}=${localReceipt}` } },
+    ));
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "outcome_unknown" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("set-cookie")).toBeNull();
+
+    // Recognised by name, like every orchestrator error.
+    const foreign = new Error("from another module copy");
+    foreign.name = "AccountDeletionOutcomeUnknownError";
+    mocks.status.mockRejectedValueOnce(foreign);
+    expect((await status(new NextRequest(
+      "https://my.yildizskylab.com/api/account/deletion/status",
+      { headers: { cookie: `${ACCOUNT_DELETION_RECEIPT_COOKIE}=${localReceipt}` } },
+    ))).status).toBe(409);
+  });
+
+  // A7d: the local receipt exists from `prepare` on, but it is not a
+  // confirmation. Status answers an unconfirmed intent like a missing one and
+  // keeps the cookie, which the pending submit still needs.
+  it("answers an unconfirmed intent as not found and leaves its receipt alone", async () => {
+    for (const site of ["same-origin", "cross-site"]) {
+      mocks.status.mockRejectedValueOnce(new AccountDeletionUnconfirmedError());
+      const response = await status(new NextRequest(
+        "https://my.yildizskylab.com/api/account/deletion/status",
+        {
+          headers: {
+            cookie: `${ACCOUNT_DELETION_RECEIPT_COOKIE}=${localReceipt}`,
+            "sec-fetch-site": site,
+            "sec-fetch-mode": site === "cross-site" ? "navigate" : "cors",
+          },
+        },
+      ));
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ error: "not_found" });
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("set-cookie")).toBeNull();
+    }
   });
 
   it("retries manual intervention only with exact origin and receipt-bound CSRF", async () => {

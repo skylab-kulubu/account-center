@@ -36,6 +36,7 @@ describe("readiness route", () => {
         "0004_account_action_results.sql",
         "0005_account_deletion_intents.sql",
         "0006_account_sudo.sql",
+        "0007_account_deletion_confirmations.sql",
       ]],
     );
   });

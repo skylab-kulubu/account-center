@@ -8,9 +8,11 @@ import {
 } from "@/server/account-deletion/core-gateway";
 import {
   AccountDeletionOrchestrator,
+  AccountDeletionOutcomeUnknownError,
   AccountDeletionProofError,
   AccountDeletionSudoRejectedError,
   AccountDeletionUnavailableError,
+  AccountDeletionUnconfirmedError,
 } from "@/server/account-deletion/orchestrator";
 import type {
   AcceptedAccountDeletionIntent,
@@ -71,6 +73,7 @@ class MemoryDeletionRepository implements AccountDeletionRepository {
         ...input,
         id: this.intent.id,
         createdAt: this.intent.createdAt,
+        confirmedAt: null,
       };
       this.intent = refreshed;
       return refreshed;
@@ -87,6 +90,27 @@ class MemoryDeletionRepository implements AccountDeletionRepository {
       this.intent.freshUntil <= at
     ) return null;
     return this.intent;
+  }
+
+  async confirm(awaiting: AwaitingConfirmationIntent, at: Date) {
+    if (
+      this.intent?.stage !== "awaiting_confirmation" ||
+      this.intent.id !== awaiting.id ||
+      !this.intent.proofHash.equals(awaiting.proofHash) ||
+      this.intent.sessionId !== awaiting.sessionId ||
+      !this.intent.localReceiptHash.equals(awaiting.localReceiptHash) ||
+      this.intent.freshUntil <= at
+    ) return null;
+    this.intent = { ...this.intent, confirmedAt: this.intent.confirmedAt ?? at };
+    return this.intent;
+  }
+
+  async withdrawConfirmation(awaiting: AwaitingConfirmationIntent) {
+    if (
+      this.intent?.stage === "awaiting_confirmation" &&
+      this.intent.id === awaiting.id &&
+      this.intent.proofHash.equals(awaiting.proofHash)
+    ) this.intent = { ...this.intent, confirmedAt: null };
   }
 
   async findByReceipt(receiptHash: Buffer, at: Date) {
@@ -113,7 +137,8 @@ class MemoryDeletionRepository implements AccountDeletionRepository {
     if (
       this.intent?.stage !== "awaiting_confirmation" ||
       this.intent.id !== awaiting.id ||
-      !this.intent.proofHash.equals(awaiting.proofHash)
+      !this.intent.proofHash.equals(awaiting.proofHash) ||
+      this.intent.confirmedAt === null
     ) return null;
     const accepted: LocalRecoveryIntent = {
       id: awaiting.id,
@@ -195,6 +220,9 @@ function fixture(
   return { repository, core, revokeSubjectSessionsBySessionId, orchestrator };
 }
 
+/** A bearer the session has just refreshed: it outlives any recovery window. */
+const bearerExpiresAt = new Date("2026-09-20T12:10:00.000Z");
+
 /** The session's Sudo mode proof as the vault hands it out: opaque sky-account material and its deadline. */
 const sudoProof = {
   sudoToken: "sudo-header.sudo-claims.sudo-signature",
@@ -205,6 +233,7 @@ async function reauthenticate(orchestrator: AccountDeletionOrchestrator) {
   return orchestrator.createReauthenticatedIntent({
     session,
     accessToken: "fresh-server-only-user-access-token",
+    accessTokenExpiresAt: bearerExpiresAt,
     sudo: sudoProof,
   });
 }
@@ -229,31 +258,157 @@ describe("account deletion orchestration", () => {
     await expect(orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T12:15:00.000Z") },
     })).resolves.toMatchObject({ freshUntil: new Date("2026-09-20T12:05:00.000Z") });
 
     await expect(orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T12:00:05.000Z") },
     })).rejects.toBeInstanceOf(AccountDeletionProofError);
     await expect(orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { ...sudoProof, expiresAt: new Date(Number.NaN) },
     })).rejects.toBeInstanceOf(AccountDeletionProofError);
+  });
+
+  it("never lets the recovery window outlive the sealed bearer", async () => {
+    const { orchestrator, repository } = fixture();
+    const sealed = (accessTokenExpiresAt: Date) => orchestrator.createReauthenticatedIntent({
+      session,
+      accessToken: "access-token",
+      accessTokenExpiresAt,
+      sudo: sudoProof,
+    });
+
+    // Thirty seconds of margin before the bearer's own expiry, more than any
+    // clock skew between Account Center and core: a replay core answers
+    // before it introspects the sudo proof still needs a bearer it accepts.
+    await expect(sealed(new Date("2026-09-20T12:03:00.000Z")))
+      .resolves.toMatchObject({ freshUntil: new Date("2026-09-20T12:02:30.000Z") });
+    expect(repository.intent?.freshUntil).toEqual(new Date("2026-09-20T12:02:30.000Z"));
+    // A bearer that outlives the sudo proof leaves the proof's own bound.
+    await expect(sealed(new Date("2026-09-20T12:04:30.000Z")))
+      .resolves.toMatchObject({ freshUntil: new Date("2026-09-20T12:03:55.000Z") });
+
+    for (const lapsing of [
+      new Date("2026-09-20T12:00:30.000Z"),
+      new Date("2026-09-20T11:59:00.000Z"),
+      new Date(Number.NaN),
+    ]) {
+      await expect(sealed(lapsing)).rejects.toBeInstanceOf(AccountDeletionProofError);
+    }
   });
 
   it("never prepares an intent without both the bearer and the sudo proof", async () => {
     const { orchestrator, repository } = fixture();
     for (const input of [
-      { session, accessToken: "access-token", sudo: { ...sudoProof, sudoToken: "" } },
-      { session, accessToken: "", sudo: sudoProof },
+      { session, accessToken: "access-token", accessTokenExpiresAt: bearerExpiresAt, sudo: { ...sudoProof, sudoToken: "" } },
+      { session, accessToken: "", accessTokenExpiresAt: bearerExpiresAt, sudo: sudoProof },
     ]) {
       await expect(orchestrator.createReauthenticatedIntent(input))
         .rejects.toBeInstanceOf(AccountDeletionProofError);
     }
     expect(repository.intent).toBeUndefined();
+  });
+
+  // A7d: `prepare` hands the browser the local receipt before the typed
+  // confirmation, because a lost submit answer must stay recoverable. The
+  // receipt alone must therefore never start a deletion: status recovers
+  // only an intent whose confirmation submit recorded before it called core.
+  it("never sends an intent to core from status before the typed confirmation", async () => {
+    const { orchestrator, core, repository, revokeSubjectSessionsBySessionId } = fixture();
+    const fresh = await reauthenticate(orchestrator);
+
+    await expect(orchestrator.status(fresh.localReceipt))
+      .rejects.toBeInstanceOf(AccountDeletionUnconfirmedError);
+    expect(core.initiate).not.toHaveBeenCalled();
+    expect(revokeSubjectSessionsBySessionId).not.toHaveBeenCalled();
+    expect(repository.intent).toMatchObject({ stage: "awaiting_confirmation", confirmedAt: null });
+  });
+
+  it("records the typed confirmation durably before core is called", async () => {
+    const seenAtCall: unknown[] = [];
+    const built = fixture({
+      initiate: vi.fn(async () => {
+        seenAtCall.push(built.repository.intent);
+        return coreStatus;
+      }),
+    });
+    const fresh = await reauthenticate(built.orchestrator);
+    expect(built.repository.intent).toMatchObject({ confirmedAt: null });
+
+    await built.orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    });
+    expect(seenAtCall).toEqual([
+      expect.objectContaining({ stage: "awaiting_confirmation", confirmedAt: now }),
+    ]);
+  });
+
+  it("calls core with nothing when the confirmation cannot be recorded", async () => {
+    const { orchestrator, core, repository } = fixture();
+    const fresh = await reauthenticate(orchestrator);
+    const submit = () => orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    });
+
+    repository.confirm = vi.fn().mockRejectedValue(new Error("database unavailable"));
+    await expect(submit()).rejects.toBeInstanceOf(AccountDeletionUnavailableError);
+    // The intent changed underneath (a newer proof, or the window closed).
+    repository.confirm = vi.fn().mockResolvedValue(null);
+    await expect(submit()).rejects.toBeInstanceOf(AccountDeletionProofError);
+    expect(core.initiate).not.toHaveBeenCalled();
+  });
+
+  // A refusal is certain and the person is told nothing changed, so the
+  // refused confirmation must not stay replayable through status.
+  it("withdraws the confirmation of a submit core refused", async () => {
+    const initiate = vi.fn().mockRejectedValue(new CoreAccountDeletionUnauthorizedError());
+    const { orchestrator, repository } = fixture({ initiate });
+    const fresh = await reauthenticate(orchestrator);
+
+    await expect(orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    })).rejects.toBeInstanceOf(AccountDeletionSudoRejectedError);
+    expect(repository.intent).toMatchObject({ stage: "awaiting_confirmation", confirmedAt: null });
+    await expect(orchestrator.status(fresh.localReceipt))
+      .rejects.toBeInstanceOf(AccountDeletionUnconfirmedError);
+    expect(initiate).toHaveBeenCalledTimes(1);
+  });
+
+  // New credentials are a new confirmation: a confirmation belongs to the
+  // proof it was typed under, so re-authentication resets it.
+  it("does not carry a confirmation over to re-sealed credentials", async () => {
+    const initiate = vi.fn().mockRejectedValue(new Error("response lost"));
+    const { orchestrator, repository } = fixture({ initiate });
+    const first = await reauthenticate(orchestrator);
+    await expect(orchestrator.submit({
+      session,
+      proofReference: first.proofReference,
+      localReceipt: first.localReceipt,
+      confirmation: "HESABIMI SİL",
+    })).rejects.toBeInstanceOf(AccountDeletionUnavailableError);
+    expect(repository.intent).toMatchObject({ confirmedAt: now });
+
+    const resealed = await reauthenticate(orchestrator);
+    expect(repository.intent).toMatchObject({ stage: "awaiting_confirmation", confirmedAt: null });
+    await expect(orchestrator.status(resealed.localReceipt))
+      .rejects.toBeInstanceOf(AccountDeletionUnconfirmedError);
+    expect(initiate).toHaveBeenCalledTimes(1);
   });
 
   it("presents the sealed sudo proof, revokes every local session, and transitions to local recovery", async () => {
@@ -292,6 +447,31 @@ describe("account deletion orchestration", () => {
       localReceipt: fresh.localReceipt,
       confirmation: "HESABIMI SİL",
     })).rejects.toBeInstanceOf(AccountDeletionSudoRejectedError);
+    expect(revokeSubjectSessionsBySessionId).not.toHaveBeenCalled();
+    expect(repository.intent).toMatchObject({ stage: "awaiting_confirmation" });
+  });
+
+  // Core answers a replay of a key it already accepted from the stored
+  // request (core#94), so a refusal on the recovery replay means core would
+  // not take the sealed credentials. Whether an earlier attempt was accepted
+  // is unknown, and retrying the same credentials cannot find out: that is
+  // not "nothing changed", and not "try again shortly" either.
+  it("reports an unknown outcome when core refuses the sealed credentials on a recovery replay", async () => {
+    const initiate = vi.fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockRejectedValue(new CoreAccountDeletionUnauthorizedError());
+    const { orchestrator, repository, revokeSubjectSessionsBySessionId } = fixture({ initiate });
+    const fresh = await reauthenticate(orchestrator);
+
+    await expect(orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    })).rejects.toBeInstanceOf(AccountDeletionUnavailableError);
+    await expect(orchestrator.status(fresh.localReceipt))
+      .rejects.toBeInstanceOf(AccountDeletionOutcomeUnknownError);
+    expect(initiate.mock.calls[1]?.[0]).toEqual(initiate.mock.calls[0]?.[0]);
     expect(revokeSubjectSessionsBySessionId).not.toHaveBeenCalled();
     expect(repository.intent).toMatchObject({ stage: "awaiting_confirmation" });
   });
@@ -376,6 +556,7 @@ describe("account deletion orchestration", () => {
     const refreshed = await orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "replacement-access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { sudoToken: "replacement.sudo.token", expiresAt: new Date("2026-09-20T12:04:30.000Z") },
     });
 
@@ -405,6 +586,7 @@ describe("account deletion orchestration", () => {
     await expect(orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "fresh-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T11:59:00.000Z") },
     })).rejects.toThrow(/fresh/i);
     const fresh = await reauthenticate(orchestrator);

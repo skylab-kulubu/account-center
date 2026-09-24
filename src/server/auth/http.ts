@@ -73,13 +73,21 @@ export function clearAccountDeletionProofCookie(response: NextResponse) {
   );
 }
 
+/**
+ * The deletion receipt is the only credential the sessionless status route
+ * reads, and no flow needs it on a request another site starts: the status
+ * page reads it with a same-origin fetch. `Strict` keeps it off every
+ * cross-site request, top-level navigations included.
+ */
+const receiptCookie = { ...baseCookie, sameSite: "strict" as const };
+
 export function setAccountDeletionReceiptCookie(
   response: NextResponse,
   receipt: string,
   expiresAt: Date,
 ) {
   response.cookies.set(ACCOUNT_DELETION_RECEIPT_COOKIE, receipt, {
-    ...baseCookie,
+    ...receiptCookie,
     expires: expiresAt,
     maxAge: Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1_000)),
   });
@@ -89,7 +97,7 @@ export function clearAccountDeletionReceiptCookie(response: NextResponse) {
   response.cookies.set(
     ACCOUNT_DELETION_RECEIPT_COOKIE,
     "",
-    { ...baseCookie, expires: new Date(0), maxAge: 0 },
+    { ...receiptCookie, expires: new Date(0), maxAge: 0 },
   );
 }
 

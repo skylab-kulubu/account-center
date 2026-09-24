@@ -34,6 +34,9 @@ type SessionTokenVault = Pick<
 type RefreshProtocol = Pick<OidcProtocol, "refresh" | "revokeRefreshToken">;
 type SessionIdentity = Pick<ActiveSession, "id" | "subject">;
 
+/** A token closer than this to its expiry is refreshed before it is handed out. */
+const ACCESS_TOKEN_REFRESH_MARGIN_MS = 30_000;
+
 export class AccountReadService {
   constructor(
     private readonly adapter: KeycloakAccountReadAdapter,
@@ -104,7 +107,11 @@ export class AccountReadService {
     return winner.tokens.accessToken;
   }
 
-  async #accessToken(session: SessionIdentity, forceRefresh = false) {
+  async #accessToken(
+    session: SessionIdentity,
+    forceRefresh = false,
+    minimumValidityMs = ACCESS_TOKEN_REFRESH_MARGIN_MS,
+  ) {
     const snapshot = await this.sessions.readTokens(session.id);
     if (!snapshot) throw new AccountReauthenticationRequiredError();
     let expiresAt: Date;
@@ -114,7 +121,7 @@ export class AccountReadService {
       if (!(error instanceof AccountAccessTokenExpiredError)) throw error;
       return this.#refresh(session, snapshot);
     }
-    if (forceRefresh || expiresAt.getTime() <= this.clock().getTime() + 30_000) {
+    if (forceRefresh || expiresAt.getTime() <= this.clock().getTime() + minimumValidityMs) {
       return this.#refresh(session, snapshot);
     }
     return snapshot.tokens.accessToken;
@@ -128,6 +135,23 @@ export class AccountReadService {
    */
   accessToken(session: SessionIdentity, options: { forceRefresh?: boolean } = {}) {
     return this.#accessToken(session, options.forceRefresh ?? false);
+  }
+
+  /**
+   * The session's user access token and its expiry, refreshed unless it is
+   * still valid `minimumValidityMs` from now. Account deletion seals the
+   * bearer it gets here next to the Sudo mode proof for the whole recovery
+   * window, so it asks for one that outlives that window. A realm that
+   * issues shorter tokens yields one refresh and the token as issued; the
+   * caller bounds its window by the returned `expiresAt`.
+   */
+  async accessTokenWithExpiry(session: SessionIdentity, options: { minimumValidityMs: number }) {
+    const accessToken = await this.#accessToken(
+      session,
+      false,
+      Math.max(options.minimumValidityMs, ACCESS_TOKEN_REFRESH_MARGIN_MS),
+    );
+    return { accessToken, expiresAt: this.#validate(accessToken, session).expiresAt };
   }
 
   /** The `sky_authorization` read model of the session's validated access token. */
