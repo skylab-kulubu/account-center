@@ -16,6 +16,7 @@ import {
   AccountDeletionProofError,
   AccountDeletionSudoRejectedError,
   AccountDeletionUnavailableError,
+  AccountDeletionUnconfirmedError,
 } from "@/server/account-deletion/orchestrator";
 import { SudoRequiredError } from "@/server/auth/sudo";
 
@@ -190,6 +191,14 @@ describe("account deletion BFF routes", () => {
     });
     expect(response.cookies.get(ACCOUNT_DELETION_PROOF_COOKIE)?.value).toBe(proof);
     expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)?.value).toBe(localReceipt);
+    // The receipt is the only credential the sessionless status route reads,
+    // so no cross-site request carries it, not even a top-level navigation.
+    expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)).toMatchObject({
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+    });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(JSON.stringify(body)).not.toContain(sudoToken);
     expect(response.headers.get("set-cookie")).not.toContain(sudoToken);
@@ -278,6 +287,7 @@ describe("account deletion BFF routes", () => {
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("");
     expect(response.cookies.get(ACCOUNT_DELETION_PROOF_COOKIE)?.value).toBe("");
     expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)?.value).toBe(coreReceipt);
+    expect(response.cookies.get(ACCOUNT_DELETION_RECEIPT_COOKIE)?.sameSite).toBe("strict");
   });
 
   it("redirects an expired browser proof to branded recovery but preserves API 400 semantics", async () => {
@@ -450,6 +460,29 @@ describe("account deletion BFF routes", () => {
       "https://my.yildizskylab.com/api/account/deletion/status",
       { headers: { cookie: `${ACCOUNT_DELETION_RECEIPT_COOKIE}=${localReceipt}` } },
     ))).status).toBe(409);
+  });
+
+  // A7d: the local receipt exists from `prepare` on, but it is not a
+  // confirmation. Status answers an unconfirmed intent like a missing one and
+  // keeps the cookie, which the pending submit still needs.
+  it("answers an unconfirmed intent as not found and leaves its receipt alone", async () => {
+    for (const site of ["same-origin", "cross-site"]) {
+      mocks.status.mockRejectedValueOnce(new AccountDeletionUnconfirmedError());
+      const response = await status(new NextRequest(
+        "https://my.yildizskylab.com/api/account/deletion/status",
+        {
+          headers: {
+            cookie: `${ACCOUNT_DELETION_RECEIPT_COOKIE}=${localReceipt}`,
+            "sec-fetch-site": site,
+            "sec-fetch-mode": site === "cross-site" ? "navigate" : "cors",
+          },
+        },
+      ));
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ error: "not_found" });
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("set-cookie")).toBeNull();
+    }
   });
 
   it("retries manual intervention only with exact origin and receipt-bound CSRF", async () => {

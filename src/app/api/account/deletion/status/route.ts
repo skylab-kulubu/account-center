@@ -45,6 +45,12 @@ export async function GET(request: NextRequest) {
     if (accountDeletionErrorKind(error) === "outcome_unknown") {
       return noStore(NextResponse.json({ error: "outcome_unknown" }, { status: 409 }));
     }
+    // The intent was never confirmed: there is no request to report, and
+    // core is not asked. The local receipt stays, because the pending
+    // submit still needs it.
+    if (accountDeletionErrorKind(error) === "unconfirmed") {
+      return noStore(NextResponse.json({ error: "not_found" }, { status: 404 }));
+    }
     return noStore(NextResponse.json({ error: "unavailable" }, {
       status: 503,
       headers: { "Retry-After": "3" },

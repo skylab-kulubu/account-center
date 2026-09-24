@@ -24,14 +24,15 @@ export async function GET() {
            AND to_regclass('public.account_native_bridges') IS NOT NULL
            AND to_regclass('public.account_native_bridge_request_nonces') IS NOT NULL AS native_ready,
          to_regclass('public.account_action_results') IS NOT NULL AS actions_ready,
-         to_regclass('public.account_deletion_intents') IS NOT NULL AS deletion_ready,
+         to_regclass('public.account_deletion_intents') IS NOT NULL
+           AND to_regclass('public.account_deletion_confirmations') IS NOT NULL AS deletion_ready,
          (SELECT count(*) = 2
             FROM information_schema.columns
            WHERE table_schema = 'public'
              AND table_name = 'account_sessions'
              AND ((column_name = 'sudo_token_ciphertext' AND data_type = 'text')
                OR (column_name = 'sudo_expires_at' AND data_type = 'timestamp with time zone'))) AS sudo_ready,
-         (SELECT count(*) = 6
+         (SELECT count(*) = 7
             FROM account_center_schema_migrations
            WHERE name = ANY($1::text[])) AS migrations_ready`,
       [[
@@ -41,6 +42,7 @@ export async function GET() {
         "0004_account_action_results.sql",
         "0005_account_deletion_intents.sql",
         "0006_account_sudo.sql",
+        "0007_account_deletion_confirmations.sql",
       ]],
     );
     if (
