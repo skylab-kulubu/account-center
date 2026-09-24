@@ -30,11 +30,26 @@ type IntentRow = {
   fresh_until: Date;
   created_at: Date;
   updated_at: Date;
+  /** Only the reads that join `account_deletion_confirmations` carry it. */
+  confirmed_at?: Date | null;
 };
 
 const columns = `id, subject_digest, session_id, proof_hash, local_receipt_hash,
   core_receipt_hash, recovery_kind, recovery_ciphertext, status, partial, requested_at,
   completed_at, receipt_expires_at, fresh_until, created_at, updated_at`;
+/**
+ * The intent columns plus the typed confirmation recorded under the intent's
+ * current proof. A confirmation typed under an earlier proof does not join.
+ */
+const confirmedColumns = `intent.id, intent.subject_digest, intent.session_id, intent.proof_hash,
+  intent.local_receipt_hash, intent.core_receipt_hash, intent.recovery_kind,
+  intent.recovery_ciphertext, intent.status, intent.partial, intent.requested_at,
+  intent.completed_at, intent.receipt_expires_at, intent.fresh_until, intent.created_at,
+  intent.updated_at, confirmation.confirmed_at`;
+const confirmedIntents = `account_deletion_intents AS intent
+  LEFT JOIN account_deletion_confirmations AS confirmation
+    ON confirmation.intent_id = intent.id
+   AND confirmation.proof_hash = intent.proof_hash`;
 const activeStatuses = new Set<ActiveAccountDeletionStatus>([
   "blocking",
   "pending",
@@ -84,6 +99,7 @@ function intent(row: IntentRow): AccountDeletionIntent {
       proofHash: row.proof_hash,
       localReceiptHash: row.local_receipt_hash,
       encryptedIdentityTokens: row.recovery_ciphertext,
+      confirmedAt: row.confirmed_at ?? null,
     };
   }
 
@@ -252,12 +268,12 @@ export class PostgresAccountDeletionRepository implements AccountDeletionReposit
 
   async findAwaitingByProof(proofHash: Buffer, sessionId: string, now: Date) {
     const result = await this.pool.query<IntentRow>(
-      `SELECT ${columns}
-         FROM account_deletion_intents
-        WHERE proof_hash = $1
-          AND session_id = $2
-          AND status = 'awaiting_confirmation'
-          AND fresh_until > $3`,
+      `SELECT ${confirmedColumns}
+         FROM ${confirmedIntents}
+        WHERE intent.proof_hash = $1
+          AND intent.session_id = $2
+          AND intent.status = 'awaiting_confirmation'
+          AND intent.fresh_until > $3`,
       [proofHash, sessionId, now],
     );
     if (!result.rows[0]) return null;
@@ -267,13 +283,53 @@ export class PostgresAccountDeletionRepository implements AccountDeletionReposit
 
   async findByReceipt(receiptHash: Buffer, now: Date) {
     const result = await this.pool.query<IntentRow>(
-      `SELECT ${columns}
-         FROM account_deletion_intents
-        WHERE (local_receipt_hash = $1 AND fresh_until > $2)
-           OR (core_receipt_hash = $1 AND receipt_expires_at > $2)`,
+      `SELECT ${confirmedColumns}
+         FROM ${confirmedIntents}
+        WHERE (intent.local_receipt_hash = $1 AND intent.fresh_until > $2)
+           OR (intent.core_receipt_hash = $1 AND intent.receipt_expires_at > $2)`,
       [receiptHash, now],
     );
     return result.rows[0] ? intent(result.rows[0]) : null;
+  }
+
+  async confirm(awaiting: AwaitingConfirmationIntent, now: Date) {
+    const result = await this.pool.query<{ confirmed_at: Date }>(
+      `INSERT INTO account_deletion_confirmations (intent_id, proof_hash, confirmed_at)
+       SELECT id, proof_hash, $6
+         FROM account_deletion_intents
+        WHERE id = $1
+          AND status = 'awaiting_confirmation'
+          AND subject_digest = $2
+          AND session_id = $3
+          AND proof_hash = $4
+          AND local_receipt_hash = $5
+          AND fresh_until > $6
+       ON CONFLICT (intent_id) DO UPDATE
+         SET confirmed_at = CASE
+               WHEN account_deletion_confirmations.proof_hash = EXCLUDED.proof_hash
+                 THEN account_deletion_confirmations.confirmed_at
+               ELSE EXCLUDED.confirmed_at
+             END,
+             proof_hash = EXCLUDED.proof_hash
+       RETURNING confirmed_at`,
+      [
+        awaiting.id,
+        awaiting.subjectDigest,
+        awaiting.sessionId,
+        awaiting.proofHash,
+        awaiting.localReceiptHash,
+        now,
+      ],
+    );
+    const confirmedAt = result.rows[0]?.confirmed_at;
+    return confirmedAt ? { ...awaiting, confirmedAt } : null;
+  }
+
+  async withdrawConfirmation(awaiting: AwaitingConfirmationIntent) {
+    await this.pool.query(
+      `DELETE FROM account_deletion_confirmations WHERE intent_id = $1 AND proof_hash = $2`,
+      [awaiting.id, awaiting.proofHash],
+    );
   }
 
   async acceptCore(
@@ -282,23 +338,38 @@ export class PostgresAccountDeletionRepository implements AccountDeletionReposit
     coreReceiptHash: Buffer,
     encryptedCoreReceipt: string,
   ) {
+    // Core acceptance needs the typed confirmation recorded under the same
+    // proof, and scrubs it together with the proof it was bound to.
     const result = await this.pool.query<IntentRow>(
-      `UPDATE account_deletion_intents
-          SET subject_digest = NULL,
-              session_id = NULL,
-              proof_hash = NULL,
-              core_receipt_hash = $2,
-              recovery_kind = 'core_receipt',
-              recovery_ciphertext = $9,
-              ${statusUpdate}
-        WHERE id = $1
-          AND status = 'awaiting_confirmation'
-          AND subject_digest = $10
-          AND session_id = $11
-          AND proof_hash = $12
-          AND local_receipt_hash = $13
-          AND core_receipt_hash IS NULL
-      RETURNING ${columns}`,
+      `WITH accepted AS (
+         UPDATE account_deletion_intents
+            SET subject_digest = NULL,
+                session_id = NULL,
+                proof_hash = NULL,
+                core_receipt_hash = $2,
+                recovery_kind = 'core_receipt',
+                recovery_ciphertext = $9,
+                ${statusUpdate}
+          WHERE id = $1
+            AND status = 'awaiting_confirmation'
+            AND subject_digest = $10
+            AND session_id = $11
+            AND proof_hash = $12
+            AND local_receipt_hash = $13
+            AND core_receipt_hash IS NULL
+            AND EXISTS (
+              SELECT 1
+                FROM account_deletion_confirmations
+               WHERE intent_id = $1
+                 AND proof_hash = $12
+            )
+        RETURNING ${columns}
+       ),
+       scrubbed AS (
+         DELETE FROM account_deletion_confirmations
+          WHERE intent_id IN (SELECT id FROM accepted)
+       )
+       SELECT * FROM accepted`,
       [
         ...statusParameters(awaiting.id, coreReceiptHash, status),
         encryptedCoreReceipt,

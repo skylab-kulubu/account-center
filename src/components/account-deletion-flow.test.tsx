@@ -237,4 +237,32 @@ describe("account deletion UI", () => {
     render(<AccountDeletionStatus />);
     expect(await screen.findByRole("heading", { name: "Silme isteği bulunamadı" })).toBeInTheDocument();
   });
+
+  // The page cannot tell whether core accepted the request: core refused the
+  // sealed credentials on the recovery replay, or the recovery window closed
+  // before an answer came. Saying nothing changed would be a guess.
+  it("says the request may already be under way when its outcome cannot be verified", async () => {
+    const honest = async () => {
+      expect(await screen.findByRole("heading", { name: "Durum doğrulanamadı" })).toBeInTheDocument();
+      expect(screen.getByText(/silme isteğin işleme alınmış olabilir/i)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", "/login");
+      expect(screen.getByRole("button", { name: "Yeniden kontrol et" })).toBeInTheDocument();
+      expect(document.body.textContent).not.toMatch(/değişmedi|hiçbir değişiklik/i);
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ error: "outcome_unknown" }, { status: 409 }));
+    const refused = render(<AccountDeletionStatus />);
+    await honest();
+    refused.unmount();
+
+    // Sent here because the answer was lost, and the window has since closed.
+    window.history.replaceState(null, "", "/account-deletion?recovery=1");
+    try {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 404 }));
+      render(<AccountDeletionStatus />);
+      await honest();
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
 });

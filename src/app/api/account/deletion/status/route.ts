@@ -7,6 +7,7 @@ import {
   setAccountDeletionReceiptCookie,
 } from "@/server/auth/http";
 import { getAuthServices } from "@/server/auth/services";
+import { accountDeletionErrorKind } from "@/server/account-deletion/orchestrator";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,19 @@ export async function GET(request: NextRequest) {
     });
     setAccountDeletionReceiptCookie(response, result.receipt, new Date(result.receiptExpiresAt));
     return noStore(response);
-  } catch {
+  } catch (error) {
+    // Core refused the sealed credentials on a recovery replay: the request
+    // may be under way and asking again cannot tell. The receipt cookie is
+    // kept; it is the only handle on the intent and expires with it.
+    if (accountDeletionErrorKind(error) === "outcome_unknown") {
+      return noStore(NextResponse.json({ error: "outcome_unknown" }, { status: 409 }));
+    }
+    // The intent was never confirmed: there is no request to report, and
+    // core is not asked. The local receipt stays, because the pending
+    // submit still needs it.
+    if (accountDeletionErrorKind(error) === "unconfirmed") {
+      return noStore(NextResponse.json({ error: "not_found" }, { status: 404 }));
+    }
     return noStore(NextResponse.json({ error: "unavailable" }, {
       status: 503,
       headers: { "Retry-After": "3" },

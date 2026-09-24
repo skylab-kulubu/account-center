@@ -16,7 +16,10 @@ import {
   accountAccessUnavailableResponse,
   authenticationRequiredResponse,
 } from "@/server/access-gate/http";
-import { accountDeletionErrorKind } from "@/server/account-deletion/orchestrator";
+import {
+  ACCOUNT_DELETION_BEARER_VALIDITY_MS,
+  accountDeletionErrorKind,
+} from "@/server/account-deletion/orchestrator";
 
 export const dynamic = "force-dynamic";
 
@@ -74,10 +77,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const accessToken = await services.account.accessToken(session);
+    // The bearer is sealed for the whole recovery window, and a recovery
+    // replay after the deletion closed the Keycloak session cannot refresh
+    // it: take one that outlives the window, refreshed if the current one
+    // would lapse sooner. The intent's window also ends before it does.
+    const bearer = await services.account.accessTokenWithExpiry(session, {
+      minimumValidityMs: ACCOUNT_DELETION_BEARER_VALIDITY_MS,
+    });
     const intent = await services.accountDeletion.createReauthenticatedIntent({
       session,
-      accessToken,
+      accessToken: bearer.accessToken,
+      accessTokenExpiresAt: bearer.expiresAt,
       sudo,
     });
     const response = noStore(NextResponse.json({ step: "confirm" }));

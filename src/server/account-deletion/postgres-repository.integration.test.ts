@@ -22,6 +22,11 @@ const processing: CoreAccountDeletionStatus = {
   receiptExpiresAt: "2026-10-20T12:00:01.000Z",
 };
 const migrationPath = resolve(process.cwd(), "migrations", "0005_account_deletion_intents.sql");
+const confirmationMigrationPath = resolve(
+  process.cwd(),
+  "migrations",
+  "0007_account_deletion_confirmations.sql",
+);
 
 function awaiting(overrides: Partial<AwaitingConfirmationIntent> = {}): AwaitingConfirmationIntent {
   return {
@@ -32,6 +37,7 @@ function awaiting(overrides: Partial<AwaitingConfirmationIntent> = {}): Awaiting
     proofHash: Buffer.alloc(32, 2),
     localReceiptHash: Buffer.alloc(32, 3),
     encryptedIdentityTokens: "encrypted-fresh-token",
+    confirmedAt: null,
     freshUntil: new Date("2026-09-20T12:05:00.000Z"),
     createdAt: new Date("2026-09-20T12:00:00.000Z"),
     updatedAt: new Date("2026-09-20T12:00:00.000Z"),
@@ -48,18 +54,46 @@ databaseDescribe("PostgreSQL account deletion intents", () => {
   });
   const repository = new PostgresAccountDeletionRepository(pool);
   let migration = "";
+  let confirmationMigration = "";
   let fingerprintSequence = 0;
+  const confirmedAt = new Date("2026-09-20T12:01:00.000Z");
 
   beforeAll(async () => {
     migration = await readFile(migrationPath, "utf8");
+    confirmationMigration = await readFile(confirmationMigrationPath, "utf8");
     await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     await pool.query(`CREATE SCHEMA ${schema}`);
     await pool.query(migration);
+    await pool.query(confirmationMigration);
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE account_deletion_intents");
+    await pool.query("TRUNCATE account_deletion_intents CASCADE");
   });
+
+  /** Submit's durable record of the typed confirmation, which core acceptance requires. */
+  async function confirmed(saved: AwaitingConfirmationIntent) {
+    const result = await repository.confirm(saved, confirmedAt);
+    if (!result) throw new Error("expected the confirmation to be recorded");
+    return result;
+  }
+
+  async function inFreshSchema(run: (schemaPool: Pool) => Promise<void>) {
+    fingerprintSequence += 1;
+    const freshSchema = `account_deletion_fresh_${fingerprintSequence}`;
+    await pool.query(`CREATE SCHEMA ${freshSchema}`);
+    const schemaPool = new Pool({
+      connectionString: databaseUrl,
+      max: 1,
+      options: `-c search_path=${freshSchema}`,
+    });
+    try {
+      await run(schemaPool);
+    } finally {
+      await schemaPool.end();
+      await pool.query(`DROP SCHEMA IF EXISTS ${freshSchema} CASCADE`);
+    }
+  }
 
   afterAll(async () => {
     await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
@@ -132,7 +166,7 @@ databaseDescribe("PostgreSQL account deletion intents", () => {
   it("atomically accepts Core, scrubs identity linkage, and remains crash-recoverable by local receipt", async () => {
     const saved = await repository.saveReauthentication(awaiting());
     const coreHash = Buffer.alloc(32, 7);
-    const accepted = await repository.acceptCore(saved, processing, coreHash, "encrypted-core-receipt");
+    const accepted = await repository.acceptCore(await confirmed(saved), processing, coreHash, "encrypted-core-receipt");
 
     expect(accepted).toMatchObject({
       stage: "local_recovery",
@@ -168,7 +202,7 @@ databaseDescribe("PostgreSQL account deletion intents", () => {
   it("confirms the Core capability by removing local recovery and rejects a mismatched Core hash", async () => {
     const saved = await repository.saveReauthentication(awaiting());
     const accepted = await repository.acceptCore(
-      saved,
+      await confirmed(saved),
       processing,
       Buffer.alloc(32, 7),
       "encrypted-core-receipt",
@@ -201,7 +235,7 @@ databaseDescribe("PostgreSQL account deletion intents", () => {
   it("does not regress out-of-order status and keeps completion terminal", async () => {
     const saved = await repository.saveReauthentication(awaiting());
     const accepted = await repository.acceptCore(
-      saved,
+      await confirmed(saved),
       processing,
       Buffer.alloc(32, 9),
       "encrypted-core-receipt",
@@ -245,10 +279,10 @@ databaseDescribe("PostgreSQL account deletion intents", () => {
       "UPDATE account_deletion_intents SET recovery_kind = NULL WHERE id = $1",
       [saved.id],
     )).rejects.toThrow(/check constraint/i);
-    await pool.query("TRUNCATE account_deletion_intents");
+    await pool.query("TRUNCATE account_deletion_intents CASCADE");
     const reloaded = await repository.saveReauthentication(awaiting());
     const accepted = await repository.acceptCore(
-      reloaded,
+      await confirmed(reloaded),
       processing,
       Buffer.alloc(32, 7),
       "encrypted-core-receipt",
@@ -258,6 +292,116 @@ databaseDescribe("PostgreSQL account deletion intents", () => {
       "UPDATE account_deletion_intents SET subject_digest = $2 WHERE id = $1",
       [saved.id, Buffer.alloc(32, 6)],
     )).rejects.toThrow(/check constraint/i);
+  });
+
+  // A7d: the local receipt reaches the browser at `prepare`, before the typed
+  // confirmation, so the confirmation is its own durable record, bound to the
+  // proof it was typed under, and core acceptance requires it.
+  it("records a confirmation only for the current proof, session and receipt inside the window", async () => {
+    const saved = await repository.saveReauthentication(awaiting());
+    const inWindow = new Date("2026-09-20T12:04:00.000Z");
+    await expect(repository.findByReceipt(saved.localReceiptHash, inWindow))
+      .resolves.toMatchObject({ stage: "awaiting_confirmation", confirmedAt: null });
+
+    for (const stranger of [
+      { ...saved, proofHash: Buffer.alloc(32, 9) },
+      { ...saved, sessionId: "33333333-3333-4333-8333-333333333333" },
+      { ...saved, localReceiptHash: Buffer.alloc(32, 9) },
+    ]) {
+      await expect(repository.confirm(stranger, confirmedAt)).resolves.toBeNull();
+    }
+    await expect(repository.confirm(saved, saved.freshUntil)).resolves.toBeNull();
+    await expect(repository.findByReceipt(saved.localReceiptHash, inWindow))
+      .resolves.toMatchObject({ confirmedAt: null });
+
+    await expect(repository.confirm(saved, confirmedAt))
+      .resolves.toMatchObject({ id: saved.id, confirmedAt });
+    // A second submit keeps the first confirmation time.
+    await expect(repository.confirm(saved, new Date("2026-09-20T12:02:00.000Z")))
+      .resolves.toMatchObject({ confirmedAt });
+    await expect(repository.findByReceipt(saved.localReceiptHash, inWindow))
+      .resolves.toMatchObject({ stage: "awaiting_confirmation", confirmedAt });
+    await expect(repository.findAwaitingByProof(saved.proofHash, saved.sessionId, inWindow))
+      .resolves.toMatchObject({ confirmedAt });
+  });
+
+  it("voids a confirmation on re-authentication, on withdrawal and with its intent", async () => {
+    const saved = await repository.saveReauthentication(awaiting());
+    await confirmed(saved);
+    const resealed = await repository.saveReauthentication(awaiting({
+      proofHash: Buffer.alloc(32, 4),
+      localReceiptHash: Buffer.alloc(32, 5),
+      updatedAt: new Date("2026-09-20T12:02:00.000Z"),
+    }));
+    const inWindow = new Date("2026-09-20T12:04:00.000Z");
+    await expect(repository.findByReceipt(resealed.localReceiptHash, inWindow))
+      .resolves.toMatchObject({ confirmedAt: null });
+    await expect(repository.acceptCore(resealed, processing, Buffer.alloc(32, 7), "encrypted"))
+      .resolves.toBeNull();
+
+    await confirmed(resealed);
+    await repository.withdrawConfirmation(saved);
+    await expect(repository.findByReceipt(resealed.localReceiptHash, inWindow))
+      .resolves.toMatchObject({ confirmedAt });
+    await repository.withdrawConfirmation(resealed);
+    await expect(repository.findByReceipt(resealed.localReceiptHash, inWindow))
+      .resolves.toMatchObject({ confirmedAt: null });
+
+    await confirmed(resealed);
+    await pool.query("DELETE FROM account_deletion_intents WHERE id = $1", [resealed.id]);
+    await expect(pool.query("SELECT count(*)::integer AS count FROM account_deletion_confirmations"))
+      .resolves.toMatchObject({ rows: [{ count: 0 }] });
+  });
+
+  it("accepts core only for a confirmed intent and scrubs the confirmation with the proof", async () => {
+    const saved = await repository.saveReauthentication(awaiting());
+    await expect(repository.acceptCore(saved, processing, Buffer.alloc(32, 7), "encrypted"))
+      .resolves.toBeNull();
+    await expect(repository.acceptCore(await confirmed(saved), processing, Buffer.alloc(32, 7), "encrypted"))
+      .resolves.toMatchObject({ stage: "local_recovery" });
+    await expect(pool.query("SELECT count(*)::integer AS count FROM account_deletion_confirmations"))
+      .resolves.toMatchObject({ rows: [{ count: 0 }] });
+  });
+
+  // An intent an older build sealed before 0007 has no confirmation: it
+  // stays readable, reads as unconfirmed and can never be accepted.
+  it("treats an intent sealed before the confirmation migration as unconfirmed", async () => {
+    await inFreshSchema(async (schemaPool) => {
+      await schemaPool.query(migration);
+      const old = awaiting();
+      await schemaPool.query(
+        `INSERT INTO account_deletion_intents
+           (id, subject_digest, session_id, proof_hash, local_receipt_hash,
+            core_receipt_hash, recovery_kind, recovery_ciphertext, status, partial,
+            requested_at, completed_at, receipt_expires_at, fresh_until, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NULL, 'identity_tokens', $6, 'awaiting_confirmation', false,
+                 NULL, NULL, NULL, $7, $8, $9)`,
+        [
+          old.id, old.subjectDigest, old.sessionId, old.proofHash, old.localReceiptHash,
+          old.encryptedIdentityTokens, old.freshUntil, old.createdAt, old.updatedAt,
+        ],
+      );
+      await schemaPool.query(confirmationMigration);
+      await schemaPool.query(confirmationMigration);
+
+      const upgraded = new PostgresAccountDeletionRepository(schemaPool);
+      const inFlight = await upgraded.findByReceipt(old.localReceiptHash, new Date("2026-09-20T12:04:00.000Z"));
+      expect(inFlight).toMatchObject({ stage: "awaiting_confirmation", id: old.id, confirmedAt: null });
+      if (inFlight?.stage !== "awaiting_confirmation") throw new Error("expected the old intent");
+      await expect(upgraded.acceptCore(inFlight, processing, Buffer.alloc(32, 7), "encrypted"))
+        .resolves.toBeNull();
+      // The intent table itself is unchanged: 0005 still recognises it.
+      await expect(schemaPool.query(migration)).resolves.toBeDefined();
+    });
+  });
+
+  it("fails the confirmation migration closed for any drift of its table", async () => {
+    await inFreshSchema(async (schemaPool) => {
+      await schemaPool.query(migration);
+      await schemaPool.query(confirmationMigration);
+      await schemaPool.query("ALTER TABLE account_deletion_confirmations ADD COLUMN raw_proof text");
+      await expect(schemaPool.query(confirmationMigration)).rejects.toThrow(/unexpected column fingerprint/i);
+    });
   });
 
   it("fails brownfield migration closed for any column definition drift", async () => {
