@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -16,6 +16,8 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
   const pool = new Pool({ connectionString: databaseUrl, max: 2 });
 
   beforeAll(async () => {
+    // The shared public schema stops at 0007, the state between deploying this build and running
+    // 0008; sudo.integration re-applies 0003 here concurrently. The post-0008 schema is tested below.
     for (const migrationName of [
       "0001_bff_web_sessions.sql",
       "0002_auth_security_controls.sql",
@@ -32,7 +34,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
 
   beforeEach(async () => {
     await pool.query(
-      "TRUNCATE account_deletion_confirmations, account_deletion_intents, account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_native_handoffs, account_native_bridges, account_native_bridge_request_nonces",
+      "TRUNCATE account_deletion_confirmations, account_deletion_intents, account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits",
     );
   });
 
@@ -283,28 +285,6 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       [Buffer.alloc(32, 14), Buffer.alloc(32, 15)],
     );
     await pool.query(
-      `INSERT INTO account_native_handoffs
-        (id, code_hash, subject, keycloak_sid, authenticated_at, created_at, expires_at, consumed_at)
-       VALUES
-        ('12121212-1212-4212-8212-121212121212', $1, 'old-native', 'old-sid', now() - interval '3 hours', now() - interval '3 hours', now() - interval '2 hours', now() - interval '2 hours'),
-        ('13131313-1313-4313-8313-131313131313', $2, 'fresh-native', 'fresh-sid', now(), now(), now() + interval '45 seconds', NULL)`,
-      [Buffer.alloc(32, 50), Buffer.alloc(32, 51)],
-    );
-    await pool.query(
-      `INSERT INTO account_native_bridges
-        (id, code_hash, subject, keycloak_sid, authenticated_at, created_at, expires_at, consumed_at)
-       VALUES
-        ('14141414-1414-4414-8414-141414141414', $1, 'old-native', 'old-sid', now() - interval '3 hours', now() - interval '3 hours', now() - interval '2 hours', now() - interval '2 hours'),
-        ('15151515-1515-4515-8515-151515151515', $2, 'fresh-native', 'fresh-sid', now(), now(), now() + interval '45 seconds', NULL)`,
-      [Buffer.alloc(32, 52), Buffer.alloc(32, 53)],
-    );
-    await pool.query(
-      `INSERT INTO account_native_bridge_request_nonces (nonce_hash, seen_at, expires_at)
-       VALUES ($1, now() - interval '2 minutes', now() - interval '1 minute'),
-              ($2, now(), now() + interval '1 minute')`,
-      [Buffer.alloc(32, 54), Buffer.alloc(32, 55)],
-    );
-    await pool.query(
       `INSERT INTO account_sessions
         (id, subject, handle_hash, token_ciphertext, created_at, rotated_at, last_seen_at,
          idle_expires_at, absolute_expires_at, revoked_at)
@@ -367,9 +347,6 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     expect(result.rows[0]?.deleted_sessions).toBe(2);
     expect(result.rows[0]?.deleted_logout_replays).toBe(1);
     expect(result.rows[0]?.deleted_rate_limits).toBe(1);
-    expect(result.rows[0]?.deleted_native_handoffs).toBe(1);
-    expect(result.rows[0]?.deleted_native_bridges).toBe(1);
-    expect(result.rows[0]?.deleted_native_bridge_nonces).toBe(1);
     expect(result.rows[0]?.deleted_action_results).toBe(1);
     expect(result.rows[0]?.deleted_deletion_intents).toBe(2);
     expect(result.rows[0]?.scrubbed_deletion_recovery).toBe(1);
@@ -455,5 +432,89 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     );
     expect(decisions.filter((decision) => decision.allowed)).toHaveLength(10);
     expect(Math.max(...decisions.map((decision) => decision.count))).toBe(30);
+  });
+});
+
+databaseDescribe("PostgreSQL schema after every migration", () => {
+  const schema = "account_center_all_migrations_test";
+  const nativeTables = [
+    "account_native_bridge_request_nonces",
+    "account_native_bridges",
+    "account_native_handoffs",
+  ];
+  const admin = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = new Pool({ connectionString: databaseUrl, max: 1, options: `-c search_path=${schema}` });
+
+  async function applyMigration(migrationName: string) {
+    await pool.query(await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8"));
+  }
+
+  async function nativeTablesPresent() {
+    const result = await pool.query<{ table_name: string }>(
+      `SELECT table_name
+         FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = ANY($1::text[])
+        ORDER BY table_name`,
+      [nativeTables],
+    );
+    return result.rows.map((row) => row.table_name);
+  }
+
+  beforeAll(async () => {
+    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    await admin.query(`CREATE SCHEMA ${schema}`);
+  });
+
+  afterAll(async () => {
+    await pool.end();
+    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    await admin.end();
+  });
+
+  it("drops the retired native handoff tables, rows and all, and prune-auth still runs", async () => {
+    const dropMigration = "0008_drop_native_handoff.sql";
+    const migrationNames = (await readdir(resolve(process.cwd(), "migrations")))
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    expect(migrationNames).toContain(dropMigration);
+    for (const name of migrationNames.filter((name) => name < dropMigration)) await applyMigration(name);
+    expect(await nativeTablesPresent()).toEqual(nativeTables);
+    // Production may still hold a few leftover rows when the drop is run.
+    await pool.query(
+      `INSERT INTO account_native_handoffs
+        (id, code_hash, subject, keycloak_sid, authenticated_at, created_at, expires_at)
+       VALUES ('12121212-1212-4212-8212-121212121212', $1, 'native', 'sid', now(), now(), now() + interval '45 seconds')`,
+      [Buffer.alloc(32, 50)],
+    );
+    await pool.query(
+      `INSERT INTO account_native_bridges
+        (id, code_hash, subject, keycloak_sid, authenticated_at, created_at, expires_at)
+       VALUES ('14141414-1414-4414-8414-141414141414', $1, 'native', 'sid', now(), now(), now() + interval '45 seconds')`,
+      [Buffer.alloc(32, 52)],
+    );
+    await pool.query(
+      `INSERT INTO account_native_bridge_request_nonces (nonce_hash, seen_at, expires_at)
+       VALUES ($1, now(), now() + interval '1 minute')`,
+      [Buffer.alloc(32, 54)],
+    );
+
+    for (const name of migrationNames.filter((name) => name >= dropMigration)) await applyMigration(name);
+    expect(await nativeTablesPresent()).toEqual([]);
+    await applyMigration(dropMigration);
+    expect(await nativeTablesPresent()).toEqual([]);
+
+    const maintenance = await readFile(resolve(process.cwd(), "maintenance/prune-auth.sql"), "utf8");
+    const result = await pool.query(maintenance);
+    expect(result.rows).toEqual([{
+      deleted_transactions: 0,
+      deleted_sessions: 0,
+      deleted_logout_replays: 0,
+      deleted_rate_limits: 0,
+      deleted_action_results: 0,
+      deleted_deletion_intents: 0,
+      scrubbed_deletion_recovery: 0,
+      scrubbed_sudo_proofs: 0,
+    }]);
   });
 });

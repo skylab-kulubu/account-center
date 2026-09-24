@@ -115,6 +115,9 @@ export function createAccountAccessGate(config: AccountAccessGateConfig): Accoun
     password: config.password,
     db: config.database,
     lazyConnect: true,
+    // The reader ACL has no INFO, which ioredis' ready check sends; ready()
+    // proves the connection by reading the contract key instead.
+    enableReadyCheck: false,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 0,
     retryStrategy: () => null,
