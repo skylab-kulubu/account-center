@@ -8,6 +8,7 @@ import {
 } from "@/server/account-deletion/core-gateway";
 import {
   AccountDeletionOrchestrator,
+  AccountDeletionOutcomeUnknownError,
   AccountDeletionProofError,
   AccountDeletionSudoRejectedError,
   AccountDeletionUnavailableError,
@@ -195,6 +196,9 @@ function fixture(
   return { repository, core, revokeSubjectSessionsBySessionId, orchestrator };
 }
 
+/** A bearer the session has just refreshed: it outlives any recovery window. */
+const bearerExpiresAt = new Date("2026-09-20T12:10:00.000Z");
+
 /** The session's Sudo mode proof as the vault hands it out: opaque sky-account material and its deadline. */
 const sudoProof = {
   sudoToken: "sudo-header.sudo-claims.sudo-signature",
@@ -205,6 +209,7 @@ async function reauthenticate(orchestrator: AccountDeletionOrchestrator) {
   return orchestrator.createReauthenticatedIntent({
     session,
     accessToken: "fresh-server-only-user-access-token",
+    accessTokenExpiresAt: bearerExpiresAt,
     sudo: sudoProof,
   });
 }
@@ -229,26 +234,57 @@ describe("account deletion orchestration", () => {
     await expect(orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T12:15:00.000Z") },
     })).resolves.toMatchObject({ freshUntil: new Date("2026-09-20T12:05:00.000Z") });
 
     await expect(orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T12:00:05.000Z") },
     })).rejects.toBeInstanceOf(AccountDeletionProofError);
     await expect(orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { ...sudoProof, expiresAt: new Date(Number.NaN) },
     })).rejects.toBeInstanceOf(AccountDeletionProofError);
+  });
+
+  it("never lets the recovery window outlive the sealed bearer", async () => {
+    const { orchestrator, repository } = fixture();
+    const sealed = (accessTokenExpiresAt: Date) => orchestrator.createReauthenticatedIntent({
+      session,
+      accessToken: "access-token",
+      accessTokenExpiresAt,
+      sudo: sudoProof,
+    });
+
+    // Thirty seconds of margin before the bearer's own expiry, more than any
+    // clock skew between Account Center and core: a replay core answers
+    // before it introspects the sudo proof still needs a bearer it accepts.
+    await expect(sealed(new Date("2026-09-20T12:03:00.000Z")))
+      .resolves.toMatchObject({ freshUntil: new Date("2026-09-20T12:02:30.000Z") });
+    expect(repository.intent?.freshUntil).toEqual(new Date("2026-09-20T12:02:30.000Z"));
+    // A bearer that outlives the sudo proof leaves the proof's own bound.
+    await expect(sealed(new Date("2026-09-20T12:04:30.000Z")))
+      .resolves.toMatchObject({ freshUntil: new Date("2026-09-20T12:03:55.000Z") });
+
+    for (const lapsing of [
+      new Date("2026-09-20T12:00:30.000Z"),
+      new Date("2026-09-20T11:59:00.000Z"),
+      new Date(Number.NaN),
+    ]) {
+      await expect(sealed(lapsing)).rejects.toBeInstanceOf(AccountDeletionProofError);
+    }
   });
 
   it("never prepares an intent without both the bearer and the sudo proof", async () => {
     const { orchestrator, repository } = fixture();
     for (const input of [
-      { session, accessToken: "access-token", sudo: { ...sudoProof, sudoToken: "" } },
-      { session, accessToken: "", sudo: sudoProof },
+      { session, accessToken: "access-token", accessTokenExpiresAt: bearerExpiresAt, sudo: { ...sudoProof, sudoToken: "" } },
+      { session, accessToken: "", accessTokenExpiresAt: bearerExpiresAt, sudo: sudoProof },
     ]) {
       await expect(orchestrator.createReauthenticatedIntent(input))
         .rejects.toBeInstanceOf(AccountDeletionProofError);
@@ -292,6 +328,31 @@ describe("account deletion orchestration", () => {
       localReceipt: fresh.localReceipt,
       confirmation: "HESABIMI SİL",
     })).rejects.toBeInstanceOf(AccountDeletionSudoRejectedError);
+    expect(revokeSubjectSessionsBySessionId).not.toHaveBeenCalled();
+    expect(repository.intent).toMatchObject({ stage: "awaiting_confirmation" });
+  });
+
+  // Core answers a replay of a key it already accepted from the stored
+  // request (core#94), so a refusal on the recovery replay means core would
+  // not take the sealed credentials. Whether an earlier attempt was accepted
+  // is unknown, and retrying the same credentials cannot find out: that is
+  // not "nothing changed", and not "try again shortly" either.
+  it("reports an unknown outcome when core refuses the sealed credentials on a recovery replay", async () => {
+    const initiate = vi.fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockRejectedValue(new CoreAccountDeletionUnauthorizedError());
+    const { orchestrator, repository, revokeSubjectSessionsBySessionId } = fixture({ initiate });
+    const fresh = await reauthenticate(orchestrator);
+
+    await expect(orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    })).rejects.toBeInstanceOf(AccountDeletionUnavailableError);
+    await expect(orchestrator.status(fresh.localReceipt))
+      .rejects.toBeInstanceOf(AccountDeletionOutcomeUnknownError);
+    expect(initiate.mock.calls[1]?.[0]).toEqual(initiate.mock.calls[0]?.[0]);
     expect(revokeSubjectSessionsBySessionId).not.toHaveBeenCalled();
     expect(repository.intent).toMatchObject({ stage: "awaiting_confirmation" });
   });
@@ -376,6 +437,7 @@ describe("account deletion orchestration", () => {
     const refreshed = await orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "replacement-access-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { sudoToken: "replacement.sudo.token", expiresAt: new Date("2026-09-20T12:04:30.000Z") },
     });
 
@@ -405,6 +467,7 @@ describe("account deletion orchestration", () => {
     await expect(orchestrator.createReauthenticatedIntent({
       session,
       accessToken: "fresh-token",
+      accessTokenExpiresAt: bearerExpiresAt,
       sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T11:59:00.000Z") },
     })).rejects.toThrow(/fresh/i);
     const fresh = await reauthenticate(orchestrator);

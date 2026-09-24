@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, LogIn, RefreshCw, ShieldCheck } from "lucide-react";
 import { LogoLoader } from "@/components/logo-loader";
 
 type DeletionStatus = "blocking" | "pending" | "processing" | "completed" | "manual_intervention";
@@ -17,6 +18,7 @@ type StatusPayload = {
 type ViewState =
   | { kind: "loading" }
   | { kind: "missing" }
+  | { kind: "unknown" }
   | { kind: "unavailable" }
   | { kind: "status"; value: StatusPayload };
 
@@ -68,8 +70,17 @@ export function AccountDeletionStatus() {
         cache: "no-store",
         credentials: "same-origin",
       });
+      // `409 outcome_unknown`: core refused the credentials sealed for the
+      // recovery replay. A 404 on the recovery page (`?recovery=1`, where a
+      // lost answer sends the person) means the recovery window closed before
+      // an answer came. Either way the request may already be under way.
+      if (response.status === 409) {
+        setView({ kind: "unknown" });
+        return;
+      }
       if (response.status === 404) {
-        setView({ kind: "missing" });
+        const recovering = new URLSearchParams(window.location.search).get("recovery") === "1";
+        setView({ kind: recovering ? "unknown" : "missing" });
         return;
       }
       if (!response.ok) throw new Error();
@@ -145,6 +156,24 @@ export function AccountDeletionStatus() {
           <span className="state-card__icon" aria-hidden="true"><ShieldCheck size={24} /></span>
           <h1 id="deletion-status-title">Silme isteği bulunamadı</h1>
           <p>Bu tarayıcıda geçerli bir silme isteği yok veya durum bağlantısının süresi dolmuş.</p>
+        </section>
+      </div>
+    );
+  }
+
+  if (view.kind === "unknown") {
+    return (
+      <div aria-live="polite" className="deletion-status-live">
+        <section className="state-card deletion-status-card" aria-labelledby="deletion-status-title">
+          <span className="state-card__icon" aria-hidden="true"><AlertTriangle size={24} /></span>
+          <h1 id="deletion-status-title">Durum doğrulanamadı</h1>
+          <p>Silme isteğin işleme alınmış olabilir. Durumu yeniden kontrol edebilir ya da yeniden giriş yapabilirsin.</p>
+          <button className="primary-button" onClick={() => { setView({ kind: "loading" }); void load(); }} type="button">
+            <RefreshCw aria-hidden="true" size={16} /> Yeniden kontrol et
+          </button>
+          <Link className="secondary-button" href="/login">
+            <LogIn aria-hidden="true" size={16} /> Yeniden giriş yap
+          </Link>
         </section>
       </div>
     );
