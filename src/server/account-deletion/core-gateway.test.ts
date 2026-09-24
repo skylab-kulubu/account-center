@@ -10,6 +10,8 @@ import {
 } from "@/server/account-deletion/core-gateway";
 
 const receipt = `adr_${"r".repeat(43)}`;
+/** Opaque to the BFF: a compact JWS in the shape sky-account issues, never parsed here. */
+const sudoToken = "eyJhbGciOiJIUzUxMiIsInR5cCI6InNreS1zdWRvIn0.eyJ0eXAiOiJza3ktc3VkbyJ9.sudo-signature";
 const valid = {
   receipt,
   status: "processing",
@@ -29,14 +31,14 @@ afterEach(() => {
 });
 
 describe("Core self-delete HTTP gateway", () => {
-  it("sends the fresh user token and 43-char idempotency key with no subject or body", async () => {
+  it("sends the user token, the sudo proof and the 43-char idempotency key with no subject or body", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json(valid, { status: 202 }));
     vi.stubGlobal("fetch", fetch);
     const gateway = new CoreAccountDeletionHttpGateway(new URL("https://api.yildizskylab.com"));
 
     await expect(gateway.initiate({
       accessToken: "fresh-user-token",
-      reauthenticationToken: "fresh-id-token",
+      sudoToken,
       idempotencyKey: "i".repeat(43),
     })).resolves.toEqual({
       receipt,
@@ -54,15 +56,50 @@ describe("Core self-delete HTTP gateway", () => {
         body: null,
         redirect: "error",
         cache: "no-store",
-        headers: expect.objectContaining({
+        headers: {
           authorization: "Bearer fresh-user-token",
-          "x-account-reauth-token": "fresh-id-token",
+          "x-sky-sudo": sudoToken,
           "idempotency-key": "i".repeat(43),
           accept: "application/json",
-        }),
+        },
       }),
     );
+    // Core lets the sudo proof decide alone, so the retired ID-token proof is never sent.
+    expect(fetch.mock.calls[0]?.[1].headers).not.toHaveProperty("x-account-reauth-token");
     expect(JSON.stringify(fetch.mock.calls[0]?.[1])).not.toContain("subject");
+  });
+
+  it("never calls core without a sudo proof, a bearer or a well-formed idempotency key", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json(valid, { status: 202 }));
+    vi.stubGlobal("fetch", fetch);
+    const gateway = new CoreAccountDeletionHttpGateway(new URL("https://api.yildizskylab.com"));
+
+    for (const input of [
+      { accessToken: "fresh-user-token", sudoToken: "", idempotencyKey: "i".repeat(43) },
+      { accessToken: "fresh-user-token", sudoToken: "not-a-compact-jws", idempotencyKey: "i".repeat(43) },
+      { accessToken: "", sudoToken, idempotencyKey: "i".repeat(43) },
+      { accessToken: "fresh-user-token", sudoToken, idempotencyKey: "short" },
+    ]) {
+      expect(() => gateway.initiate(input)).toThrow(CoreAccountDeletionUnauthorizedError);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused sudo proof apart from an unavailable intake", async () => {
+    const gateway = new CoreAccountDeletionHttpGateway(new URL("https://api.yildizskylab.com"));
+    const input = { accessToken: "fresh-user-token", sudoToken, idempotencyKey: "i".repeat(43) };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(
+      { error: "invalid_end_user_token" },
+      { status: 401 },
+    )));
+    await expect(gateway.initiate(input)).rejects.toBeInstanceOf(CoreAccountDeletionUnauthorizedError);
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(
+      { error: "account_deletion_unavailable" },
+      { status: 503, headers: { "retry-after": "5" } },
+    )));
+    await expect(gateway.initiate(input)).rejects.toBeInstanceOf(CoreAccountDeletionUnavailableError);
   });
 
   it("keeps the receipt only in the authorization header for status and retry", async () => {
@@ -115,7 +152,7 @@ describe("Core self-delete HTTP gateway", () => {
 
     await expect(gateway.initiate({
       accessToken: "fresh-user-token",
-      reauthenticationToken: "fresh-id-token",
+      sudoToken,
       idempotencyKey: "i".repeat(43),
     })).resolves.not.toHaveProperty("platformBlocked");
     await expect(gateway.status(receipt)).resolves.toMatchObject({ receipt });
@@ -130,14 +167,14 @@ describe("Core self-delete HTTP gateway", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(valid, { status: 200 })));
     await expect(gateway.initiate({
       accessToken: "fresh-user-token",
-      reauthenticationToken: "fresh-id-token",
+      sudoToken,
       idempotencyKey: "i".repeat(43),
     })).rejects.toBeInstanceOf(CoreAccountDeletionUnavailableError);
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(manual, { status: 202 })));
     await expect(gateway.initiate({
       accessToken: "fresh-user-token",
-      reauthenticationToken: "fresh-id-token",
+      sudoToken,
       idempotencyKey: "i".repeat(43),
     })).rejects.toBeInstanceOf(CoreAccountDeletionUnavailableError);
 

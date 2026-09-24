@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
-import type { BrowserContext, Page } from "@playwright/test";
-import { seedAuthenticatedSession, seedSudoProof, sessionState } from "./auth-session";
+import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
+import {
+  contractShapedSudoToken,
+  seedAuthenticatedSession,
+  seedSudoProof,
+  sessionState,
+} from "./auth-session";
 
 /**
  * The enabled deletion flow, on the second browser-test server
@@ -8,11 +13,14 @@ import { seedAuthenticatedSession, seedSudoProof, sessionState } from "./auth-se
  * mock core). The page, the BFF routes, PostgreSQL and the core round trip
  * are real; Sudo mode's own endpoints are answered by `page.route` in the
  * shapes `src/server/auth/sudo-routes.ts` produces, while the proof the BFF
- * gate reads is seeded on the session record — so a dialog that succeeded in
- * the browser can never stand in for a proof the server does not hold.
+ * gate reads — a contract-shaped sky-account sudo token — is seeded on the
+ * session record, so a dialog that succeeded in the browser can never stand
+ * in for a proof the server does not hold. The mock core checks that token
+ * the way core's introspection does and records which proof headers arrived.
  */
 
 const baseUrl = "https://127.0.0.1:3102";
+const mockCoreUrl = `https://127.0.0.1:${process.env.E2E_ERASURE_MOCK_CORE_PORT ?? "3103"}`;
 const sessionCookieName = "__Host-sky-account";
 const csrfToken = "e2e-sudo-csrf";
 
@@ -31,19 +39,33 @@ async function mockActiveSudo(page: Page) {
     json: {
       methods: ["password"],
       fallback: null,
-      active: { method: "reauth", expiresAt: new Date(Date.now() + 4 * 60_000).toISOString() },
+      active: { method: "password", expiresAt: new Date(Date.now() + 4 * 60_000).toISOString() },
       csrfToken,
     },
   }));
 }
 
+/**
+ * A session whose login is an hour old — the Keycloak hop used to demand a
+ * fresh one — holding a sudo token for `sudoSid` (its own session unless a
+ * test wants core to refuse the proof).
+ */
 async function installSession(
   context: BrowserContext,
   label: string,
-  options: { idTokenAuthenticatedAt?: Date } = {},
+  options: { sudoSid?: (keycloakSid: string) => string } = {},
 ) {
-  const fixture = await seedAuthenticatedSession(label, { contractToken: true, ...options });
-  await seedSudoProof(fixture.sessionId);
+  const fixture = await seedAuthenticatedSession(label, {
+    contractToken: true,
+    idTokenAuthenticatedAt: new Date(Date.now() - 60 * 60_000),
+  });
+  const expiresAt = new Date(Date.now() + 5 * 60_000);
+  const sudoToken = contractShapedSudoToken(
+    fixture.subject,
+    options.sudoSid?.(fixture.keycloakSid) ?? fixture.keycloakSid,
+    expiresAt,
+  );
+  await seedSudoProof(fixture.sessionId, { sudoToken, expiresAt });
   await context.addCookies([{
     name: sessionCookieName,
     value: fixture.handle,
@@ -53,7 +75,7 @@ async function installSession(
     sameSite: "Lax",
     expires: Math.floor(Date.now() / 1_000) + 8 * 60 * 60,
   }]);
-  return fixture;
+  return { ...fixture, sudoToken };
 }
 
 async function gotoDeletePage(page: Page) {
@@ -64,10 +86,34 @@ async function gotoDeletePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Hesabı sil" })).toBeVisible();
 }
 
-test("confirms the intent, takes Sudo mode, then deletes without a Keycloak hop", async ({ context, page }, testInfo) => {
-  const fixture = await installSession(context, `deletion-enforce-${testInfo.retry}`, {
-    idTokenAuthenticatedAt: new Date(),
-  });
+/** Walks intent → Sudo mode → typed confirmation → submit, as the person does. */
+async function confirmDeletion(page: Page) {
+  const prepare = page.waitForResponse((response) => response.url().endsWith("/api/account/deletion/prepare"));
+  await page.getByRole("button", { name: "Hesabımı silmek istiyorum" }).click();
+  expect((await prepare).status()).toBe(200);
+
+  const confirmation = page.getByLabel("Onay metni");
+  await expect(confirmation).toBeVisible();
+  const submit = page.getByRole("button", { name: "Hesabımı kalıcı olarak sil" });
+  await expect(submit).toBeDisabled();
+  await confirmation.fill("hesabımı sil");
+  await expect(submit).toBeDisabled();
+  await confirmation.fill("HESABIMI SİL");
+  await expect(submit).toBeEnabled();
+  await submit.click();
+}
+
+type CoreIntake = { sudoProof: boolean; legacyReauthToken: boolean; outcome: "accepted" | "refused" };
+
+/** Which proof headers the mock core saw on each intake call for `subject` (never their values). */
+async function coreIntakes(request: APIRequestContext, subject: string): Promise<CoreIntake[]> {
+  const response = await request.get(`${mockCoreUrl}/__e2e/account-deletion-intakes/${encodeURIComponent(subject)}`);
+  expect(response.status()).toBe(200);
+  return response.json() as Promise<CoreIntake[]>;
+}
+
+test("deletes with the Sudo mode proof alone, without a Keycloak step", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `deletion-enforce-${testInfo.retry}`);
   const errors = failOnPageErrors(page);
   await mockActiveSudo(page);
   const responseBodies: Array<Promise<string>> = [];
@@ -79,52 +125,62 @@ test("confirms the intent, takes Sudo mode, then deletes without a Keycloak hop"
   // The confirmation text is unreachable before the intent and Sudo mode.
   await expect(page.getByLabel("Onay metni")).toHaveCount(0);
 
-  const prepare = page.waitForResponse((response) => response.url().endsWith("/api/account/deletion/prepare"));
-  await page.getByRole("button", { name: "Hesabımı silmek istiyorum" }).click();
-  expect((await prepare).status()).toBe(200);
-  await expect(page.getByRole("button", { name: "Keycloak ile doğrula" })).toHaveCount(0);
-
-  const confirmation = page.getByLabel("Onay metni");
-  await expect(confirmation).toBeVisible();
-  const submit = page.getByRole("button", { name: "Hesabımı kalıcı olarak sil" });
-  await expect(submit).toBeDisabled();
-  await confirmation.fill("hesabımı sil");
-  await expect(submit).toBeDisabled();
-  await confirmation.fill("HESABIMI SİL");
-  await expect(submit).toBeEnabled();
-
-  await submit.click();
+  await confirmDeletion(page);
   await expect(page).toHaveURL(/\/account-deletion$/);
   await expect(page.getByRole("heading", { name: "Silme isteğin sırada" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /keycloak/i })).toHaveCount(0);
 
+  // Core accepted the intake on the sudo token alone; the ID-token proof is gone.
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    expect(await coreIntakes(inspector, fixture.subject)).toEqual([
+      { sudoProof: true, legacyReauthToken: false, outcome: "accepted" },
+    ]);
+  } finally {
+    await inspector.dispose();
+  }
   // Core accepted the intake, so every local session of this subject is gone.
   await expect.poll(async () => (await sessionState(fixture.sessionId))?.revoked_at !== null).toBe(true);
-  const exposed = [
+  const browserVisible = [
     await page.content(),
     ...(await Promise.all(responseBodies)),
     await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage), location.href])),
-    ...fixture.tokenCanaries,
   ].join("\n");
-  expect(exposed).not.toContain("adr_");
+  expect([browserVisible, ...fixture.tokenCanaries].join("\n")).not.toContain("adr_");
+  // The sudo token travels from the session record to core and nowhere else.
+  expect(browserVisible).not.toContain(fixture.sudoToken);
   expect(errors).toEqual([]);
 });
 
-test("asks for the Keycloak step when the session proves no recent authentication", async ({ context, page }, testInfo) => {
-  await installSession(context, `deletion-hop-${testInfo.retry}`, {
-    idTokenAuthenticatedAt: new Date(Date.now() - 60 * 60_000),
+test("asks for Sudo mode again when core refuses the proof, and changes nothing", async ({ context, page, playwright }, testInfo) => {
+  // A sudo token minted for another Keycloak session: core's `sid` rule refuses it.
+  const fixture = await installSession(context, `deletion-refused-${testInfo.retry}`, {
+    sudoSid: (keycloakSid) => `${keycloakSid}-elsewhere`,
   });
   const errors = failOnPageErrors(page);
   await mockActiveSudo(page);
 
   await gotoDeletePage(page);
-  const prepare = page.waitForResponse((response) => response.url().endsWith("/api/account/deletion/prepare"));
-  await page.getByRole("button", { name: "Hesabımı silmek istiyorum" }).click();
-  expect((await prepare).status()).toBe(200);
+  await confirmDeletion(page);
 
-  await expect(page.getByText("Hesap silme için Keycloak üzerinden ek doğrulama gerekiyor", { exact: false }))
-    .toBeVisible();
-  const hop = page.getByRole("button", { name: "Keycloak ile doğrula" });
-  await expect(hop).toBeVisible();
+  await expect(page).toHaveURL(/\/delete-account\?deletionError=sudo_rejected$/);
+  await expect(page.getByRole("status")).toContainText("kimlik doğrulaman kabul edilmedi ya da süresi doldu");
+  await expect(page.getByRole("status")).toContainText("Hesabında hiçbir değişiklik yapılmadı");
+  // Back at the start: the next attempt goes through Sudo mode before any confirmation.
+  await expect(page.getByRole("button", { name: "Hesabımı silmek istiyorum" })).toBeVisible();
   await expect(page.getByLabel("Onay metni")).toHaveCount(0);
+
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    expect(await coreIntakes(inspector, fixture.subject)).toEqual([
+      { sudoProof: true, legacyReauthToken: false, outcome: "refused" },
+    ]);
+  } finally {
+    await inspector.dispose();
+  }
+  const state = await sessionState(fixture.sessionId);
+  // The session survives; the refused proof does not.
+  expect(state?.revoked_at).toBeNull();
+  expect(state?.sudo_expires_at).toBeNull();
   expect(errors).toEqual([]);
 });

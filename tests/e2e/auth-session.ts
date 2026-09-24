@@ -113,15 +113,17 @@ function encryptedTokenFixture(
  * An unsigned but contract-shaped Account Center user token for `subject`:
  * the BFF validates claims only (issuer, subject, client, scope, exact
  * audience set, Account REST roles, expiry) before forwarding the bearer to
- * the loopback mock core, so the signature can be random.
+ * the loopback mock core, so the signature can be random. `sid` is the
+ * Keycloak session a sudo token must name for core to accept it.
  */
-function contractShapedAccessToken(subject: string) {
+function contractShapedAccessToken(subject: string, sid: string) {
   const base64url = (value: unknown) => Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
   const issuedAt = Math.floor(Date.now() / 1_000);
   const header = base64url({ alg: "RS256", typ: "JWT" });
   const payload = base64url({
     iss: process.env.OIDC_ISSUER ?? accountAccessIssuer,
     sub: subject,
+    sid,
     azp: process.env.OIDC_CLIENT_ID ?? "account-center",
     scope: "openid",
     aud: ["account", "core"],
@@ -137,10 +139,10 @@ function base64urlJson(value: unknown) {
 }
 
 /**
- * An unsigned but contract-shaped ID token: the same claims core verifies on
- * the self-delete intake (`aud` exactly the client, matching subject,
- * non-empty `sid`, integer `auth_time`). `authenticatedAt` decides whether
- * the BFF sees a fresh authentication or has to ask for the Keycloak hop.
+ * An unsigned but contract-shaped ID token (`aud` exactly the client,
+ * matching subject, non-empty `sid`, integer `auth_time`). `authenticatedAt`
+ * is the signed login time; account deletion no longer reads it, which the
+ * deletion spec proves with a login an hour old.
  */
 function contractShapedIdToken(subject: string, sid: string, authenticatedAt: Date) {
   const issuedAt = Math.floor(Date.now() / 1_000);
@@ -160,23 +162,58 @@ function contractShapedIdToken(subject: string, sid: string, authenticatedAt: Da
 }
 
 /**
- * Records a Sudo mode proof for a seeded session the way the Microsoft
- * fallback does when the sky-account call could not issue a token: a
- * token-less `reauth` envelope, which is exactly what the account deletion
- * gate accepts (it never presents `X-Sky-Sudo` to the SPI).
+ * A contract-shaped sky-account sudo token (`docs/sky-account-api.md`): the
+ * claims core checks on the self-delete intake, with the K3e audience set.
+ * Keycloak signs it `HS512` with a key that never leaves the realm, so the
+ * signature is random here as well; the BFF treats the token as opaque.
  */
-export async function seedSudoProof(sessionId: string, options: { expiresInSeconds?: number } = {}) {
-  const expiresAt = new Date(Date.now() + (options.expiresInSeconds ?? 5 * 60) * 1_000);
+export function contractShapedSudoToken(
+  subject: string,
+  sid: string,
+  expiresAt: Date,
+  claims: Record<string, unknown> = {},
+) {
+  const issuedAt = Math.floor(Date.now() / 1_000);
+  return [
+    base64urlJson({ alg: "HS512", typ: "JWT", kid: "e2e-hmac" }),
+    base64urlJson({
+      typ: "sky-sudo",
+      iss: process.env.OIDC_ISSUER ?? accountAccessIssuer,
+      sub: subject,
+      sid,
+      azp: process.env.OIDC_CLIENT_ID ?? "account-center",
+      aud: ["sky-account", "core"],
+      amr: ["pwd"],
+      jti: randomUUID(),
+      iat: issuedAt,
+      nbf: issuedAt,
+      exp: Math.floor(expiresAt.getTime() / 1_000),
+      ...claims,
+    }),
+    randomBytes(32).toString("base64url"),
+  ].join(".");
+}
+
+/**
+ * Records a Sudo mode proof for a seeded session. With `sudoToken` it is the
+ * grant a password proof leaves; without one it is the Microsoft fallback
+ * whose sky-account call could not issue a token (`reauth`, token-less),
+ * which `my.`-local gates accept but nothing that sends `X-Sky-Sudo` does.
+ */
+export async function seedSudoProof(
+  sessionId: string,
+  options: { expiresAt?: Date; sudoToken?: string } = {},
+) {
+  const expiresAt = options.expiresAt ?? new Date(Date.now() + 5 * 60 * 1_000);
+  const envelope = options.sudoToken
+    ? { sudoToken: options.sudoToken, method: "password" }
+    : { sudoToken: null, method: "reauth" };
   const client = new pg.Client({ connectionString: testDatabaseUrl() });
   await client.connect();
   try {
     await client.query(
       "UPDATE account_sessions SET sudo_token_ciphertext = $2, sudo_expires_at = $3 WHERE id = $1",
-      [
-        sessionId,
-        encryptedFixture({ sudoToken: null, method: "reauth" }, `session:${sessionId}:sudo`),
-        expiresAt,
-      ],
+      [sessionId, encryptedFixture(envelope, `session:${sessionId}:sudo`), expiresAt],
     );
   } finally {
     await client.end();
@@ -200,7 +237,7 @@ export async function seedAuthenticatedSession(
   const keycloakSid = `e2e-sid-${sessionId}`;
   const generatedCanaries = {
     accessToken: options.contractToken
-      ? contractShapedAccessToken(subject)
+      ? contractShapedAccessToken(subject, keycloakSid)
       : `e2e-access-${randomBytes(16).toString("base64url")}`,
     refreshToken: `e2e-refresh-${randomBytes(16).toString("base64url")}`,
     idToken: options.idTokenAuthenticatedAt
@@ -235,7 +272,7 @@ export async function seedAuthenticatedSession(
   } finally {
     await client.end();
   }
-  return { sessionId, subject, handle, tokenCanaries: Object.values(tokenCanaries) };
+  return { sessionId, subject, keycloakSid, handle, tokenCanaries: Object.values(tokenCanaries) };
 }
 
 export async function sessionExists(sessionId: string) {
@@ -257,8 +294,9 @@ export async function sessionState(sessionId: string) {
       last_seen_at: Date;
       idle_expires_at: Date;
       revoked_at: Date | null;
+      sudo_expires_at: Date | null;
     }>(
-      "SELECT last_seen_at, idle_expires_at, revoked_at FROM account_sessions WHERE id = $1",
+      "SELECT last_seen_at, idle_expires_at, revoked_at, sudo_expires_at FROM account_sessions WHERE id = $1",
       [sessionId],
     );
     return result.rows[0] ?? null;

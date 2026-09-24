@@ -253,17 +253,18 @@ test("uncertain native deletion submit navigates to sessionless recovery without
 test("native deletion errors return to branded actionable recovery UI", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only navigation regression");
   await installAuthenticatedSession(context, `delete-errors-${testInfo.retry}`);
-  await page.route("**/api/account/deletion/reauthenticate", (route) => route.fulfill({
+  await page.route("**/api/account/deletion", (route) => route.fulfill({
     status: 303,
     headers: {
-      location: "/delete-account?deletionError=reauth_unavailable",
+      location: "/delete-account?deletionError=sudo_rejected",
       "cache-control": "no-store",
     },
     body: "",
   }));
   await gotoAuthenticatedPage(page, "/delete-account");
-  await submitInjectedForm(page, "/api/account/deletion/reauthenticate", /\/delete-account\?deletionError=reauth_unavailable$/);
-  await expect(page.getByRole("status")).toContainText("Yeniden doğrulama başlatılamadı");
+  await submitInjectedForm(page, "/api/account/deletion", /\/delete-account\?deletionError=sudo_rejected$/);
+  await expect(page.getByRole("status")).toContainText("Hesabında hiçbir değişiklik yapılmadı");
+  await page.unroute("**/api/account/deletion");
 
   await page.route("**/api/account/deletion", (route) => route.fulfill({
     status: 303,

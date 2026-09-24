@@ -31,9 +31,9 @@ export default async function DeleteAccountPage({
   const parameters = await searchParams;
   const deletionErrors: readonly AccountDeletionError[] = [
     "proof_expired",
-    "reauth_unavailable",
     "deletion_unavailable",
     "sudo_required",
+    "sudo_rejected",
   ];
   const deletionError = deletionErrors.find((value) => value === parameters.deletionError);
   const proof = (await cookies()).get(ACCOUNT_DELETION_PROOF_COOKIE)?.value;
@@ -63,7 +63,6 @@ export default async function DeleteAccountPage({
         deletionError={deletionError}
         enabled={services.accountDeletion !== null}
         reauthenticated={reauthenticated}
-        reauthenticationCancelled={parameters.reauth === "cancelled"}
       />
       <p className="page-hint">Silme isteğin kabul edildiğinde tüm Hesap Merkezi oturumların kapatılır ve durum takibi bu tarayıcıda güvenli bir yetkiyle devam eder.</p>
     </div>
