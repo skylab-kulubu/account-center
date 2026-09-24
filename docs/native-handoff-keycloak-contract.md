@@ -2,7 +2,7 @@
 
 > **Emekli.** Bu akış kaldırıldı. SkyApp'in bir SKY LAB sitesini WebView'ında oturum açık açması artık Keycloak'taki `sky-handoff` sağlayıcısında yaşar (Web handoff); Account Center bu yolda sıradan bir hedeftir ve kendi OIDC girişini yapar. Karar ve gerekçe: ADR-0048 ("SkyApp-to-web handoff lives in Keycloak, not in Account center").
 >
-> Account Center artık `POST /v1/native-handoff`, `GET /handoff` ve `POST /internal/v1/native-handoff/redeem` uçlarını sunmaz (üçü de oturumsuz dahil 404 döner), PAR'a `sky_native_handoff` koymaz ve `NATIVE_BRIDGE_HMAC_SECRET` / `NATIVE_BRIDGE_MTLS_CLIENT_SHA256` ayarlarını okumaz. Web handoff'tan gelen oturumun ömrünü ID token'daki `sky_session_expires` / `sky_session_started`, SkyApp görünümünü `sky_embed` belirler; ayrıntı [Keycloak sözleşmesinde](keycloak-26.7.4-contract.md). `account_native_*` tabloları silme migration'ına kadar yerinde kalır ve `db:prune-auth` onları boşaltmaya devam eder.
+> Account Center artık `POST /v1/native-handoff`, `GET /handoff` ve `POST /internal/v1/native-handoff/redeem` uçlarını sunmaz (üçü de oturumsuz dahil 404 döner), PAR'a `sky_native_handoff` koymaz ve `NATIVE_BRIDGE_HMAC_SECRET` / `NATIVE_BRIDGE_MTLS_CLIENT_SHA256` ayarlarını okumaz. Web handoff'tan gelen oturumun ömrünü ID token'daki `sky_session_expires` / `sky_session_started`, SkyApp görünümünü `sky_embed` belirler; ayrıntı [Keycloak sözleşmesinde](keycloak-26.7.4-contract.md). Bu sürüm `account_native_*` tablolarını okumaz ve `db:prune-auth` onlara dokunmaz; tabloları `0008_drop_native_handoff.sql` kaldırır ve bu migration sürüm yayına çıktıktan sonra elle çalıştırılır ([saklama kılavuzu](auth-retention-runbook.md#doğrulama-ve-geri-dönüş)).
 >
 > Aşağıdaki metin geçmiş kaydı olarak değiştirilmeden bırakılmıştır.
 

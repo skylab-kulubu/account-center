@@ -158,6 +158,15 @@ doğrulamasını atlayan özel bir test yolu yoktur.
 pnpm db:migrate
 ```
 
+Migration'lar normalde yeni sürüm trafiğe alınmadan önce uygulanır.
+`0008_drop_native_handoff.sql` ile gelen sürümde sıra terstir: önce sürüm
+deploy edilir, `pnpm db:migrate` ancak sürüm her yerde yayındayken, yedek
+alınıp geri yüklemesi denendikten sonra çalıştırılır (ops sihirbazı
+`account-center-drop-native-tables-wizard.sh`). `db:migrate` bekleyen her
+dosyayı uyguladığı için `0008`'i atlayamaz; erken çalışırsa eski sürüm
+readiness'i kaybeder. Ayrıntı
+[saklama kılavuzunda](docs/auth-retention-runbook.md#doğrulama-ve-geri-dönüş).
+
 Süresi dolmuş veya iptal edilmiş kimlik materyalini temizleyen işi dağıtım
 zamanlayıcısında saatte bir, tekil görev olarak çalıştırın:
 

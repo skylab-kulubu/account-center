@@ -11,7 +11,8 @@ const publicPages = new Set(["/login", "/account-deletion"]);
  * The retired native handoff endpoints (ADR-0048). No route answers them any
  * more; skipping the login redirect lets the router say 404, so an old SkyApp
  * build or a leftover handoff link never shows a login form inside its
- * WebView. Remove together with the `account_native_*` tables.
+ * WebView. It needs no database table; keep it while SkyApp builds that
+ * still call these paths may be installed.
  */
 const retiredNativeHandoffPaths = new Set([
   "/handoff",
