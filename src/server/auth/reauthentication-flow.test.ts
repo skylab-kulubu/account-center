@@ -105,64 +105,12 @@ function fixture() {
 }
 
 /**
- * The forced Microsoft re-authentication (`prompt=login&max_age=0`) that
- * account deletion and Sudo mode's fallback share. No Keycloak account action
- * is ever requested: credential changes run through the sky-account SPI.
+ * The forced Microsoft re-authentication (`prompt=login&max_age=0`) behind
+ * Sudo mode's fallback; account deletion has no hop of its own any more. No
+ * Keycloak account action is ever requested: credential changes run through
+ * the sky-account SPI.
  */
 describe("Account Center forced re-authentication", () => {
-  it("reauthenticates account deletion with a forced login and returns only fresh server material", async () => {
-    const { flow, protocol, sessions } = fixture();
-    const started = await flow.beginAccountDeletionReauthentication(activeSession);
-    expect(protocol.proof).toMatchObject({ forceReauthentication: true });
-    expect(Object.keys(protocol.proof!).sort()).toEqual(["codeVerifier", "forceReauthentication", "nonce", "state"]);
-
-    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
-    callback.searchParams.set("code", "authorization-code");
-    callback.searchParams.set("state", protocol.proof!.state);
-    const result = await flow.callback(callback, started.browserBinding, handle);
-
-    expect(result).toMatchObject({
-      deletionReauthentication: "success",
-      session: activeSession,
-      authenticatedAt: now,
-      freshAccessToken: "fresh-server-access-token",
-      freshIdToken: "fresh-server-id-token",
-      returnTo: "/delete-account",
-    });
-    expect(sessions.replaceTokens).toHaveBeenCalledWith(
-      activeSession.id,
-      "encrypted-v1",
-      protocol.authorization.tokens,
-      protocol.authorization.keycloakSid,
-    );
-  });
-
-  it("rejects deletion reauthentication bound to another session, subject, or stale auth_time", async () => {
-    const missing = fixture();
-    const missingStarted = await missing.flow.beginAccountDeletionReauthentication(activeSession);
-    const missingCallback = new URL("https://my.yildizskylab.com/api/auth/callback");
-    missingCallback.searchParams.set("code", "authorization-code");
-    missingCallback.searchParams.set("state", missing.protocol.proof!.state);
-    await expect(missing.flow.callback(missingCallback, missingStarted.browserBinding, "x".repeat(43)))
-      .rejects.toBeInstanceOf(InvalidOidcTransactionError);
-    expect(missing.protocol.exchanged).toBeUndefined();
-
-    for (const mutate of [
-      (protocol: FakeProtocol) => { protocol.authorization.subject = "different-user"; },
-      (protocol: FakeProtocol) => { protocol.authorization.authenticatedAt = new Date("2026-09-20T11:50:00Z"); },
-    ]) {
-      const current = fixture();
-      const started = await current.flow.beginAccountDeletionReauthentication(activeSession);
-      mutate(current.protocol);
-      const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
-      callback.searchParams.set("code", "authorization-code");
-      callback.searchParams.set("state", current.protocol.proof!.state);
-      await expect(current.flow.callback(callback, started.browserBinding, handle))
-        .rejects.toBeInstanceOf(InvalidOidcTransactionError);
-      expect(current.sessions.replaceTokens).not.toHaveBeenCalled();
-    }
-  });
-
   it("re-authenticates for sudo with a forced login bound to the session and returns the auth_time", async () => {
     const { flow, protocol, sessions } = fixture();
     const started = await flow.beginSudoReauthentication(activeSession, "/security");
@@ -269,8 +217,8 @@ describe("Account Center forced re-authentication", () => {
     }
   });
 
-  it("keeps demanding a fresh sudo login when Keycloak repeats a native bridge's old app auth_time", async () => {
-    // A native handoff copies the app's original auth_time onto the web session;
+  it("keeps demanding a fresh sudo login when Keycloak repeats a Web handoff's old app auth_time", async () => {
+    // A Web handoff copies the app's original auth_time onto the Keycloak session;
     // widening that session's lifetime must not make it count as a fresh login.
     const { flow, protocol, sessions } = fixture();
     const started = await flow.beginSudoReauthentication(activeSession, "/security");

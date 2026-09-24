@@ -1,59 +1,62 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, LockKeyhole, Trash2 } from "lucide-react";
+import { LockKeyhole, Trash2 } from "lucide-react";
 import { useSudo } from "@/components/sudo-provider";
 import { isObject, runWithSudo } from "@/lib/security-client";
 
 const CONFIRMATION = "HESABIMI SİL";
 
+/**
+ * Why the submit sent the person back. `sudo_required`: the Sudo mode proof
+ * lapsed before the submit; `sudo_rejected`: core refused the proof sealed
+ * into the confirmation (expired, or its Keycloak session ended), so nothing
+ * was accepted and the vault has dropped it.
+ */
 export type AccountDeletionError =
   | "proof_expired"
-  | "reauth_unavailable"
   | "deletion_unavailable"
-  | "sudo_required";
+  | "sudo_required"
+  | "sudo_rejected";
 
 /**
- * `intent` is the person saying they want the account gone, `keycloak` the
- * extra Keycloak round trip core's intake still needs when the session holds
- * no recent authentication, and `confirm` the literal confirmation text.
- * Sudo mode sits between `intent` and the other two and has no card of its
- * own: it is the dialog the provider opens.
+ * `intent` is the person saying they want the account gone and `confirm` the
+ * literal confirmation text. Sudo mode sits between the two and has no card
+ * of its own: it is the dialog the provider opens, and its proof is also what
+ * the BFF presents to core.
  */
-type Step = "intent" | "keycloak" | "confirm";
+type Step = "intent" | "confirm";
 
 const copy = {
   sudoCancelled: "Kimlik doğrulaman tamamlanmadı. Hesabında hiçbir değişiklik yapılmadı.",
+  spiTokenRequired: "Doğrulaman tamamlandı ama hesap silme için ek doğrulama gerekiyor. Hesabında hiçbir değişiklik yapılmadı; tekrar dene.",
   unavailable: "Hesap silme işlemi şu anda başlatılamıyor. Hesabında hiçbir değişiklik yapılmadı; kısa bir süre sonra tekrar dene.",
   sessionEnded: "Oturumun sona ermiş görünüyor. Sayfayı yenileyip yeniden dene.",
 } as const;
 
 const errorFeedback: Record<AccountDeletionError, string> = {
   proof_expired: "Doğrulama süren doldu veya silme onayın geçersizdi. Devam etmek için kimliğini yeniden doğrula.",
-  reauth_unavailable: "Yeniden doğrulama başlatılamadı. Hesabında hiçbir değişiklik yapılmadı; kısa bir süre sonra tekrar dene.",
   deletion_unavailable: copy.unavailable,
   sudo_required: "Kimlik doğrulaman geçerliliğini yitirdi. Devam etmek için kimliğini yeniden doğrula.",
+  sudo_rejected: "Silme isteğin için kimlik doğrulaman kabul edilmedi ya da süresi doldu. Hesabında hiçbir değişiklik yapılmadı. Devam etmek için kimliğini yeniden doğrula.",
 };
 
 /**
  * The delete-account flow in the order the person walks it: confirm the
  * intent, prove who they are with Sudo mode, and only then type the literal
- * confirmation and submit. Sudo mode covers the re-authentication the person
- * sees; the BFF still decides on its own whether core's intake needs the
- * extra Keycloak round trip, and says so through `POST .../deletion/prepare`.
+ * confirmation and submit. `POST .../deletion/prepare` seals the Sudo mode
+ * proof into the confirmation; there is no Keycloak round trip.
  */
 export function AccountDeletionConfirmation({
   csrfToken,
   deletionError,
   enabled,
   reauthenticated,
-  reauthenticationCancelled = false,
 }: {
   csrfToken: string;
   deletionError?: AccountDeletionError;
   enabled: boolean;
   reauthenticated: boolean;
-  reauthenticationCancelled?: boolean;
 }) {
   const { ensureSudo } = useSudo();
   const [confirmation, setConfirmation] = useState("");
@@ -61,10 +64,12 @@ export function AccountDeletionConfirmation({
   const [feedback, setFeedback] = useState<string | null>(null);
   /** Once the person has started, the recovery message the page arrived with is spent. */
   const [attempted, setAttempted] = useState(false);
-  // A browser that came back from the Keycloak hop already carries the proof
-  // cookie, so it lands on the confirmation; an expired sudo proof starts over.
+  // A reload inside the window still carries the proof cookie, so it lands on
+  // the confirmation; a lapsed or refused sudo proof starts over.
   const [step, setStep] = useState<Step>(
-    reauthenticated && deletionError !== "sudo_required" ? "confirm" : "intent",
+    reauthenticated && deletionError !== "sudo_required" && deletionError !== "sudo_rejected"
+      ? "confirm"
+      : "intent",
   );
   const shownFeedback = feedback ??
     (attempted || !deletionError ? null : errorFeedback[deletionError]);
@@ -93,6 +98,10 @@ export function AccountDeletionConfirmation({
         setFeedback(copy.sudoCancelled);
         return;
       }
+      if (outcome.kind === "spi_token_required") {
+        setFeedback(copy.spiTokenRequired);
+        return;
+      }
       if (outcome.kind !== "ok") {
         setFeedback(
           outcome.kind === "error" && outcome.status === 401 ? copy.sessionEnded : copy.unavailable,
@@ -101,7 +110,6 @@ export function AccountDeletionConfirmation({
       }
       const next = isObject(outcome.body) ? outcome.body.step : null;
       if (next === "confirm") setStep("confirm");
-      else if (next === "keycloak_reauthentication") setStep("keycloak");
       else setFeedback(copy.unavailable);
     } catch {
       setFeedback(copy.unavailable);
@@ -141,11 +149,6 @@ export function AccountDeletionConfirmation({
               kanıtlaman istenir; ardından onay metnini yazarsın. Bu adımların hepsi
               tamamlanmadan hesabında hiçbir değişiklik yapılmaz.
             </p>
-            {reauthenticationCancelled && !shownFeedback ? (
-              <p className="deletion-step__feedback" role="status">
-                Yeniden doğrulama tamamlanmadı. Hesabında hiçbir değişiklik yapılmadı.
-              </p>
-            ) : null}
             <button
               aria-busy={pending}
               className="primary-button"
@@ -155,34 +158,6 @@ export function AccountDeletionConfirmation({
             >
               Hesabımı silmek istiyorum
             </button>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  if (step === "keycloak") {
-    return (
-      <>
-        {feedbackNote}
-        <div className="deletion-step">
-          <span className="deletion-step__icon" aria-hidden="true">
-            <KeyRound size={18} />
-          </span>
-          <div>
-            <strong>Bir doğrulama adımı daha</strong>
-            <p>
-              Kimliğini doğruladın. Hesap silme için Keycloak üzerinden ek doğrulama
-              gerekiyor: silme isteği, beş dakikadan daha yeni bir giriş kanıtıyla
-              iletilir ve oturumundaki giriş bundan eski.
-            </p>
-            <p>Doğrulamadan sonra bu sayfaya dönersin ve onay metnini yazarsın.</p>
-            <form action="/api/account/deletion/reauthenticate" method="post">
-              <input type="hidden" name="csrfToken" value={csrfToken} />
-              <button className="primary-button" type="submit">
-                Keycloak ile doğrula
-              </button>
-            </form>
           </div>
         </div>
       </>

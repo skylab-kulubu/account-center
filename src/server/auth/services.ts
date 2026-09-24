@@ -15,7 +15,6 @@ import {
   PostgresRateLimitRepository,
   PostgresSessionRepository,
   PostgresSudoRepository,
-  PostgresNativeHandoffRepository,
 } from "@/server/auth/postgres-repositories";
 import { AnonymousAuthRateLimiter } from "@/server/auth/rate-limit";
 import { SessionManager } from "@/server/auth/sessions";
@@ -23,9 +22,6 @@ import { SudoVault } from "@/server/auth/sudo";
 import { getDatabasePool } from "@/server/db/pool";
 import { Keycloak26AccountReadAdapter } from "@/server/keycloak-account/adapter";
 import { AccountReadService } from "@/server/keycloak-account/service";
-import { NativeHandoffService } from "@/server/auth/native-handoff";
-import { createNativeAccessTokenVerifier } from "@/server/auth/native-handoff-token";
-import { NativeBridgeRequestVerifier } from "@/server/auth/native-bridge-auth";
 import { getAccountAccessGateConfig } from "@/server/access-gate/config";
 import { createAccountAccessGate } from "@/server/access-gate/gate";
 import { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
@@ -76,13 +72,6 @@ function createAuthServices() {
   const oidc = new OidcFlowService(protocol, transactions, sessions, accountAccess, {
     ytuIdpAlias: config.ytuIdpAlias,
   });
-  const nativeHandoff = new NativeHandoffService(
-    createNativeAccessTokenVerifier(config.issuer),
-    new PostgresNativeHandoffRepository(pool),
-    oidc,
-    accountAccess,
-    config.appUrl,
-  );
   const sudo = new SudoVault(new PostgresSudoRepository(pool), cipher);
   const skyAccount = new SkyAccountHttpClient(config.issuer);
   const coreProfile = config.coreApiUrl ? new CoreProfileHttpClient(config.coreApiUrl) : null;
@@ -102,15 +91,10 @@ function createAuthServices() {
     accountAccess,
     oidc,
     account,
-    nativeHandoff,
     accountDeletion,
     sudo,
     skyAccount,
     coreProfile,
-    nativeBridgeRequest: new NativeBridgeRequestVerifier(
-      config.nativeBridgeHmacSecret,
-      config.nativeBridgeMtlsClientSha256,
-    ),
     backchannelLogout: new BackchannelLogoutService(
       new KeycloakBackchannelLogoutVerifier(config),
       new PostgresBackchannelLogoutRepository(pool),

@@ -9,13 +9,14 @@ import {
 } from "@/server/auth/http";
 import { requestCorrelationId } from "@/server/auth/logging";
 import { getAuthServices } from "@/server/auth/services";
-import { requireAccountSudo } from "@/server/auth/sudo-gate";
+import { requireAccountSpiSudo, sudoRequiredResponse } from "@/server/auth/sudo-gate";
+import type { SudoSpiProof } from "@/server/auth/sudo-gate";
+import { resolveSudoMethods } from "@/server/auth/sudo-methods";
 import {
   accountAccessUnavailableResponse,
   authenticationRequiredResponse,
 } from "@/server/access-gate/http";
-import { AccountDeletionProofError } from "@/server/account-deletion/orchestrator";
-import { planDeletionReauthentication } from "@/server/account-deletion/reauthentication";
+import { accountDeletionErrorKind } from "@/server/account-deletion/orchestrator";
 
 export const dynamic = "force-dynamic";
 
@@ -28,13 +29,13 @@ function unavailableResponse() {
 
 /**
  * The step between "yes, delete my account" and the literal confirmation
- * text: Sudo mode must hold a fresh proof, and only then does the BFF decide
- * how core's recent-authentication requirement will be met
- * (`planDeletionReauthentication`). With a fresh enough stored ID token the
- * durable intent is created here and the browser receives the proof and local
- * receipt cookies; otherwise the answer sends the page to the Keycloak
- * re-authentication hop. No subject, token or Keycloak detail reaches the
- * answer, which is `{ step }` and nothing else.
+ * text. Sudo mode must hold a fresh proof that carries sky-account material
+ * (the same gate every `X-Sky-Sudo` route uses, so a token-less Microsoft
+ * proof is answered `428 spi_token_required`), because that sudo token is
+ * what core verifies on the intake. The durable intent seals the bearer and
+ * the proof, and the browser receives the proof and local receipt cookies.
+ * No subject, token or Keycloak detail reaches the answer, which is
+ * `{ step }` and nothing else.
  */
 export async function POST(request: NextRequest) {
   const services = getAuthServices();
@@ -61,9 +62,11 @@ export async function POST(request: NextRequest) {
   if (authorization.status === "blocked") return authenticationRequiredResponse(true);
 
   const session = authorization.value.session;
+  let sudo: SudoSpiProof;
   try {
-    const sudo = await requireAccountSudo(services, session, { requestId });
-    if (!sudo.ok) return sudo.response;
+    const gate = await requireAccountSpiSudo(services, session, { requestId });
+    if (!gate.ok) return gate.response;
+    sudo = gate.proof;
   } catch {
     // The identity service could not be read while building the challenge;
     // an empty method list would wrongly say no proof is possible.
@@ -71,22 +74,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const stored = await services.sessions.readTokens(session.id);
-    const plan = planDeletionReauthentication(stored?.tokens.idToken, {
-      issuer: services.config.issuer,
-      clientId: services.config.clientId,
-      subject: session.subject,
-    });
-    if (plan.kind === "keycloak_reauthentication") {
-      return noStore(NextResponse.json({ step: "keycloak_reauthentication" }));
-    }
-    // Only now is a bearer needed, so the hop answer never costs a token refresh.
     const accessToken = await services.account.accessToken(session);
     const intent = await services.accountDeletion.createReauthenticatedIntent({
       session,
-      authenticatedAt: plan.authenticatedAt,
-      freshAccessToken: accessToken,
-      freshIdToken: plan.idToken,
+      accessToken,
+      sudo,
     });
     const response = noStore(NextResponse.json({ step: "confirm" }));
     setAccountDeletionProofCookie(response, intent.proofReference, intent.freshUntil);
@@ -94,9 +86,11 @@ export async function POST(request: NextRequest) {
     response.headers.set("Referrer-Policy", "no-referrer");
     return response;
   } catch (error) {
-    // The window closed between the plan and the write: the hop is the way back.
-    if (error instanceof AccountDeletionProofError) {
-      return noStore(NextResponse.json({ step: "keycloak_reauthentication" }));
+    // The proof lapsed between the gate and the write: the dialog is the way back.
+    if (accountDeletionErrorKind(error) === "proof") {
+      const availability = await resolveSudoMethods(services, session).catch(() => null);
+      if (!availability) return unavailableResponse();
+      return sudoRequiredResponse({ reason: "expired", ...availability });
     }
     return unavailableResponse();
   }

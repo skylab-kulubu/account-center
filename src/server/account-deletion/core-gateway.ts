@@ -1,5 +1,6 @@
 import "server-only";
 
+import { COMPACT_JWS } from "@/server/contract-shapes";
 import type {
   CoreAccountDeletionGateway,
   CoreAccountDeletionStatus,
@@ -142,7 +143,7 @@ export class CoreAccountDeletionHttpGateway implements CoreAccountDeletionGatewa
     authorization: string,
     options: {
       idempotencyKey?: string;
-      reauthenticationToken?: string;
+      sudoToken?: string;
       expectedReceipt?: string;
       acceptedStatuses: number[];
       enforceCommandStatus?: boolean;
@@ -153,9 +154,11 @@ export class CoreAccountDeletionHttpGateway implements CoreAccountDeletionGatewa
       accept: "application/json",
     };
     if (options.idempotencyKey) headers["idempotency-key"] = options.idempotencyKey;
-    if (options.reauthenticationToken) {
-      headers["x-account-reauth-token"] = options.reauthenticationToken;
-    }
+    // The Sudo mode proof is the only recent-authentication proof sent. Core
+    // still accepts the old `X-Account-Reauth-Token` ID token for rollback, but
+    // when both arrive the sudo token decides alone, so sending it would prove
+    // nothing and only put a second credential on the wire.
+    if (options.sudoToken) headers["x-sky-sudo"] = options.sudoToken;
     let response: Response;
     try {
       response = await fetch(new URL(path, this.baseUrl), {
@@ -193,12 +196,24 @@ export class CoreAccountDeletionHttpGateway implements CoreAccountDeletionGatewa
     return parsed;
   }
 
+  /**
+   * The self-delete intake: the Account REST bearer plus the person's
+   * sky-account sudo token as `X-Sky-Sudo`, which core verifies by realm
+   * introspection (`typ=sky-sudo`, `azp=account-center`, `aud` holding
+   * `sky-account` and `core`, the bearer's `sub` and `sid`, a future `exp`).
+   * The token is opaque here; without one the call is never made.
+   */
   initiate(input: {
     accessToken: string;
-    reauthenticationToken: string;
+    sudoToken: string;
     idempotencyKey: string;
   }) {
-    if (!input.accessToken || !input.reauthenticationToken || !IDEMPOTENCY_KEY.test(input.idempotencyKey)) {
+    if (
+      !input.accessToken ||
+      typeof input.sudoToken !== "string" ||
+      !COMPACT_JWS.test(input.sudoToken) ||
+      !IDEMPOTENCY_KEY.test(input.idempotencyKey)
+    ) {
       throw new CoreAccountDeletionUnauthorizedError();
     }
     return this.#request(
@@ -207,7 +222,7 @@ export class CoreAccountDeletionHttpGateway implements CoreAccountDeletionGatewa
       `Bearer ${input.accessToken}`,
       {
         idempotencyKey: input.idempotencyKey,
-        reauthenticationToken: input.reauthenticationToken,
+        sudoToken: input.sudoToken,
         acceptedStatuses: [200, 202],
         enforceCommandStatus: true,
       },

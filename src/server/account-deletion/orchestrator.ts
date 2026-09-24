@@ -1,8 +1,10 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import { CoreAccountDeletionUnauthorizedError } from "@/server/account-deletion/core-gateway";
 import { constantTimeEqual, hmacSha256, randomOpaqueValue, sha256 } from "@/server/auth/crypto";
 import type { SecretCipher } from "@/server/auth/crypto";
+import { SUDO_FRESHNESS_MARGIN_SECONDS } from "@/server/auth/sudo";
 import type { ActiveSession } from "@/server/auth/types";
 import type {
   AcceptedAccountDeletionIntent,
@@ -15,6 +17,7 @@ import type {
   SubjectSessionRevoker,
 } from "@/server/account-deletion/types";
 
+/** An intent never outlives this, whatever deadline the sudo proof carries (sky-account issues five-minute tokens). */
 const FRESH_AUTH_WINDOW_MS = 5 * 60 * 1_000;
 const REFERENCE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CORE_RECEIPT_PATTERN = /^adr_[A-Za-z0-9_-]{43}$/;
@@ -27,10 +30,44 @@ export class AccountDeletionProofError extends Error {
   }
 }
 
+/**
+ * Core refused the intake credentials (`401 invalid_end_user_token`): in
+ * practice the sudo proof, which core introspects at the realm and which
+ * lapses with its five-minute token or the Keycloak session. Nothing was
+ * accepted, so the person proves themselves again and starts over.
+ */
+export class AccountDeletionSudoRejectedError extends Error {
+  constructor() {
+    super("Core refused the Sudo mode proof for account deletion.");
+    this.name = "AccountDeletionSudoRejectedError";
+  }
+}
+
 export class AccountDeletionUnavailableError extends Error {
   constructor() {
     super("Account deletion is temporarily unavailable.");
     this.name = "AccountDeletionUnavailableError";
+  }
+}
+
+/**
+ * Which of the orchestrator's errors `error` is, read from the fixed `name`
+ * each one sets rather than from `instanceof`. The orchestrator lives in the
+ * services cached on `globalThis` (`getAuthServices`), and under `next dev` a
+ * route can be compiled against a newer copy of this module than the one
+ * that built it: the classes then differ while the names do not.
+ */
+export function accountDeletionErrorKind(error: unknown) {
+  if (!(error instanceof Error)) return null;
+  switch (error.name) {
+    case "AccountDeletionProofError":
+      return "proof" as const;
+    case "AccountDeletionSudoRejectedError":
+      return "sudo_rejected" as const;
+    case "AccountDeletionUnavailableError":
+      return "unavailable" as const;
+    default:
+      return null;
   }
 }
 
@@ -54,17 +91,22 @@ export class AccountDeletionOrchestrator {
     private readonly clock: () => Date = () => new Date(),
   ) {}
 
+  /**
+   * Seals the bearer and the session's Sudo mode proof into a durable intent
+   * awaiting the typed confirmation. The intent lives no longer than the
+   * proof (minus the vault's freshness margin), so neither the confirmation
+   * nor a recovery replay can present a sudo token core would call expired.
+   */
   async createReauthenticatedIntent(input: ReauthenticatedDeletionInput) {
     const now = this.clock();
-    const authenticatedAt = input.authenticatedAt.getTime();
-    if (
-      !Number.isFinite(authenticatedAt) ||
-      authenticatedAt > now.getTime() + 5_000 ||
-      authenticatedAt <= now.getTime() - FRESH_AUTH_WINDOW_MS
-    ) {
-      throw new AccountDeletionProofError("A fresh authentication is required.");
+    const deadline = Math.min(
+      input.sudo.expiresAt.getTime() - SUDO_FRESHNESS_MARGIN_SECONDS * 1_000,
+      now.getTime() + FRESH_AUTH_WINDOW_MS,
+    );
+    if (!Number.isFinite(deadline) || deadline <= now.getTime()) {
+      throw new AccountDeletionProofError("A fresh Sudo mode proof is required.");
     }
-    if (!input.freshAccessToken || !input.freshIdToken) {
+    if (!input.accessToken || !input.sudo.sudoToken) {
       throw new AccountDeletionProofError("Fresh identity tokens are required.");
     }
     const id = randomUUID();
@@ -79,10 +121,10 @@ export class AccountDeletionOrchestrator {
       proofHash,
       localReceiptHash: sha256(localReceipt),
       encryptedIdentityTokens: this.cipher.encrypt(
-        { accessToken: input.freshAccessToken, idToken: input.freshIdToken },
+        { accessToken: input.accessToken, sudoToken: input.sudo.sudoToken },
         this.#identityRecoveryAad(input.session.id, proofHash),
       ),
-      freshUntil: new Date(authenticatedAt + FRESH_AUTH_WINDOW_MS),
+      freshUntil: new Date(deadline),
       createdAt: now,
       updatedAt: now,
     });
@@ -103,15 +145,17 @@ export class AccountDeletionOrchestrator {
 
   #decryptRecoveryTokens(intent: AwaitingConfirmationIntent) {
     try {
-      const value = this.cipher.decrypt<{ accessToken?: unknown; idToken?: unknown }>(
+      const value = this.cipher.decrypt<{ accessToken?: unknown; sudoToken?: unknown }>(
         intent.encryptedIdentityTokens,
         this.#identityRecoveryAad(intent.sessionId, intent.proofHash),
       );
+      // An intent sealed before the sudo proof (an ID token instead) has no
+      // `sudoToken` and is unusable: core is never called without the proof.
       if (
         typeof value.accessToken !== "string" || !value.accessToken ||
-        typeof value.idToken !== "string" || !value.idToken
+        typeof value.sudoToken !== "string" || !value.sudoToken
       ) throw new Error();
-      return { accessToken: value.accessToken, reauthenticationToken: value.idToken };
+      return { accessToken: value.accessToken, sudoToken: value.sudoToken };
     } catch {
       throw new AccountDeletionUnavailableError();
     }
@@ -224,6 +268,12 @@ export class AccountDeletionOrchestrator {
       });
     } catch (error) {
       if (error instanceof AccountDeletionUnavailableError) throw error;
+      // A refusal is certain (core checks the credentials before anything
+      // durable happens); every other failure may hide an acceptance and stays
+      // on the idempotent recovery path.
+      if (error instanceof CoreAccountDeletionUnauthorizedError) {
+        throw new AccountDeletionSudoRejectedError();
+      }
       throw new AccountDeletionUnavailableError();
     }
     await this.#revokeLocalSessionsBeforeAccepting(intent);

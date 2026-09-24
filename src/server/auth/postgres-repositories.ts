@@ -4,12 +4,9 @@ import type { Pool, PoolClient } from "pg";
 import type {
   BackchannelLogoutInput,
   BackchannelLogoutRepository,
-  ConsumeNativeHandoffInput,
-  NativeHandoffRepository,
   OidcTransactionRepository,
   RateLimitInput,
   RateLimitRepository,
-  RedeemNativeBridgeInput,
   SessionRepository,
   SessionUseOutcome,
   StoredSudo,
@@ -18,7 +15,6 @@ import type {
 } from "@/server/auth/repositories";
 import type {
   ActiveSession,
-  NewNativeHandoff,
   NewSessionRecord,
   StoredOidcTransaction,
 } from "@/server/auth/types";
@@ -398,116 +394,5 @@ export class PostgresRateLimitRepository implements RateLimitRepository {
     );
     const count = result.rows[0]?.request_count ?? input.limit + 1;
     return { allowed: count <= input.limit, count };
-  }
-}
-
-type NativeIdentityRow = {
-  subject: string;
-  keycloak_sid: string;
-  authenticated_at: Date;
-};
-
-function nativeIdentity(row: NativeIdentityRow) {
-  return {
-    subject: row.subject,
-    keycloakSid: row.keycloak_sid,
-    authenticatedAt: row.authenticated_at,
-  };
-}
-
-export class PostgresNativeHandoffRepository implements NativeHandoffRepository {
-  constructor(private readonly pool: Pool) {}
-
-  async insert(value: NewNativeHandoff) {
-    await this.pool.query(
-      `INSERT INTO account_native_handoffs
-        (id, code_hash, subject, keycloak_sid, authenticated_at, created_at, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        value.id,
-        value.codeHash,
-        value.subject,
-        value.keycloakSid,
-        value.authenticatedAt,
-        value.createdAt,
-        value.expiresAt,
-      ],
-    );
-  }
-
-  async findActiveHandoff(codeHash: Buffer, now: Date) {
-    const result = await this.pool.query<NativeIdentityRow>(
-      `SELECT subject, keycloak_sid, authenticated_at
-         FROM account_native_handoffs
-        WHERE code_hash = $1
-          AND consumed_at IS NULL
-          AND expires_at > $2`,
-      [codeHash, now],
-    );
-    const row = result.rows[0];
-    return row ? nativeIdentity(row) : null;
-  }
-
-  async consumeAndCreateBridge(input: ConsumeNativeHandoffInput) {
-    const result = await this.pool.query<NativeIdentityRow>(
-      `WITH consumed AS (
-         UPDATE account_native_handoffs
-            SET consumed_at = $4
-          WHERE code_hash = $1
-            AND consumed_at IS NULL
-            AND expires_at > $4
-        RETURNING subject, keycloak_sid, authenticated_at, expires_at
-       )
-       INSERT INTO account_native_bridges
-         (id, code_hash, subject, keycloak_sid, authenticated_at, created_at, expires_at)
-       SELECT $2, $3, subject, keycloak_sid, authenticated_at, $4, LEAST(expires_at, $5)
-         FROM consumed
-      RETURNING subject, keycloak_sid, authenticated_at`,
-      [
-        input.publicCodeHash,
-        input.bridgeId,
-        input.bridgeCodeHash,
-        input.now,
-        input.bridgeExpiresAt,
-      ],
-    );
-    const row = result.rows[0];
-    return row ? nativeIdentity(row) : null;
-  }
-
-  async findActiveBridge(codeHash: Buffer, now: Date) {
-    const result = await this.pool.query<NativeIdentityRow>(
-      `SELECT subject, keycloak_sid, authenticated_at
-         FROM account_native_bridges
-        WHERE code_hash = $1
-          AND consumed_at IS NULL
-          AND expires_at > $2`,
-      [codeHash, now],
-    );
-    const row = result.rows[0];
-    return row ? nativeIdentity(row) : null;
-  }
-
-  redeemBridge(input: RedeemNativeBridgeInput) {
-    return transaction(this.pool, async (client) => {
-      const nonce = await client.query(
-        `INSERT INTO account_native_bridge_request_nonces (nonce_hash, seen_at, expires_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (nonce_hash) DO NOTHING`,
-        [input.requestNonceHash, input.now, input.requestNonceExpiresAt],
-      );
-      if (nonce.rowCount !== 1) return null;
-      const result = await client.query<NativeIdentityRow>(
-        `UPDATE account_native_bridges
-            SET consumed_at = $2
-          WHERE code_hash = $1
-            AND consumed_at IS NULL
-            AND expires_at > $2
-        RETURNING subject, keycloak_sid, authenticated_at`,
-        [input.bridgeCodeHash, input.now],
-      );
-      const row = result.rows[0];
-      return row ? nativeIdentity(row) : null;
-    });
   }
 }

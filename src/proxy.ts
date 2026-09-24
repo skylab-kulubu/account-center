@@ -6,9 +6,14 @@ import { parseProfilePictureOrigin } from "@/config/club-profile";
 const sessionCookie = "__Host-sky-account";
 /** Read once per process; an invalid value fails the proxy at startup instead of shipping a broken policy. */
 const profilePictureOrigin = parseProfilePictureOrigin(process.env.PROFILE_PICTURE_ORIGIN);
-const publicPages = new Set([
-  "/login",
-  "/account-deletion",
+const publicPages = new Set(["/login", "/account-deletion"]);
+/**
+ * The retired native handoff endpoints (ADR-0048). No route answers them any
+ * more; skipping the login redirect lets the router say 404, so an old SkyApp
+ * build or a leftover handoff link never shows a login form inside its
+ * WebView. Remove together with the `account_native_*` tables.
+ */
+const retiredNativeHandoffPaths = new Set([
   "/handoff",
   "/v1/native-handoff",
   "/internal/v1/native-handoff/redeem",
@@ -42,6 +47,7 @@ export function proxy(request: NextRequest) {
 
   const needsLogin =
     !publicPages.has(request.nextUrl.pathname) &&
+    !retiredNativeHandoffPaths.has(request.nextUrl.pathname) &&
     !request.cookies.has(sessionCookie);
   const response = needsLogin
     ? NextResponse.redirect(
