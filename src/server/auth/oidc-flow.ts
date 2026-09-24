@@ -8,7 +8,6 @@ import { OidcContractError, type OidcProtocol } from "@/server/auth/oidc-protoco
 import type { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import type { SessionManager } from "@/server/auth/sessions";
 import type {
-  AccountDeletionReauthenticationTransactionPayload,
   ActiveSession,
   NativeHandoffIdentity,
   SudoReauthenticationTransactionPayload,
@@ -118,37 +117,10 @@ export class OidcFlowService {
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
 
-  async beginAccountDeletionReauthentication(session: ActiveSession) {
-    const proof = {
-      state: oauth.generateRandomState(),
-      nonce: oauth.generateRandomNonce(),
-      codeVerifier: oauth.generateRandomCodeVerifier(),
-      forceReauthentication: true,
-    };
-    const authorization = await this.protocol.begin(proof);
-    const browserBinding = randomOpaqueValue();
-    const initiatedAt = this.clock();
-    await this.transactions.create(
-      {
-        state: proof.state,
-        nonce: proof.nonce,
-        codeVerifier: proof.codeVerifier,
-        purpose: "account-deletion-reauthentication",
-        returnTo: "/delete-account",
-        expectedSubject: session.subject,
-        expectedSessionId: session.id,
-        initiatedAt: initiatedAt.toISOString(),
-      },
-      browserBinding,
-      authorization.expiresIn,
-    );
-    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
-  }
-
   /**
-   * Sudo mode fallback for a person without password, passkey or TOTP: the
-   * same forced re-authentication as account deletion, returning to the page
-   * that asked for sudo. The callback verifies the signed `auth_time` and
+   * Sudo mode fallback for a person without password, passkey or TOTP: a
+   * forced re-authentication (`prompt=login&max_age=0`), returning to the
+   * page that asked for sudo. The callback verifies the signed `auth_time` and
    * hands the fresh ID token to `POST sudo/authentication`, which turns it
    * into a sudo token for the same five-minute window.
    */
@@ -214,10 +186,7 @@ export class OidcFlowService {
   }
 
   async #boundActionSession(
-    transaction:
-      | AccountDeletionReauthenticationTransactionPayload
-      | SudoReauthenticationTransactionPayload
-      | YtuLinkTransactionPayload,
+    transaction: SudoReauthenticationTransactionPayload | YtuLinkTransactionPayload,
     sessionHandle: string | undefined,
   ) {
     const candidate = await this.sessions.candidate(sessionHandle);
@@ -234,57 +203,6 @@ export class OidcFlowService {
       active.session.subject !== transaction.expectedSubject
     ) throw new InvalidOidcTransactionError();
     return active.session;
-  }
-
-  async #accountDeletionReauthenticationCallback(
-    callbackUrl: URL,
-    transaction: AccountDeletionReauthenticationTransactionPayload,
-    sessionHandle: string | undefined,
-  ) {
-    const session = await this.#boundActionSession(transaction, sessionHandle);
-    if (callbackUrl.searchParams.has("error")) {
-      return {
-        deletionReauthentication: "cancelled" as const,
-        returnTo: transaction.returnTo,
-      };
-    }
-    let authorization;
-    try {
-      authorization = await this.protocol.exchange({
-        callbackUrl,
-        state: transaction.state,
-        nonce: transaction.nonce,
-        codeVerifier: transaction.codeVerifier,
-        forceReauthentication: true,
-      });
-    } catch {
-      throw new InvalidOidcTransactionError();
-    }
-    const initiatedAt = new Date(transaction.initiatedAt);
-    if (
-      authorization.subject !== transaction.expectedSubject ||
-      !authorization.keycloakSid ||
-      authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000
-    ) {
-      throw new InvalidOidcTransactionError();
-    }
-    await this.accountAccess.requireActive(authorization.subject);
-    const currentTokens = await this.sessions.readTokens(session.id);
-    if (!currentTokens) throw new InvalidOidcTransactionError();
-    await this.sessions.replaceTokens(
-      session.id,
-      currentTokens.version,
-      authorization.tokens,
-      authorization.keycloakSid,
-    );
-    return {
-      deletionReauthentication: "success" as const,
-      session,
-      authenticatedAt: authorization.authenticatedAt,
-      freshAccessToken: authorization.tokens.accessToken,
-      freshIdToken: authorization.tokens.idToken,
-      returnTo: transaction.returnTo,
-    };
   }
 
   async #sudoReauthenticationCallback(
@@ -405,9 +323,6 @@ export class OidcFlowService {
     const transaction = await this.transactions.consume(state, browserBinding);
     if (!transaction) throw new InvalidOidcTransactionError();
 
-    if (transaction.purpose === "account-deletion-reauthentication") {
-      return this.#accountDeletionReauthenticationCallback(callbackUrl, transaction, sessionHandle);
-    }
     if (transaction.purpose === "sudo-reauthentication") {
       return this.#sudoReauthenticationCallback(callbackUrl, transaction, sessionHandle);
     }

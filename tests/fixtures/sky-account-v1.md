@@ -18,7 +18,9 @@ Account Center consumes, as specified in `docs/sky-account-api.md` (v1):
   nothing waits.
 - `sky-account-v1-sudo-grant.json`: `POST sudo/password`, `POST sudo/totp` and
   `POST sudo/webauthn/verify`. The token is an opaque, Keycloak-signed JWT; the
-  fixture signature is not verifiable and the client never inspects it.
+  fixture signature is not verifiable and the client never inspects it. Its
+  claims carry the K3e audience set `["sky-account","core"]`, the one core
+  introspects when account deletion presents the token as `X-Sky-Sudo`.
 - `sky-account-v1-sudo-authentication.json`: `POST sudo/authentication`, the
   grant a fresh Keycloak login (Microsoft) earns for a person with no
   password, verification app or passkey. Same shape as the other grants, but

@@ -24,7 +24,6 @@ function validIsoDate(value: string) {
 function validTransactionPayload(payload: OidcTransactionPayload) {
   if (!validCoreProof(payload)) return false;
   if (
-    payload.purpose === "account-deletion-reauthentication" ||
     payload.purpose === "sudo-reauthentication" ||
     payload.purpose === "ytu-link"
   ) {

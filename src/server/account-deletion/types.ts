@@ -99,9 +99,10 @@ export interface AccountDeletionRepository {
 }
 
 export interface CoreAccountDeletionGateway {
+  /** `sudoToken` is the opaque sky-account Sudo mode token, sent as `X-Sky-Sudo`. */
   initiate(input: {
     accessToken: string;
-    reauthenticationToken: string;
+    sudoToken: string;
     idempotencyKey: string;
   }): Promise<CoreAccountDeletionStatus>;
   status(receipt: string): Promise<CoreAccountDeletionStatus>;
@@ -112,9 +113,13 @@ export type SubjectSessionRevoker = {
   revokeSubjectSessionsBySessionId(sessionId: string): Promise<number>;
 };
 
+/**
+ * What `POST .../deletion/prepare` hands the orchestrator: the Account REST
+ * bearer and the session's current Sudo mode proof, read through the same
+ * gate every `X-Sky-Sudo` route uses (`requireAccountSpiSudo`).
+ */
 export type ReauthenticatedDeletionInput = {
   session: ActiveSession;
-  authenticatedAt: Date;
-  freshAccessToken: string;
-  freshIdToken: string;
+  accessToken: string;
+  sudo: { sudoToken: string; expiresAt: Date };
 };

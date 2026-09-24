@@ -20,7 +20,7 @@ export type BeginAuthorizationInput = {
   nonce: string;
   codeVerifier: string;
   nativeBridgeCode?: string;
-  /** `prompt=login&max_age=0`: the Microsoft re-authentication used by Sudo mode's fallback and account deletion. */
+  /** `prompt=login&max_age=0`: the Microsoft re-authentication used by Sudo mode's fallback. */
   forceReauthentication?: boolean;
   /** Only the YTÜ link (`idp_link` for the configured alias); never combined with the bridge or a forced login. */
   accountAction?: OidcAccountAction;

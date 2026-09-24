@@ -31,7 +31,6 @@ test("keeps every deletion endpoint inert while account erasure is off", async (
 
     for (const path of [
       "/api/account/deletion/prepare",
-      "/api/account/deletion/reauthenticate",
       "/api/account/deletion",
     ]) {
       const response = await api.post(path, {
@@ -42,6 +41,14 @@ test("keeps every deletion endpoint inert while account erasure is off", async (
       expect(response.status(), path).toBe(503);
       expect(await response.json(), path).toEqual({ error: "unavailable" });
     }
+
+    // The Keycloak re-authentication hop is retired: Sudo mode is the only proof.
+    const retiredHop = await api.post("/api/account/deletion/reauthenticate", {
+      headers: { origin: baseUrl, "sec-fetch-site": "same-origin" },
+      form: { csrfToken: "unused" },
+      maxRedirects: 0,
+    });
+    expect(retiredHop.status()).toBe(404);
   } finally {
     await api.dispose();
   }

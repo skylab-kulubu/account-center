@@ -59,7 +59,6 @@ const mutations = [
   "/api/account/security/passkeys/register",
   "/api/account/deletion",
   "/api/account/deletion/prepare",
-  "/api/account/deletion/reauthenticate",
   "/api/account/club-profile/picture",
 ];
 
@@ -68,7 +67,6 @@ const erasurePages = ["/delete-account", "/account-deletion", "/api/account/dele
 const erasureMutations = [
   "/api/account/deletion",
   "/api/account/deletion/prepare",
-  "/api/account/deletion/reauthenticate",
   "/api/account/sudo/methods",
 ];
 

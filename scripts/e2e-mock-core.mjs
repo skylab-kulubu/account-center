@@ -10,11 +10,12 @@ import { join } from "node:path";
  * JSON PATCH of the club fields, multipart picture upload under `file` or
  * `image`, and `DELETE /v1/users/me/profile-picture`. State is kept per
  * token subject so every seeded session starts from the fixture, and
- * `GET /__e2e/users/{sub}` exposes what core received for assertions.
+ * `GET /__e2e/users/{sub}` exposes what core received for assertions. The
+ * self-delete intake is served too; `GET /__e2e/account-deletion-intakes/{sub}`
+ * lists which proof headers each intake call carried.
  */
 
 const MAX_PICTURE_BYTES = 5 * 1_024 * 1_024;
-const REAUTH_MAX_AGE_SECONDS = 5 * 60;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{43}$/;
 const patchableFields = ["firstName", "lastName", "linkedin", "university", "faculty", "department"];
 
@@ -52,23 +53,28 @@ function decodeJwtClaims(token) {
 }
 
 /**
- * The ID token core demands next to the bearer: same subject, this client as
- * the single audience, a non-empty `sid` and an `auth_time` inside the
- * five-minute window. A stale or mismatched proof is the whole point of the
- * check, so it answers `401` exactly as core does.
+ * The sky-account sudo token core demands in `X-Sky-Sudo`. Core asks the realm
+ * by introspection; the mock reads the same claims straight from the token:
+ * `typ=sky-sudo`, the bearer's issuer, `azp` this client, an `aud` holding
+ * both `sky-account` and `core`, the bearer's `sub` and `sid`, and a future
+ * `exp`. No `auth_time` rule applies on this path. A stale or mismatched
+ * proof is the whole point of the check, so it answers `401` as core does.
  */
-function reauthenticationProves(subject, header, clientId) {
+function sudoProves(bearer, header, clientId) {
   const claims = decodeJwtClaims(header);
   const now = Math.floor(Date.now() / 1_000);
+  const audiences = typeof claims?.aud === "string" ? [claims.aud] : Array.isArray(claims?.aud) ? claims.aud : [];
   return Boolean(
     claims &&
-    claims.sub === subject &&
-    claims.aud === clientId &&
-    typeof claims.sid === "string" && claims.sid.trim() !== "" &&
-    Number.isSafeInteger(claims.exp) && claims.exp > now &&
-    Number.isSafeInteger(claims.auth_time) &&
-    claims.auth_time <= now + 5 &&
-    claims.auth_time >= now - REAUTH_MAX_AGE_SECONDS,
+    claims.typ === "sky-sudo" &&
+    claims.iss === bearer.iss &&
+    claims.azp === clientId &&
+    audiences.includes("sky-account") &&
+    audiences.includes("core") &&
+    claims.sub === bearer.sub &&
+    typeof bearer.sid === "string" && bearer.sid !== "" &&
+    claims.sid === bearer.sid &&
+    Number.isSafeInteger(claims.exp) && claims.exp > now,
   );
 }
 
@@ -141,6 +147,8 @@ export function startMockCore({
   /** receipt → lifecycle record, plus the idempotency index the intake reuses. */
   const deletions = new Map();
   const deletionKeys = new Map();
+  /** subject → which proof headers each intake call carried and how it ended; never the values. */
+  const deletionIntakes = new Map();
   const pictureUrl = (id) => `${pictureBase}/skylab.svg?picture=${encodeURIComponent(id)}`;
 
   function userFor(sub) {
@@ -160,9 +168,20 @@ export function startMockCore({
     if (url.pathname === "/v1/account-deletion-requests/self" && request.method === "POST") {
       const bearer = decodeBearer(request.headers.authorization, "account");
       if (!bearer) return problem(response, 401, "Unauthorized");
-      if (!reauthenticationProves(bearer.sub, request.headers["x-account-reauth-token"], clientId)) {
+      const intakes = deletionIntakes.get(bearer.sub) ?? [];
+      deletionIntakes.set(bearer.sub, intakes);
+      const intake = {
+        sudoProof: typeof request.headers["x-sky-sudo"] === "string",
+        legacyReauthToken: request.headers["x-account-reauth-token"] !== undefined,
+        outcome: "refused",
+      };
+      intakes.push(intake);
+      // Real core still takes the legacy ID-token header during the rollout;
+      // the mock pins the proof Account Center sends now, so it wants the sudo token.
+      if (!sudoProves(bearer, request.headers["x-sky-sudo"], clientId)) {
         return problem(response, 401, "Unauthorized");
       }
+      intake.outcome = "accepted";
       const key = request.headers["idempotency-key"];
       if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key) || body.length > 0) {
         return problem(response, 400, "Bad Request");
@@ -203,6 +222,10 @@ export function startMockCore({
     { key: readFileSync(keyFile), cert: readFileSync(certificateFile) },
     async (request, response) => {
       const url = new URL(request.url ?? "/", `https://${request.headers.host ?? host}`);
+      const intakeInspection = /^\/__e2e\/account-deletion-intakes\/([^/]+)$/.exec(url.pathname);
+      if (intakeInspection && request.method === "GET") {
+        return json(response, 200, deletionIntakes.get(decodeURIComponent(intakeInspection[1])) ?? []);
+      }
       const inspection = /^\/__e2e\/users\/([^/]+)$/.exec(url.pathname);
       if (inspection && request.method === "GET") {
         const user = users.get(decodeURIComponent(inspection[1]));
