@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import Redis from "ioredis";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ACCOUNT_ACCESS_CONTRACT_KEY,
   ACCOUNT_ACCESS_CONTRACT_VALUE,
@@ -58,6 +58,35 @@ redisDescribe("Redis account access contract", () => {
     await redis.set(ACCOUNT_ACCESS_CONTRACT_KEY, "wrong-contract");
     await expect(gate.decide(subject)).resolves.toBe("unavailable");
     await expect(gate.ready()).resolves.toBe(false);
+  });
+
+  it("proves readiness through a reader ACL that cannot run INFO, without a NOPERM warning", async () => {
+    const reader = { username: "account-center-reader-test", password: "reader-test-secret" };
+    await redis.call(
+      "ACL", "SETUSER", reader.username, "reset", "on", `>${reader.password}`,
+      "~skylab:account-access:v1:*", "resetchannels", "-@all", "+get", "+mget", "+select",
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const gate = createAccountAccessGate({
+        mode: "enforce",
+        host: parsed.hostname,
+        port: Number(parsed.port),
+        ...reader,
+        database: 15,
+        tls: false,
+        operationTimeoutMs: 1_000,
+      });
+
+      await expect(redis.call("ACL", "DRYRUN", reader.username, "INFO")).resolves.not.toBe("OK");
+      await expect(gate.ready()).resolves.toBe(true);
+      await expect(gate.decide(subject)).resolves.toBe("active");
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      // Deleting the user also closes the gate's connection.
+      await redis.call("ACL", "DELUSER", reader.username);
+    }
   });
 
   it("bounds connection failure and fails closed", async () => {
