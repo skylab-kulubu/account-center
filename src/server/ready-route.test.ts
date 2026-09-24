@@ -18,7 +18,7 @@ describe("readiness route", () => {
     vi.clearAllMocks();
     readyMocks.gateReady.mockResolvedValue(true);
     readyMocks.query.mockResolvedValue({
-      rows: [{ sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: true }],
+      rows: [{ sessions_ready: true, controls_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: true }],
     });
   });
 
@@ -41,14 +41,22 @@ describe("readiness route", () => {
     );
   });
 
+  it("neither checks the retired native handoff tables nor requires their drop migration", async () => {
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    const [sql, [requiredMigrations]] = readyMocks.query.mock.calls[0] as [string, [string[]]];
+    expect(sql).not.toContain("account_native_");
+    expect(requiredMigrations).not.toContain("0008_drop_native_handoff.sql");
+  });
+
   it.each([
-    { sessions_ready: false, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: false, native_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, native_ready: false, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: false, deletion_ready: true, sudo_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: false, sudo_ready: true, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: false, migrations_ready: true },
-    { sessions_ready: true, controls_ready: true, native_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: false },
+    { sessions_ready: false, controls_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: false, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, actions_ready: false, deletion_ready: true, sudo_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, actions_ready: true, deletion_ready: false, sudo_ready: true, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: false, migrations_ready: true },
+    { sessions_ready: true, controls_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, migrations_ready: false },
   ])("reports not ready for an incomplete schema", async (row) => {
     readyMocks.query.mockResolvedValue({ rows: [row] });
 
