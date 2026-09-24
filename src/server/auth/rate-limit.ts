@@ -13,9 +13,6 @@ import type { AuthTrustedProxy, TrustedProxyRange } from "@/server/auth/trusted-
 export type AnonymousAuthRateLimitScope =
   | "login"
   | "callback"
-  | "native_create"
-  | "native_consume"
-  | "native_redeem"
   | "sudo"
   | "sudo_options"
   | "security_mutation"
@@ -41,9 +38,6 @@ export type AnonymousAuthRateLimitScope =
 const policies: Record<AnonymousAuthRateLimitScope, { limit: number; windowSeconds: number }> = {
   login: { limit: 10, windowSeconds: 60 },
   callback: { limit: 30, windowSeconds: 60 },
-  native_create: { limit: 10, windowSeconds: 60 },
-  native_consume: { limit: 30, windowSeconds: 60 },
-  native_redeem: { limit: 120, windowSeconds: 60 },
   sudo: { limit: 10, windowSeconds: 15 * 60 },
   sudo_options: { limit: 30, windowSeconds: 15 * 60 },
   security_mutation: { limit: 30, windowSeconds: 15 * 60 },

@@ -52,7 +52,7 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
           TEST_ACCOUNT_ACCESS_REDIS_URL: redis://default:access-gate-test-secret@127.0.0.1:6389/15
       - run: pnpm build
-      - name: Verify optimized handoff response policy
+      - name: Verify the optimized server retires the native handoff
         env:
           HOSTNAME: 127.0.0.1
           PORT: "33100"
@@ -65,16 +65,14 @@ jobs:
           OIDC_CLIENT_SECRET: optimized-test-client-secret-000000
           OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
           AUTH_TRUSTED_PROXY: cloudflare
-          NATIVE_BRIDGE_HMAC_SECRET: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
-          NATIVE_BRIDGE_MTLS_CLIENT_SHA256: abababababababababababababababababababababababababababababababab
           ACCOUNT_ACCESS_GATE_MODE: "off"
-          HANDOFF_TEST_ORIGIN: http://127.0.0.1:33100
+          RETIRED_HANDOFF_TEST_ORIGIN: http://127.0.0.1:33100
         run: |
           pnpm db:migrate
           node .next/standalone/server.js &
           server_pid=$!
           trap 'kill "$server_pid" >/dev/null 2>&1 || true' EXIT
-          pnpm test:handoff-response
+          pnpm test:retired-handoff
 
   browser:
     runs-on: ubuntu-latest
@@ -127,8 +125,6 @@ jobs:
           OIDC_CLIENT_SECRET: e2e-client-secret-00000000000000
           OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
           AUTH_TRUSTED_PROXY: cloudflare
-          NATIVE_BRIDGE_HMAC_SECRET: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
-          NATIVE_BRIDGE_MTLS_CLIENT_SHA256: abababababababababababababababababababababababababababababababab
           ACCOUNT_ACCESS_GATE_MODE: enforce
           ACCOUNT_ACCESS_REDIS_HOST: 127.0.0.1
           ACCOUNT_ACCESS_REDIS_PORT: "6389"

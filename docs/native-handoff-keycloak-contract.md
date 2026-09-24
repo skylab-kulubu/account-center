@@ -1,4 +1,10 @@
-# Native handoff ve Keycloak köprü sözleşmesi
+# Native handoff ve Keycloak köprü sözleşmesi (emekli)
+
+> **Emekli.** Bu akış kaldırıldı. SkyApp'in bir SKY LAB sitesini WebView'ında oturum açık açması artık Keycloak'taki `sky-handoff` sağlayıcısında yaşar (Web handoff); Account Center bu yolda sıradan bir hedeftir ve kendi OIDC girişini yapar. Karar ve gerekçe: ADR-0048 ("SkyApp-to-web handoff lives in Keycloak, not in Account center").
+>
+> Account Center artık `POST /v1/native-handoff`, `GET /handoff` ve `POST /internal/v1/native-handoff/redeem` uçlarını sunmaz (üçü de oturumsuz dahil 404 döner), PAR'a `sky_native_handoff` koymaz ve `NATIVE_BRIDGE_HMAC_SECRET` / `NATIVE_BRIDGE_MTLS_CLIENT_SHA256` ayarlarını okumaz. Web handoff'tan gelen oturumun ömrünü ID token'daki `sky_session_expires` / `sky_session_started`, SkyApp görünümünü `sky_embed` belirler; ayrıntı [Keycloak sözleşmesinde](keycloak-26.7.4-contract.md). `account_native_*` tabloları silme migration'ına kadar yerinde kalır ve `db:prune-auth` onları boşaltmaya devam eder.
+>
+> Aşağıdaki metin geçmiş kaydı olarak değiştirilmeden bırakılmıştır.
 
 Bu belge Account Center BFF ile `sky-native-handoff` Keycloak authenticator arasındaki sürümlü güvenlik sözleşmesidir. Mobile kodu bu repository'de değiştirilmez. BFF yarısı uygulanmış olsa da authenticator, realm flow ve gerçek WebView/AIA testi tamamlanmadan native akış production-ready değildir.
 

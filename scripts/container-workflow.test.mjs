@@ -15,7 +15,8 @@ test("publishes only the single candidate image that passed browser and containe
   assert.ok(workflow.indexOf("Smoke-test candidate image") < workflow.indexOf("docker push \"$target\""));
   assert.match(workflow, /EXPECTED_IMAGE_ID: \$\{\{ steps\.candidate\.outputs\.imageid \}\}/);
   assert.match(workflow, /source_image_id=.*docker image inspect/);
-  assert.ok(workflow.indexOf("pnpm test:handoff-response") < workflow.indexOf("docker push \"$target\""));
+  assert.ok(workflow.indexOf("pnpm test:retired-handoff") > workflow.indexOf("Smoke-test candidate image"));
+  assert.ok(workflow.indexOf("pnpm test:retired-handoff") < workflow.indexOf("docker push \"$target\""));
 });
 
 test("triggers the production Dokploy deployment only after publishing the verified image", () => {

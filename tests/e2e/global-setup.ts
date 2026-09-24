@@ -20,7 +20,6 @@ const pages = [
   "/club-profile",
   "/delete-account",
   "/account-deletion",
-  "/handoff?code=short",
   "/api/health",
   "/api/ready",
   "/api/auth/login",

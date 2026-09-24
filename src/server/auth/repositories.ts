@@ -1,8 +1,5 @@
 import type {
   ActiveSession,
-  NativeBridgeRedemption,
-  NativeHandoffIdentity,
-  NewNativeHandoff,
   NewSessionRecord,
   SessionUseResult,
   StoredOidcTransaction,
@@ -89,27 +86,4 @@ export type RateLimitInput = {
 
 export interface RateLimitRepository {
   consume(input: RateLimitInput): Promise<{ allowed: boolean; count: number }>;
-}
-
-export type ConsumeNativeHandoffInput = {
-  publicCodeHash: Buffer;
-  bridgeId: string;
-  bridgeCodeHash: Buffer;
-  now: Date;
-  bridgeExpiresAt: Date;
-};
-
-export type RedeemNativeBridgeInput = {
-  bridgeCodeHash: Buffer;
-  requestNonceHash: Buffer;
-  now: Date;
-  requestNonceExpiresAt: Date;
-};
-
-export interface NativeHandoffRepository {
-  insert(handoff: NewNativeHandoff): Promise<void>;
-  findActiveHandoff(codeHash: Buffer, now: Date): Promise<NativeHandoffIdentity | null>;
-  consumeAndCreateBridge(input: ConsumeNativeHandoffInput): Promise<NativeHandoffIdentity | null>;
-  findActiveBridge(codeHash: Buffer, now: Date): Promise<NativeBridgeRedemption | null>;
-  redeemBridge(input: RedeemNativeBridgeInput): Promise<NativeBridgeRedemption | null>;
 }
