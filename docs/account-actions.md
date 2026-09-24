@@ -119,6 +119,6 @@ Fixture and unit tests cannot prove the platform ceremonies. Production stays bl
 ## Upstream contract references
 
 - [sky-account API v1](sky-account-api.md): `identity`, `identity/name`, `identity/username`, `credentials/password`, `credentials/totp/setup|confirm`, `credentials/webauthn/options|register`, `DELETE credentials/{id}`, `email/change-request`, `email/confirm`, `email/pending`, `email/primary`, `DELETE email/personal`, `X-Sky-Sudo`, RFC 7807 codes.
-- [Keycloak 26.7.4 contract](keycloak-26.7.4-contract.md): the forced re-authentication (`prompt=login&max_age=0`) that remains for account deletion and the Sudo mode fallback, and the `idp_link` application-initiated action of the YTÜ link with its client-scope and user-role preconditions.
+- [Keycloak 26.7.4 contract](keycloak-26.7.4-contract.md): the forced re-authentication (`prompt=login&max_age=0`) that remains for the Sudo mode fallback (account deletion has no hop of its own; it presents the sudo token to core), and the `idp_link` application-initiated action of the YTÜ link with its client-scope and user-role preconditions.
 
 > Girişle ilgili metin K4'e kadar bilinçli olarak dar: Keycloak parolayla girişte bugün yalnız kullanıcı adını ve `email`'i (birincil adres) tanıyor. İki adresin de girişte çalışması (ADR-0044) K4'ün (`sky-username-password-form`) işi; K4 çıkınca "iki adresle de giriş yapabilirsin" metni geri gelir. YTÜ ile giriş ve passkey adrese bakmadığı için bundan etkilenmez.
