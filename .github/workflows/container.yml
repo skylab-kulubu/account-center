@@ -71,8 +71,6 @@ jobs:
           OIDC_CLIENT_SECRET: e2e-client-secret-00000000000000
           OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
           AUTH_TRUSTED_PROXY: cloudflare
-          NATIVE_BRIDGE_HMAC_SECRET: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
-          NATIVE_BRIDGE_MTLS_CLIENT_SHA256: abababababababababababababababababababababababababababababababab
           ACCOUNT_ACCESS_GATE_MODE: enforce
           ACCOUNT_ACCESS_REDIS_HOST: 127.0.0.1
           ACCOUNT_ACCESS_REDIS_PORT: "6389"
@@ -116,14 +114,12 @@ jobs:
             -e OIDC_CLIENT_SECRET=container-smoke-secret-000000000000 \
             -e OIDC_UPSTREAM_SESSION_MAX_SECONDS=28800 \
             -e AUTH_TRUSTED_PROXY=cloudflare \
-            -e NATIVE_BRIDGE_HMAC_SECRET=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE= \
-            -e NATIVE_BRIDGE_MTLS_CLIENT_SHA256=abababababababababababababababababababababababababababababababab \
             -e ACCOUNT_ACCESS_GATE_MODE=off \
             "$CANDIDATE_IMAGE"
           trap 'docker rm -f account-center-candidate >/dev/null 2>&1 || true' EXIT
           curl --fail --silent --show-error --retry 20 --retry-connrefused \
             --retry-delay 1 http://127.0.0.1:33100/api/ready
-          HANDOFF_TEST_ORIGIN=http://127.0.0.1:33100 pnpm test:handoff-response
+          RETIRED_HANDOFF_TEST_ORIGIN=http://127.0.0.1:33100 pnpm test:retired-handoff
       - id: meta
         uses: docker/metadata-action@v6
         with:

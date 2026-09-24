@@ -19,10 +19,9 @@ export type BeginAuthorizationInput = {
   state: string;
   nonce: string;
   codeVerifier: string;
-  nativeBridgeCode?: string;
-  /** `prompt=login&max_age=0`: the Microsoft re-authentication used by Sudo mode's fallback and account deletion. */
+  /** `prompt=login&max_age=0`: the Microsoft re-authentication used by Sudo mode's fallback. */
   forceReauthentication?: boolean;
-  /** Only the YTÜ link (`idp_link` for the configured alias); never combined with the bridge or a forced login. */
+  /** Only the YTÜ link (`idp_link` for the configured alias); never combined with a forced login. */
   accountAction?: OidcAccountAction;
 };
 
@@ -223,21 +222,15 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
   }
 
   async begin(input: BeginAuthorizationInput) {
-    // A native bridge login is never a forced re-authentication: the bridge
-    // carries the original `auth_time`, which the callback verifies unchanged.
-    if (input.nativeBridgeCode !== undefined && input.forceReauthentication === true) {
-      throw new OidcContractError("OIDC native handoff cannot request a forced re-authentication.");
-    }
     // The YTÜ link is the only account action, for the configured alias only,
     // and stands alone: linking re-authenticates at Microsoft by itself, so no
-    // `prompt=login` is added, and a bridge login never carries an action.
+    // `prompt=login` is added.
     if (
       input.accountAction !== undefined &&
       (
         input.accountAction.action !== "idp_link" ||
         !YTU_IDP_ALIAS_PATTERN.test(input.accountAction.parameter) ||
         input.accountAction.parameter !== this.config.ytuIdpAlias ||
-        input.nativeBridgeCode !== undefined ||
         input.forceReauthentication === true
       )
     ) {
@@ -255,7 +248,6 @@ export class OAuth4WebApiProtocol implements OidcProtocol {
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
     });
-    if (input.nativeBridgeCode) parameters.set("sky_native_handoff", input.nativeBridgeCode);
     if (input.forceReauthentication) {
       parameters.set("max_age", "0");
       parameters.set("prompt", "login");

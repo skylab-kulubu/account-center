@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import type { OidcTransactionRepository } from "@/server/auth/repositories";
-import type { StoredOidcTransaction } from "@/server/auth/types";
+import type { OidcTransactionPayload, StoredOidcTransaction } from "@/server/auth/types";
 import { accountRoutes } from "@/config/account-routes";
 import { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 
@@ -156,5 +156,29 @@ describe("OidcTransactionStore", () => {
       await store.create(candidate as typeof payload, browserBinding);
       await expect(store.consume(candidate.state, browserBinding)).resolves.toBeNull();
     }
+  });
+
+  it("refuses a transaction left over from the retired account deletion Keycloak hop", async () => {
+    // Account deletion proves recent authentication with Sudo mode alone now;
+    // a hop started before the release must not be completed after it.
+    const store = new OidcTransactionStore(
+      new MemoryTransactions(),
+      new AesGcmSecretCipher(Buffer.alloc(32, 8)),
+      300,
+      () => new Date("2026-09-24T09:00:00Z"),
+    );
+    const retired = {
+      state: "s".repeat(43),
+      nonce: "n".repeat(43),
+      codeVerifier: "v".repeat(43),
+      returnTo: "/delete-account",
+      purpose: "account-deletion-reauthentication",
+      expectedSubject: "person",
+      expectedSessionId: "11111111-1111-4111-8111-111111111111",
+      initiatedAt: "2026-09-24T09:00:00.000Z",
+    } as unknown as OidcTransactionPayload;
+    const browserBinding = "b".repeat(43);
+    await store.create(retired, browserBinding);
+    await expect(store.consume(retired.state, browserBinding)).resolves.toBeNull();
   });
 });

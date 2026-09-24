@@ -4,13 +4,11 @@ import { randomUUID } from "node:crypto";
 import * as oauth from "oauth4webapi";
 import { randomOpaqueValue } from "@/server/auth/crypto";
 import { logAuthEvent } from "@/server/auth/logging";
-import { OidcContractError, type OidcProtocol } from "@/server/auth/oidc-protocol";
+import type { OidcProtocol } from "@/server/auth/oidc-protocol";
 import type { OidcTransactionStore } from "@/server/auth/oidc-transactions";
 import type { SessionManager } from "@/server/auth/sessions";
 import type {
-  AccountDeletionReauthenticationTransactionPayload,
   ActiveSession,
-  NativeHandoffIdentity,
   SudoReauthenticationTransactionPayload,
   YtuLinkTransactionPayload,
 } from "@/server/auth/types";
@@ -93,62 +91,10 @@ export class OidcFlowService {
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
 
-  async beginNative(identity: NativeHandoffIdentity, bridgeCode: string) {
-    const proof = {
-      state: oauth.generateRandomState(),
-      nonce: oauth.generateRandomNonce(),
-      codeVerifier: oauth.generateRandomCodeVerifier(),
-      nativeBridgeCode: bridgeCode,
-    };
-    const authorization = await this.protocol.begin(proof);
-    const browserBinding = randomOpaqueValue();
-    await this.transactions.create(
-      {
-        state: proof.state,
-        nonce: proof.nonce,
-        codeVerifier: proof.codeVerifier,
-        purpose: "login",
-        returnTo: "/",
-        expectedSubject: identity.subject,
-        expectedAuthenticatedAt: identity.authenticatedAt.toISOString(),
-      },
-      browserBinding,
-      authorization.expiresIn,
-    );
-    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
-  }
-
-  async beginAccountDeletionReauthentication(session: ActiveSession) {
-    const proof = {
-      state: oauth.generateRandomState(),
-      nonce: oauth.generateRandomNonce(),
-      codeVerifier: oauth.generateRandomCodeVerifier(),
-      forceReauthentication: true,
-    };
-    const authorization = await this.protocol.begin(proof);
-    const browserBinding = randomOpaqueValue();
-    const initiatedAt = this.clock();
-    await this.transactions.create(
-      {
-        state: proof.state,
-        nonce: proof.nonce,
-        codeVerifier: proof.codeVerifier,
-        purpose: "account-deletion-reauthentication",
-        returnTo: "/delete-account",
-        expectedSubject: session.subject,
-        expectedSessionId: session.id,
-        initiatedAt: initiatedAt.toISOString(),
-      },
-      browserBinding,
-      authorization.expiresIn,
-    );
-    return { authorizationUrl: authorization.authorizationUrl, browserBinding };
-  }
-
   /**
-   * Sudo mode fallback for a person without password, passkey or TOTP: the
-   * same forced re-authentication as account deletion, returning to the page
-   * that asked for sudo. The callback verifies the signed `auth_time` and
+   * Sudo mode fallback for a person without password, passkey or TOTP: a
+   * forced re-authentication (`prompt=login&max_age=0`), returning to the
+   * page that asked for sudo. The callback verifies the signed `auth_time` and
    * hands the fresh ID token to `POST sudo/authentication`, which turns it
    * into a sudo token for the same five-minute window.
    */
@@ -214,10 +160,7 @@ export class OidcFlowService {
   }
 
   async #boundActionSession(
-    transaction:
-      | AccountDeletionReauthenticationTransactionPayload
-      | SudoReauthenticationTransactionPayload
-      | YtuLinkTransactionPayload,
+    transaction: SudoReauthenticationTransactionPayload | YtuLinkTransactionPayload,
     sessionHandle: string | undefined,
   ) {
     const candidate = await this.sessions.candidate(sessionHandle);
@@ -234,57 +177,6 @@ export class OidcFlowService {
       active.session.subject !== transaction.expectedSubject
     ) throw new InvalidOidcTransactionError();
     return active.session;
-  }
-
-  async #accountDeletionReauthenticationCallback(
-    callbackUrl: URL,
-    transaction: AccountDeletionReauthenticationTransactionPayload,
-    sessionHandle: string | undefined,
-  ) {
-    const session = await this.#boundActionSession(transaction, sessionHandle);
-    if (callbackUrl.searchParams.has("error")) {
-      return {
-        deletionReauthentication: "cancelled" as const,
-        returnTo: transaction.returnTo,
-      };
-    }
-    let authorization;
-    try {
-      authorization = await this.protocol.exchange({
-        callbackUrl,
-        state: transaction.state,
-        nonce: transaction.nonce,
-        codeVerifier: transaction.codeVerifier,
-        forceReauthentication: true,
-      });
-    } catch {
-      throw new InvalidOidcTransactionError();
-    }
-    const initiatedAt = new Date(transaction.initiatedAt);
-    if (
-      authorization.subject !== transaction.expectedSubject ||
-      !authorization.keycloakSid ||
-      authorization.authenticatedAt.getTime() < initiatedAt.getTime() - 5_000
-    ) {
-      throw new InvalidOidcTransactionError();
-    }
-    await this.accountAccess.requireActive(authorization.subject);
-    const currentTokens = await this.sessions.readTokens(session.id);
-    if (!currentTokens) throw new InvalidOidcTransactionError();
-    await this.sessions.replaceTokens(
-      session.id,
-      currentTokens.version,
-      authorization.tokens,
-      authorization.keycloakSid,
-    );
-    return {
-      deletionReauthentication: "success" as const,
-      session,
-      authenticatedAt: authorization.authenticatedAt,
-      freshAccessToken: authorization.tokens.accessToken,
-      freshIdToken: authorization.tokens.idToken,
-      returnTo: transaction.returnTo,
-    };
   }
 
   async #sudoReauthenticationCallback(
@@ -405,9 +297,6 @@ export class OidcFlowService {
     const transaction = await this.transactions.consume(state, browserBinding);
     if (!transaction) throw new InvalidOidcTransactionError();
 
-    if (transaction.purpose === "account-deletion-reauthentication") {
-      return this.#accountDeletionReauthenticationCallback(callbackUrl, transaction, sessionHandle);
-    }
     if (transaction.purpose === "sudo-reauthentication") {
       return this.#sudoReauthenticationCallback(callbackUrl, transaction, sessionHandle);
     }
@@ -421,36 +310,19 @@ export class OidcFlowService {
       nonce: transaction.nonce,
       codeVerifier: transaction.codeVerifier,
     });
-    if (
-      transaction.expectedSubject !== undefined &&
-      authorization.subject !== transaction.expectedSubject
-    ) {
-      throw new OidcContractError("OIDC callback does not match the expected native identity.");
-    }
-    if (transaction.expectedAuthenticatedAt !== undefined) {
-      const expected = new Date(transaction.expectedAuthenticatedAt);
-      if (
-        !Number.isFinite(expected.getTime()) ||
-        authorization.authenticatedAt.getTime() !== expected.getTime()
-      ) {
-        throw new OidcContractError("OIDC callback changed the native authentication time.");
-      }
-    }
     if (authorization.sessionClaimIgnored) {
       // Before the session is created, so a login the fallback cap refuses still shows the cause.
       logAuthEvent({ event: "oidc_session_claims", requestId, outcome: "failure", reason: "session_claim_ignored" });
     }
     await this.accountAccess.requireActive(authorization.subject);
-    const nativeHandoff = transaction.expectedAuthenticatedAt !== undefined;
-    // Keycloak opened this web session for the native bridge during this login;
-    // otherwise its start is the ID token's `sky_session_started`, if any.
-    // Keycloak's own `sky_session_expires` outranks both in `SessionManager`.
-    const upstreamSessionStartedAt = nativeHandoff ? this.clock() : authorization.upstreamSessionStartedAt;
     const session = await this.sessions.create({
       subject: authorization.subject,
       keycloakSid: authorization.keycloakSid,
       authenticatedAt: authorization.authenticatedAt,
-      ...(upstreamSessionStartedAt ? { upstreamSessionStartedAt } : {}),
+      // Keycloak's own session bounds; a Web handoff's session begins at the handoff, not at the app login.
+      ...(authorization.upstreamSessionStartedAt
+        ? { upstreamSessionStartedAt: authorization.upstreamSessionStartedAt }
+        : {}),
       ...(authorization.upstreamSessionExpiresAt
         ? { upstreamSessionExpiresAt: authorization.upstreamSessionExpiresAt }
         : {}),
@@ -459,7 +331,7 @@ export class OidcFlowService {
     return {
       ...session,
       returnTo: transaction.returnTo,
-      ...(nativeHandoff || authorization.embeddedApp ? { embeddedApp: "skyapp" as const } : {}),
+      ...(authorization.embeddedApp ? { embeddedApp: authorization.embeddedApp } : {}),
     };
   }
 

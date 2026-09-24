@@ -28,10 +28,6 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
-      {
-        source: "/handoff",
-        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
-      },
     ];
   },
 };

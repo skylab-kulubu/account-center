@@ -19,7 +19,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function prepared(step: "confirm" | "keycloak_reauthentication") {
+function prepared(step: string) {
   return vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ step }));
 }
 
@@ -51,16 +51,48 @@ describe("account deletion UI", () => {
     expect(confirmation.closest("form")).toHaveAttribute("action", "/api/account/deletion");
   });
 
-  it("explains the Keycloak step when the session carries no fresh authentication", async () => {
+  it("never offers a Keycloak step, whatever the BFF answers", async () => {
     prepared("keycloak_reauthentication");
     render(<AccountDeletionConfirmation csrfToken="session-csrf" enabled reauthenticated={false} />);
 
     fireEvent.click(startButton());
-    const hop = await screen.findByRole("button", { name: "Keycloak ile doğrula" });
-    expect(screen.getByText(/Hesap silme için Keycloak üzerinden ek doğrulama gerekiyor/))
-      .toBeInTheDocument();
-    expect(hop.closest("form")).toHaveAttribute("action", "/api/account/deletion/reauthenticate");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/kısa bir süre sonra tekrar dene/i));
+    expect(screen.queryByRole("button", { name: /keycloak/i })).not.toBeInTheDocument();
+    expect(document.querySelector("form[action='/api/account/deletion/reauthenticate']")).toBeNull();
     expect(screen.queryByLabelText(/onay metni/i)).not.toBeInTheDocument();
+  });
+
+  it("asks for another try when the proof still carries nothing core can verify", async () => {
+    const challenge = () => new Response(JSON.stringify({
+      error: "sudo_required",
+      reason: "spi_token_required",
+      methods: [],
+      fallback: "microsoft",
+    }), { status: 428, headers: { "content-type": "application/json" } });
+    const request = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(challenge())
+      .mockResolvedValueOnce(challenge());
+    render(<AccountDeletionConfirmation csrfToken="session-csrf" enabled reauthenticated={false} />);
+
+    fireEvent.click(startButton());
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/hesap silme için ek doğrulama gerekiyor/i));
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(sudo.ensureSudo).toHaveBeenLastCalledWith({ challenged: true });
+    expect(screen.queryByLabelText(/onay metni/i)).not.toBeInTheDocument();
+  });
+
+  it("says to try again shortly when the deletion service is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ error: "unavailable" }),
+      { status: 503, headers: { "content-type": "application/json", "retry-after": "3" } },
+    ));
+    render(<AccountDeletionConfirmation csrfToken="session-csrf" enabled reauthenticated={false} />);
+
+    fireEvent.click(startButton());
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      /hesabında hiçbir değişiklik yapılmadı; kısa bir süre sonra tekrar dene/i,
+    ));
+    expect(startButton()).toBeEnabled();
   });
 
   it("prepares nothing when the person dismisses the Sudo mode dialog", async () => {
@@ -89,12 +121,12 @@ describe("account deletion UI", () => {
     rerender(
       <AccountDeletionConfirmation
         csrfToken="session-csrf"
-        deletionError="reauth_unavailable"
+        deletionError="deletion_unavailable"
         enabled
         reauthenticated={false}
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent(/yeniden doğrulama başlatılamadı/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/kısa bir süre sonra tekrar dene/i);
 
     // A proof cookie alone reopens the confirmation, but an expired sudo proof
     // sends the person back through the identity step.
@@ -112,6 +144,22 @@ describe("account deletion UI", () => {
       />,
     );
     expect(screen.getByRole("status")).toHaveTextContent(/kimlik doğrulaman geçerliliğini yitirdi/i);
+    expect(screen.queryByLabelText(/onay metni/i)).not.toBeInTheDocument();
+    expect(startButton()).toBeEnabled();
+
+    // Core refused the proof: nothing changed, and the person proves themselves again.
+    cleanup();
+    render(
+      <AccountDeletionConfirmation
+        csrfToken="session-csrf"
+        deletionError="sudo_rejected"
+        enabled
+        reauthenticated
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /kimlik doğrulaman kabul edilmedi ya da süresi doldu\. hesabında hiçbir değişiklik yapılmadı/i,
+    );
     expect(screen.queryByLabelText(/onay metni/i)).not.toBeInTheDocument();
     expect(startButton()).toBeEnabled();
   });

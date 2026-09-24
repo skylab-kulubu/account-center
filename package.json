@@ -20,7 +20,7 @@
     "test:e2e:server": "node scripts/start-e2e-server.mjs",
     "test:e2e:server:erasure": "node scripts/start-e2e-erasure-server.mjs",
     "test:e2e": "playwright test",
-    "test:handoff-response": "node scripts/assert-handoff-response.mjs",
+    "test:retired-handoff": "node scripts/assert-retired-handoff.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {

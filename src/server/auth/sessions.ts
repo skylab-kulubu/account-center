@@ -63,11 +63,10 @@ export class SessionManager {
     authenticatedAt: Date;
     /**
      * When the Keycloak session behind these tokens began, if not at
-     * `authenticatedAt` (Keycloak's `sky_session_started`, or the callback
-     * time of a native handoff). A native or Web handoff opens a fresh
-     * Keycloak session that carries the app's original `auth_time`; its
-     * lifetime starts with the handoff, while `auth_time` keeps saying when
-     * the person last logged in.
+     * `authenticatedAt` (Keycloak's `sky_session_started`). A Web handoff
+     * opens a fresh Keycloak session that carries the app's original
+     * `auth_time`; its lifetime starts with the handoff, while `auth_time`
+     * keeps saying when the person last logged in.
      */
     upstreamSessionStartedAt?: Date;
     /**

@@ -180,7 +180,7 @@ describe("SessionManager", () => {
     ).rejects.toBeInstanceOf(UpstreamSessionExpiredError);
   });
 
-  it("bounds a native bridge session by the web session's start, not the app's original login", async () => {
+  it("bounds a Web handoff session by the Keycloak session's start, not the app's original login", async () => {
     const now = new Date("2026-09-20T01:00:00Z");
     const repository = new MemorySessions();
     const manager = new SessionManager(
@@ -198,7 +198,7 @@ describe("SessionManager", () => {
     );
 
     await manager.create({
-      subject: "native-user",
+      subject: "handoff-user",
       authenticatedAt: new Date("2026-09-01T09:00:00Z"),
       upstreamSessionStartedAt: now,
       tokens,
@@ -207,7 +207,7 @@ describe("SessionManager", () => {
 
     await expect(
       manager.create({
-        subject: "native-user",
+        subject: "handoff-user",
         authenticatedAt: new Date("2026-09-01T09:00:00Z"),
         upstreamSessionStartedAt: new Date("2026-09-20T01:00:06Z"),
         tokens,

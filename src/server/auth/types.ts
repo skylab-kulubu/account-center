@@ -16,15 +16,6 @@ type OidcTransactionBase = {
 
 export type LoginOidcTransactionPayload = OidcTransactionBase & {
   purpose?: "login";
-  expectedSubject?: string;
-  expectedAuthenticatedAt?: string;
-};
-
-export type AccountDeletionReauthenticationTransactionPayload = OidcTransactionBase & {
-  purpose: "account-deletion-reauthentication";
-  expectedSubject: string;
-  expectedSessionId: string;
-  initiatedAt: string;
 };
 
 /**
@@ -55,7 +46,6 @@ export type YtuLinkTransactionPayload = OidcTransactionBase & {
 
 export type OidcTransactionPayload =
   | LoginOidcTransactionPayload
-  | AccountDeletionReauthenticationTransactionPayload
   | SudoReauthenticationTransactionPayload
   | YtuLinkTransactionPayload;
 
@@ -99,18 +89,3 @@ export type SessionUseResult = {
 export type BrowserSession = SessionUseResult & {
   rotatedHandle?: string;
 };
-
-export type NativeHandoffIdentity = {
-  subject: string;
-  keycloakSid: string;
-  authenticatedAt: Date;
-};
-
-export type NewNativeHandoff = NativeHandoffIdentity & {
-  id: string;
-  codeHash: Buffer;
-  createdAt: Date;
-  expiresAt: Date;
-};
-
-export type NativeBridgeRedemption = NativeHandoffIdentity;

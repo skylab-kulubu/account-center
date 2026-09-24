@@ -69,14 +69,24 @@ opak bir dize olarak saklar ve geri gönderir; içeriğine güvenmez.
 | `sub` | kişinin Keycloak id'si (bearer `sub`) |
 | `sid` | kanıtı üreten Hesap Merkezi oturumu (bearer `sid`) |
 | `azp` | `account-center` |
-| `aud` | `sky-account` |
+| `aud` | `["sky-account","core"]` (her zaman dizi; K3e) |
 | `amr` | `["pwd"]`, `["otp"]`, passkey için `["hwk","user"]`, taze giriş kanıtı için `["idp"]` (ID token kendi `amr` claim'ini taşıyorsa o değerler) |
 | `jti`, `iat`, `nbf`, `exp` | `exp = iat + 300`; taze giriş kanıtında `exp = auth_time + 300` (hiçbir zaman `iat + 300`'den geç değil) |
 
 Doğrulama (`SudoTokens.require`): imza (`session.tokens().decode`, yalnız
-Keycloak'ın iç algoritması `HS512`), `typ`, `iss`, `aud`, `azp`, `jti`, `sub` ve
-`sid` bearer'ın değerleriyle eşit, `iat`/`nbf` gelecekte değil (10 sn tolerans),
-`exp` geçmemiş.
+Keycloak'ın iç algoritması `HS512`), `typ`, `iss`, `aud` içinde `sky-account`,
+`azp`, `jti`, `sub` ve `sid` bearer'ın değerleriyle eşit, `iat`/`nbf` gelecekte
+değil (10 sn tolerans), `exp` geçmemiş.
+
+`aud` içindeki `core` (K3e), core'un hesap silmede (A7b, `X-Sky-Sudo`) sudo
+kanıtını doğrulayabilmesi içindir: token Keycloak'ın iç HMAC anahtarıyla
+imzalandığı için core onu kendisi doğrulayamaz, Keycloak'ın introspection
+ucuna kendi gizli `core` istemcisiyle sorar. Keycloak introspection'ı yalnız
+token'ın `aud` değerinde adı geçen istemciye yanıtlar; bu yüzden audience
+kontrolü hiçbir yerde gevşetilmeden `core` ikinci audience olarak eklendi.
+Introspection yanıtında `account-center` mapper'ları `account`'u da ekler;
+core `aud` için eşitlik değil içerme (`sky-account` ve `core`) arar. BFF
+token'ı opak tuttuğu için bu değişiklik istemciyi etkilemez.
 Token **tek kullanımlık değildir**: beş dakikalık pencere içinde aynı oturumun
 tüm hassas işlemlerini karşılar. Başka bir oturumun (`sid`) bearer'ıyla
 kullanılamaz; süresi geçince `401 sudo_expired`, diğer her ret `401 sudo_required`
@@ -416,8 +426,8 @@ Hesap Merkezi akışı: `GET identity` üç kimlik bilgisini de boş gösterir �
 `auth_time` yenilenir) → callback `auth_time`, `sid`, `sub` bağını doğrular ve
 yeni token'ları saklar → BFF `POST sudo/authentication {idToken}` çağırır →
 dönen sudo token oturum kaydına `method=reauth` ile yazılır ve sonraki
-`credentials/*`, `identity/username`, `email/*` isteklerinde `X-Sky-Sudo` ile
-gönderilir. Token'sız `reauth` kanıtı yalnız geçiş dönemi için bir yedektir.
+`credentials/*`, `identity/username`, `email/*` isteklerinde ve hesap silmede
+core'un self-delete intake'ine `X-Sky-Sudo` ile gönderilir. Token'sız `reauth` kanıtı yalnız geçiş dönemi için bir yedektir.
 
 ### `POST credentials/password` — sudo gerekir
 

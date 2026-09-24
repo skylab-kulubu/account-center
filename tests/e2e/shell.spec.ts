@@ -253,17 +253,18 @@ test("uncertain native deletion submit navigates to sessionless recovery without
 test("native deletion errors return to branded actionable recovery UI", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only navigation regression");
   await installAuthenticatedSession(context, `delete-errors-${testInfo.retry}`);
-  await page.route("**/api/account/deletion/reauthenticate", (route) => route.fulfill({
+  await page.route("**/api/account/deletion", (route) => route.fulfill({
     status: 303,
     headers: {
-      location: "/delete-account?deletionError=reauth_unavailable",
+      location: "/delete-account?deletionError=sudo_rejected",
       "cache-control": "no-store",
     },
     body: "",
   }));
   await gotoAuthenticatedPage(page, "/delete-account");
-  await submitInjectedForm(page, "/api/account/deletion/reauthenticate", /\/delete-account\?deletionError=reauth_unavailable$/);
-  await expect(page.getByRole("status")).toContainText("Yeniden doğrulama başlatılamadı");
+  await submitInjectedForm(page, "/api/account/deletion", /\/delete-account\?deletionError=sudo_rejected$/);
+  await expect(page.getByRole("status")).toContainText("Hesabında hiçbir değişiklik yapılmadı");
+  await page.unroute("**/api/account/deletion");
 
   await page.route("**/api/account/deletion", (route) => route.fulfill({
     status: 303,
@@ -289,7 +290,7 @@ test("mobile protected pages preserve the safe return path without a session", a
   );
 });
 
-test("handoff responses keep the final assembled no-referrer policy", async ({ playwright }, testInfo) => {
+test("retired native handoff endpoints answer 404 instead of a login form", async ({ playwright }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "one assembled-server assertion is sufficient");
   const request = await playwright.request.newContext({
     baseURL: baseUrl,
@@ -297,15 +298,18 @@ test("handoff responses keep the final assembled no-referrer policy", async ({ p
   });
 
   try {
-    const response = await request.get("/handoff?code=short", { maxRedirects: 0 });
+    // The optimized server's headers are asserted by `pnpm test:retired-handoff`; `next dev` sets its own.
+    const handoff = await request.get(`/handoff?code=${"p".repeat(43)}`, { maxRedirects: 0 });
+    expect(handoff.status()).toBe(404);
 
-    expect(response.status()).toBe(303);
-    expect(response.headers()["referrer-policy"]).toBe("no-referrer");
-    expect(response.headers()["cache-control"]).toContain("no-store");
-
-    const health = await request.get("/api/health");
-    expect(health.status()).toBe(200);
-    expect(health.headers()["referrer-policy"]).toBe("same-origin");
+    for (const path of ["/v1/native-handoff", "/internal/v1/native-handoff/redeem"]) {
+      const response = await request.post(path, {
+        maxRedirects: 0,
+        headers: { authorization: "Bearer a.b.c", "content-type": "application/json" },
+        data: "{}",
+      });
+      expect(response.status(), path).toBe(404);
+    }
   } finally {
     await request.dispose();
   }

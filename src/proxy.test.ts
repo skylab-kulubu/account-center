@@ -63,18 +63,13 @@ describe("security proxy", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("keeps only the fixed handoff consumption route public", () => {
-    const response = proxy(new NextRequest(
-      `https://my.yildizskylab.com/handoff?code=${"p".repeat(43)}`,
-    ));
-    expect(response.headers.get("x-middleware-next")).toBe("1");
-  });
-
   it.each([
-    "/v1/native-handoff",
-    "/internal/v1/native-handoff/redeem",
-  ])("does not require a browser cookie for the authenticated machine endpoint %s", (path) => {
-    const response = proxy(new NextRequest(`https://my.yildizskylab.com${path}`, { method: "POST" }));
+    ["GET", `/handoff?code=${"p".repeat(43)}`],
+    ["POST", "/v1/native-handoff"],
+    ["POST", "/internal/v1/native-handoff/redeem"],
+  ])("leaves the retired native handoff path %s %s to the router's 404 instead of the login page", (method, path) => {
+    const response = proxy(new NextRequest(`https://my.yildizskylab.com${path}`, { method }));
     expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
   });
 });

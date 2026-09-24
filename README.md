@@ -80,8 +80,10 @@ işlemler sunucu tarafındaki BFF üzerinden yürütülür.
   uygulama yetkilerinin salt okunur, Türkçe görünümü; ham rol kodları ve grup
   yolları yalnız katlanmış "Teknik ayrıntılar" bölümünde, realm rolleri hiç
   gösterilmez.
-- Yerel uygulamalar için tek kullanımlık, mTLS ve HMAC korumalı native SSO
-  köprüsü.
+- SkyApp'ten Keycloak Web handoff'uyla (ADR-0048) oturum açık gelen kişi
+  için uygulamanın kendi üst çubuğuna yer bırakan görünüm; oturum ömrü
+  Keycloak oturumunun gerçek bitişine (`sky_session_expires`) göre sayılır.
+  Eski native SSO köprüsü kaldırıldı.
 - Dayanıklı, izlenebilir ve yeniden denenebilir hesap silme/anonimleştirme
   süreci: niyet onayı, Sudo modu, birebir `HESABIMI SİL` metni ve gönderim.
   Core intake'i taze bir ID token istediği için, oturumda yeterince yeni bir
@@ -199,8 +201,8 @@ ayrıntı [Keycloak sözleşmesinde](docs/keycloak-26.7.4-contract.md).
 - [Keycloak 26.7.4 sözleşmesi](docs/keycloak-26.7.4-contract.md)
 - [sky-account API v1 sözleşmesi](docs/sky-account-api.md)
 - [Parola, TOTP ve passkey işlemleri](docs/account-actions.md)
-- [Native SSO köprüsü](docs/native-handoff-keycloak-contract.md)
-- [Kenar güveni ve mTLS](docs/auth-edge-trust.md)
+- [Native SSO köprüsü (emekli)](docs/native-handoff-keycloak-contract.md)
+- [Kenar güveni ve rate limit](docs/auth-edge-trust.md)
 - [Kimlik materyali saklama ve temizlik kılavuzu](docs/auth-retention-runbook.md)
 - [Hesap silme ve anonimleştirme](docs/account-deletion.md)
 

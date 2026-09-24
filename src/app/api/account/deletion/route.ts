@@ -15,17 +15,52 @@ import {
 import { readUrlEncodedBody, RequestBodyError } from "@/server/auth/request-body";
 import { requestCorrelationId } from "@/server/auth/logging";
 import { getAuthServices } from "@/server/auth/services";
-import { requireAccountSudo } from "@/server/auth/sudo-gate";
+import { requireAccountSpiSudo, sudoRequiredResponse } from "@/server/auth/sudo-gate";
+import { resolveSudoMethods } from "@/server/auth/sudo-methods";
 import {
   accountAccessUnavailableResponse,
   authenticationRequiredResponse,
 } from "@/server/access-gate/http";
 import {
-  AccountDeletionProofError,
+  accountDeletionErrorKind,
   AccountDeletionUnavailableError,
 } from "@/server/account-deletion/orchestrator";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Core refused the sudo proof sealed into the intent (`401`), so nothing was
+ * accepted. The proof is dropped from the vault like any proof an upstream
+ * refuses, the confirmation's proof cookie with it, and the person proves
+ * themselves again: the page says so, an API caller gets the same `428`
+ * challenge the gate sends. The local receipt cookie is left alone; it is
+ * the only handle on this intent's idempotency key and expires with it.
+ */
+async function sudoRejectedResponse(
+  services: ReturnType<typeof getAuthServices>,
+  session: { id: string; subject: string },
+  htmlNavigation: boolean,
+) {
+  await services.sudo.clearSudo(session.id).catch(() => undefined);
+  if (htmlNavigation) {
+    const response = NextResponse.redirect(
+      new URL("/delete-account?deletionError=sudo_rejected", services.config.appUrl),
+      303,
+    );
+    clearAccountDeletionProofCookie(response);
+    response.headers.set("Referrer-Policy", "no-referrer");
+    return noStore(response);
+  }
+  const availability = await resolveSudoMethods(services, session).catch(() => null);
+  const response = availability
+    ? sudoRequiredResponse({ reason: "expired", ...availability })
+    : noStore(NextResponse.json({ error: "unavailable" }, {
+        status: 503,
+        headers: { "Retry-After": "3" },
+      }));
+  clearAccountDeletionProofCookie(response);
+  return response;
+}
 
 export async function POST(request: NextRequest) {
   const services = getAuthServices();
@@ -78,9 +113,10 @@ export async function POST(request: NextRequest) {
   if (authorization.status === "blocked") return authenticationRequiredResponse(true);
 
   // Sudo mode is the person's re-authentication for this flow, so the last
-  // irreversible step refuses to run on a proof that has meanwhile expired.
+  // irreversible step refuses to run on a proof that has meanwhile expired or
+  // that carries no sky-account token core could verify.
   try {
-    const sudo = await requireAccountSudo(services, authorization.value.session, { requestId });
+    const sudo = await requireAccountSpiSudo(services, authorization.value.session, { requestId });
     if (!sudo.ok) {
       if (!htmlNavigation) return sudo.response;
       const response = NextResponse.redirect(
@@ -128,7 +164,11 @@ export async function POST(request: NextRequest) {
     response.headers.set("Referrer-Policy", "no-referrer");
     return noStore(response);
   } catch (error) {
-    if (error instanceof AccountDeletionProofError) {
+    const kind = accountDeletionErrorKind(error);
+    if (kind === "sudo_rejected") {
+      return sudoRejectedResponse(services, authorization.value.session, htmlNavigation);
+    }
+    if (kind === "proof") {
       if (htmlNavigation) {
         const response = NextResponse.redirect(
           new URL("/delete-account?deletionError=proof_expired", services.config.appUrl),
@@ -141,7 +181,7 @@ export async function POST(request: NextRequest) {
       }
       return noStore(NextResponse.json({ error: "invalid_request" }, { status: 400 }));
     }
-    if (error instanceof AccountDeletionUnavailableError) {
+    if (kind === "unavailable") {
       if (!htmlNavigation) {
         return noStore(NextResponse.json({ error: "unavailable" }, {
           status: 503,

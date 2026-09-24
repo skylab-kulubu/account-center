@@ -3,8 +3,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import {
+  CoreAccountDeletionUnauthorizedError,
+  CoreAccountDeletionUnavailableError,
+} from "@/server/account-deletion/core-gateway";
+import {
   AccountDeletionOrchestrator,
   AccountDeletionProofError,
+  AccountDeletionSudoRejectedError,
   AccountDeletionUnavailableError,
 } from "@/server/account-deletion/orchestrator";
 import type {
@@ -190,41 +195,68 @@ function fixture(
   return { repository, core, revokeSubjectSessionsBySessionId, orchestrator };
 }
 
+/** The session's Sudo mode proof as the vault hands it out: opaque sky-account material and its deadline. */
+const sudoProof = {
+  sudoToken: "sudo-header.sudo-claims.sudo-signature",
+  expiresAt: new Date("2026-09-20T12:04:00.000Z"),
+};
+
 async function reauthenticate(orchestrator: AccountDeletionOrchestrator) {
   return orchestrator.createReauthenticatedIntent({
     session,
-    authenticatedAt: new Date("2026-09-20T11:59:58.000Z"),
-    freshAccessToken: "fresh-server-only-user-access-token",
-    freshIdToken: "fresh-server-only-id-token",
+    accessToken: "fresh-server-only-user-access-token",
+    sudo: sudoProof,
   });
 }
 
 describe("account deletion orchestration", () => {
-  it("anchors the proof and encrypted-token deadline to auth_time instead of callback time", async () => {
+  it("bounds the proof and encrypted-token deadline by the sudo proof's own expiry", async () => {
     const { orchestrator, repository } = fixture();
-    const authenticatedAt = new Date("2026-09-20T11:55:00.001Z");
-    const result = await orchestrator.createReauthenticatedIntent({
-      session,
-      authenticatedAt,
-      freshAccessToken: "near-boundary-access-token",
-      freshIdToken: "near-boundary-id-token",
-    });
+    const result = await reauthenticate(orchestrator);
 
-    expect(result.freshUntil).toEqual(new Date("2026-09-20T12:00:00.001Z"));
+    // Five seconds of margin, the same the Sudo mode vault keeps before handing a proof out.
+    expect(result.freshUntil).toEqual(new Date("2026-09-20T12:03:55.000Z"));
     expect(repository.intent).toMatchObject({
       stage: "awaiting_confirmation",
-      freshUntil: new Date("2026-09-20T12:00:00.001Z"),
+      freshUntil: new Date("2026-09-20T12:03:55.000Z"),
       encryptedIdentityTokens: expect.any(String),
     });
+    expect(repository.intent?.stage === "awaiting_confirmation"
+      ? repository.intent.encryptedIdentityTokens
+      : "").not.toContain("sudo-signature");
+
+    // Never longer than the five-minute window, whatever deadline the proof claims.
     await expect(orchestrator.createReauthenticatedIntent({
       session,
-      authenticatedAt: new Date("2026-09-20T11:55:00.000Z"),
-      freshAccessToken: "expired-access-token",
-      freshIdToken: "expired-id-token",
-    })).rejects.toThrow(/fresh/i);
+      accessToken: "access-token",
+      sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T12:15:00.000Z") },
+    })).resolves.toMatchObject({ freshUntil: new Date("2026-09-20T12:05:00.000Z") });
+
+    await expect(orchestrator.createReauthenticatedIntent({
+      session,
+      accessToken: "access-token",
+      sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T12:00:05.000Z") },
+    })).rejects.toBeInstanceOf(AccountDeletionProofError);
+    await expect(orchestrator.createReauthenticatedIntent({
+      session,
+      accessToken: "access-token",
+      sudo: { ...sudoProof, expiresAt: new Date(Number.NaN) },
+    })).rejects.toBeInstanceOf(AccountDeletionProofError);
   });
 
-  it("uses only fresh BFF credentials, revokes every local session, and transitions to local recovery", async () => {
+  it("never prepares an intent without both the bearer and the sudo proof", async () => {
+    const { orchestrator, repository } = fixture();
+    for (const input of [
+      { session, accessToken: "access-token", sudo: { ...sudoProof, sudoToken: "" } },
+      { session, accessToken: "", sudo: sudoProof },
+    ]) {
+      await expect(orchestrator.createReauthenticatedIntent(input))
+        .rejects.toBeInstanceOf(AccountDeletionProofError);
+    }
+    expect(repository.intent).toBeUndefined();
+  });
+
+  it("presents the sealed sudo proof, revokes every local session, and transitions to local recovery", async () => {
     const { orchestrator, core, repository, revokeSubjectSessionsBySessionId } = fixture();
     const fresh = await reauthenticate(orchestrator);
     const result = await orchestrator.submit({
@@ -236,7 +268,7 @@ describe("account deletion orchestration", () => {
 
     expect(core.initiate).toHaveBeenCalledWith({
       accessToken: "fresh-server-only-user-access-token",
-      reauthenticationToken: "fresh-server-only-id-token",
+      sudoToken: sudoProof.sudoToken,
       idempotencyKey: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
     });
     expect(revokeSubjectSessionsBySessionId).toHaveBeenCalledWith(session.id);
@@ -247,6 +279,39 @@ describe("account deletion orchestration", () => {
     expect(repository.intent).not.toHaveProperty("encryptedIdentityTokens");
     expect(repository.intent).not.toHaveProperty("subjectDigest");
     expect(result).toMatchObject({ status: "processing", receipt: coreReceipt });
+  });
+
+  it("reports a sudo proof core refuses, without revoking or accepting anything", async () => {
+    const initiate = vi.fn().mockRejectedValue(new CoreAccountDeletionUnauthorizedError());
+    const { orchestrator, repository, revokeSubjectSessionsBySessionId } = fixture({ initiate });
+    const fresh = await reauthenticate(orchestrator);
+
+    await expect(orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    })).rejects.toBeInstanceOf(AccountDeletionSudoRejectedError);
+    expect(revokeSubjectSessionsBySessionId).not.toHaveBeenCalled();
+    expect(repository.intent).toMatchObject({ stage: "awaiting_confirmation" });
+  });
+
+  it("keeps an unavailable intake retryable with the same sealed proof and idempotency key", async () => {
+    const initiate = vi.fn()
+      .mockRejectedValueOnce(new CoreAccountDeletionUnavailableError())
+      .mockResolvedValue(coreStatus);
+    const { orchestrator } = fixture({ initiate });
+    const fresh = await reauthenticate(orchestrator);
+
+    await expect(orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    })).rejects.toBeInstanceOf(AccountDeletionUnavailableError);
+    await expect(orchestrator.status(fresh.localReceipt)).resolves.toMatchObject({ status: "processing" });
+    expect(initiate.mock.calls[1]?.[0]).toEqual(initiate.mock.calls[0]?.[0]);
+    expect(initiate.mock.calls[1]?.[0]).toMatchObject({ sudoToken: sudoProof.sudoToken });
   });
 
   it("reuses one idempotency key after an uncertain response and recovers through the local receipt", async () => {
@@ -310,9 +375,8 @@ describe("account deletion orchestration", () => {
     })).rejects.toBeInstanceOf(AccountDeletionUnavailableError);
     const refreshed = await orchestrator.createReauthenticatedIntent({
       session,
-      authenticatedAt: new Date("2026-09-20T11:59:59.000Z"),
-      freshAccessToken: "replacement-access-token",
-      freshIdToken: "replacement-id-token",
+      accessToken: "replacement-access-token",
+      sudo: { sudoToken: "replacement.sudo.token", expiresAt: new Date("2026-09-20T12:04:30.000Z") },
     });
 
     await expect(orchestrator.submit({
@@ -332,17 +396,16 @@ describe("account deletion orchestration", () => {
     );
     expect(initiate.mock.calls[1]?.[0]).toMatchObject({
       accessToken: "replacement-access-token",
-      reauthenticationToken: "replacement-id-token",
+      sudoToken: "replacement.sudo.token",
     });
   });
 
-  it("rejects stale auth, forged capabilities, another session, and non-exact confirmation", async () => {
+  it("rejects a stale proof, forged capabilities, another session, and non-exact confirmation", async () => {
     const { orchestrator, core } = fixture();
     await expect(orchestrator.createReauthenticatedIntent({
       session,
-      authenticatedAt: new Date("2026-09-20T11:55:00.000Z"),
-      freshAccessToken: "fresh-token",
-      freshIdToken: "fresh-id-token",
+      accessToken: "fresh-token",
+      sudo: { ...sudoProof, expiresAt: new Date("2026-09-20T11:59:00.000Z") },
     })).rejects.toThrow(/fresh/i);
     const fresh = await reauthenticate(orchestrator);
     const base = {

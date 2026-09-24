@@ -172,72 +172,6 @@ describe("OidcFlowService", () => {
     expect(repository.inserted).toBeUndefined();
   });
 
-  it("binds a native PAR bridge to the expected subject and original authentication time", async () => {
-    const { flow, protocol, repository } = fixture();
-    const authenticatedAt = new Date(Date.now() - 15 * 60 * 1_000);
-    const started = await flow.beginNative(
-      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt },
-      "bridge-hint",
-    );
-    expect(protocol.proof).toMatchObject({ nativeBridgeCode: "bridge-hint" });
-
-    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
-    callback.searchParams.set("state", protocol.proof!.state);
-    protocol.authorization = {
-      ...protocol.authorization,
-      subject: "other-user",
-      authenticatedAt,
-    };
-    await expect(flow.callback(callback, started.browserBinding)).rejects.toThrow(/native identity/);
-    expect(repository.inserted).toBeUndefined();
-  });
-
-  it("creates a session only when native callback identity and auth_time both match", async () => {
-    const { flow, protocol, repository } = fixture();
-    const authenticatedAt = new Date(Date.now() - 15 * 60 * 1_000);
-    const started = await flow.beginNative(
-      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt },
-      "bridge-hint",
-    );
-    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
-    callback.searchParams.set("state", protocol.proof!.state);
-    protocol.authorization = {
-      ...protocol.authorization,
-      subject: "native-user",
-      authenticatedAt: new Date(authenticatedAt.getTime() + 1_000),
-    };
-    await expect(flow.callback(callback, started.browserBinding)).rejects.toThrow(/authentication time/);
-    expect(repository.inserted).toBeUndefined();
-
-    const retry = await flow.beginNative(
-      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt },
-      "bridge-hint-2",
-    );
-    callback.searchParams.set("state", protocol.proof!.state);
-    protocol.authorization.authenticatedAt = authenticatedAt;
-    await expect(flow.callback(callback, retry.browserBinding)).resolves.toMatchObject({
-      returnTo: "/",
-    });
-    expect(repository.inserted?.subject).toBe("native-user");
-  });
-
-  it("opens a native bridge session even when the app logged in longer ago than the upstream session max", async () => {
-    const { flow, protocol, repository } = fixture();
-    const appLogin = new Date(Date.now() - 20 * 24 * 60 * 60 * 1_000);
-    const started = await flow.beginNative(
-      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt: appLogin },
-      "bridge-hint",
-    );
-    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
-    callback.searchParams.set("state", protocol.proof!.state);
-    protocol.authorization = { ...protocol.authorization, subject: "native-user", authenticatedAt: appLogin };
-
-    const before = Date.now();
-    await expect(flow.callback(callback, started.browserBinding)).resolves.toMatchObject({ returnTo: "/" });
-    expect(repository.inserted?.subject).toBe("native-user");
-    expect(repository.inserted!.absoluteExpiresAt.getTime()).toBeGreaterThanOrEqual(before + 3_600_000);
-  });
-
   it("still refuses a plain login whose auth_time is older than the upstream session max", async () => {
     const { flow, protocol, repository } = fixture();
     const started = await flow.begin("/");
@@ -257,20 +191,11 @@ describe("OidcFlowService", () => {
 
     async function login(
       authorization: Partial<AuthorizationResult>,
-      options: { native?: boolean; requestId?: string } = {},
+      options: { requestId?: string } = {},
     ) {
       const current = fixture("active", eightHours);
       current.protocol.authorization = { ...current.protocol.authorization, ...authorization };
-      const started = options.native
-        ? await current.flow.beginNative(
-          {
-            subject: current.protocol.authorization.subject,
-            keycloakSid: "native-sid",
-            authenticatedAt: current.protocol.authorization.authenticatedAt,
-          },
-          "bridge-hint",
-        )
-        : await current.flow.begin("/");
+      const started = await current.flow.begin("/");
       const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
       callback.searchParams.set("state", current.protocol.proof!.state);
       return {
@@ -364,48 +289,9 @@ describe("OidcFlowService", () => {
       await expect(result).rejects.toBeInstanceOf(UpstreamSessionExpiredError);
       expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "session_claim_ignored" }));
     });
-
-    it("starts a native handoff session at the callback when the ID token has no session claims", async () => {
-      const { result, repository } = await login({ authenticatedAt: new Date("2026-08-31T12:00:00Z") }, { native: true });
-
-      await expect(result).resolves.toMatchObject({ returnTo: "/", embeddedApp: "skyapp" });
-      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T20:00:00.250Z"));
-    });
-
-    it("lets Keycloak's session end outrank the native handoff's callback start", async () => {
-      const { result, repository } = await login({
-        authenticatedAt: new Date("2026-08-31T12:00:00Z"),
-        upstreamSessionStartedAt: new Date("2026-09-20T11:59:57Z"),
-        upstreamSessionExpiresAt: new Date("2026-09-20T14:00:00Z"),
-      }, { native: true });
-
-      await result;
-      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T14:00:00Z"));
-    });
-
-    it("keeps the native handoff's callback start over an earlier sky_session_started", async () => {
-      const { result, repository } = await login({
-        authenticatedAt: new Date("2026-09-20T09:00:00Z"),
-        upstreamSessionStartedAt: new Date("2026-09-20T09:00:00Z"),
-      }, { native: true });
-
-      await result;
-      expect(repository.inserted?.absoluteExpiresAt).toEqual(new Date("2026-09-20T20:00:00.250Z"));
-    });
   });
 
-  it("tells the callback which sessions open inside SkyApp: a native handoff or an ID token marked sky_embed", async () => {
-    const native = fixture();
-    const authenticatedAt = new Date(Date.now() - 15 * 60 * 1_000);
-    const started = await native.flow.beginNative(
-      { subject: "native-user", keycloakSid: "native-sid", authenticatedAt },
-      "bridge-hint",
-    );
-    const nativeCallback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
-    nativeCallback.searchParams.set("state", native.protocol.proof!.state);
-    native.protocol.authorization = { ...native.protocol.authorization, subject: "native-user", authenticatedAt };
-    await expect(native.flow.callback(nativeCallback, started.browserBinding)).resolves.toMatchObject({ embeddedApp: "skyapp" });
-
+  it("tells the callback which sessions the ID token marks as embedded in SkyApp", async () => {
     const embedded = fixture();
     const embeddedStarted = await embedded.flow.begin("/");
     const embeddedCallback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");

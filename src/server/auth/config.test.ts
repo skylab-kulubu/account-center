@@ -17,8 +17,6 @@ function environment(upstreamSeconds: string) {
     OIDC_CLIENT_SECRET: "client-secret-000000000000000000",
     OIDC_UPSTREAM_SESSION_MAX_SECONDS: upstreamSeconds,
     AUTH_TRUSTED_PROXY: "cloudflare",
-    NATIVE_BRIDGE_HMAC_SECRET: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
-    NATIVE_BRIDGE_MTLS_CLIENT_SHA256: "ab".repeat(32),
   });
 }
 
@@ -67,23 +65,14 @@ describe("authentication configuration", () => {
     }
   });
 
-  it("requires separate pinned HMAC and mTLS credentials for bridge redemption", () => {
+  it("starts without the retired native bridge credentials and ignores leftover values", () => {
     environment("3600");
-    expect(getAuthConfig()).toMatchObject({
-      nativeBridgeHmacSecret: Buffer.alloc(32, 1),
-      nativeBridgeMtlsClientSha256: "ab".repeat(32),
-    });
-    process.env.NATIVE_BRIDGE_MTLS_CLIENT_SHA256 = "not-a-certificate-fingerprint";
-    expect(() => getAuthConfig()).toThrow(/NATIVE_BRIDGE_MTLS_CLIENT_SHA256/);
-    environment("3600");
+    delete process.env.NATIVE_BRIDGE_HMAC_SECRET;
+    delete process.env.NATIVE_BRIDGE_MTLS_CLIENT_SHA256;
+    expect(() => getAuthConfig()).not.toThrow();
     process.env.NATIVE_BRIDGE_HMAC_SECRET = "c2hvcnQ=";
-    expect(() => getAuthConfig()).toThrow(/NATIVE_BRIDGE_HMAC_SECRET/);
-    environment("3600");
-    process.env.NATIVE_BRIDGE_HMAC_SECRET = process.env.SESSION_SECRET;
-    expect(() => getAuthConfig()).toThrow(/must differ/);
-    environment("3600");
-    process.env.NATIVE_BRIDGE_HMAC_SECRET = process.env.TOKEN_ENCRYPTION_KEY;
-    expect(() => getAuthConfig()).toThrow(/must differ/);
+    process.env.NATIVE_BRIDGE_MTLS_CLIENT_SHA256 = "not-a-certificate-fingerprint";
+    expect(() => getAuthConfig()).not.toThrow();
   });
 
   it("keeps account erasure off unless an exact Core origin is explicitly enabled", () => {
