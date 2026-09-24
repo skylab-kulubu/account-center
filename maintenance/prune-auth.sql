@@ -21,23 +21,6 @@ deleted_rate_limits AS (
    WHERE expires_at < now()
   RETURNING 1
 ),
-deleted_native_handoffs AS (
-  DELETE FROM account_native_handoffs
-   WHERE expires_at < now() - interval '1 hour'
-      OR consumed_at < now() - interval '1 hour'
-  RETURNING 1
-),
-deleted_native_bridges AS (
-  DELETE FROM account_native_bridges
-   WHERE expires_at < now() - interval '1 hour'
-      OR consumed_at < now() - interval '1 hour'
-  RETURNING 1
-),
-deleted_native_bridge_nonces AS (
-  DELETE FROM account_native_bridge_request_nonces
-   WHERE expires_at < now()
-  RETURNING 1
-),
 deleted_action_results AS (
   DELETE FROM account_action_results
    WHERE expires_at < now()
@@ -80,9 +63,6 @@ SELECT
   (SELECT count(*)::integer FROM deleted_sessions) AS deleted_sessions,
   (SELECT count(*)::integer FROM deleted_logout_replays) AS deleted_logout_replays,
   (SELECT count(*)::integer FROM deleted_rate_limits) AS deleted_rate_limits,
-  (SELECT count(*)::integer FROM deleted_native_handoffs) AS deleted_native_handoffs,
-  (SELECT count(*)::integer FROM deleted_native_bridges) AS deleted_native_bridges,
-  (SELECT count(*)::integer FROM deleted_native_bridge_nonces) AS deleted_native_bridge_nonces,
   (SELECT count(*)::integer FROM deleted_action_results) AS deleted_action_results,
   (SELECT count(*)::integer FROM deleted_deletion_intents) AS deleted_deletion_intents,
   (SELECT count(*)::integer FROM scrubbed_deletion_recovery) AS scrubbed_deletion_recovery,

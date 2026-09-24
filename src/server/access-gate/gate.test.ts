@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import type { RedisOptions } from "ioredis";
 import { describe, expect, it, vi } from "vitest";
 import {
   ACCOUNT_ACCESS_CONTRACT_KEY,
@@ -7,7 +8,20 @@ import {
   ACCOUNT_ACCESS_ISSUER,
   accountAccessMarkerKey,
 } from "@/server/access-gate/contract";
-import { RedisAccountAccessGate } from "@/server/access-gate/gate";
+import { createAccountAccessGate, RedisAccountAccessGate } from "@/server/access-gate/gate";
+
+const redisClients = vi.hoisted(() => ({ options: [] as RedisOptions[] }));
+
+vi.mock("ioredis", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ioredis")>();
+  class RecordingRedis extends actual.default {
+    constructor(options: RedisOptions) {
+      super(options);
+      redisClients.options.push(options);
+    }
+  }
+  return { ...actual, default: RecordingRedis };
+});
 
 describe("RedisAccountAccessGate", () => {
   it.each([
@@ -46,5 +60,28 @@ describe("RedisAccountAccessGate", () => {
     await expect(gate.ready()).resolves.toBe(true);
     await expect(gate.ready()).resolves.toBe(false);
     await expect(gate.ready()).resolves.toBe(false);
+  });
+});
+
+describe("createAccountAccessGate", () => {
+  it("skips ioredis' INFO ready check and still fails closed when Redis is unreachable", async () => {
+    redisClients.options.length = 0;
+    const gate = createAccountAccessGate({
+      mode: "enforce",
+      host: "127.0.0.1",
+      port: 1,
+      username: "account-center",
+      password: "not-used",
+      database: 15,
+      tls: false,
+      operationTimeoutMs: 200,
+    });
+
+    // The reader ACL has no INFO; readiness is proven by the contract GET instead.
+    expect(redisClients.options).toEqual([
+      expect.objectContaining({ enableReadyCheck: false, lazyConnect: true, enableOfflineQueue: false }),
+    ]);
+    await expect(gate.ready()).resolves.toBe(false);
+    await expect(gate.decide("subject")).resolves.toBe("unavailable");
   });
 });

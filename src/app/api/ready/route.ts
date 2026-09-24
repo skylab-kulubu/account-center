@@ -10,7 +10,6 @@ export async function GET() {
     const result = await getDatabasePool().query<{
       sessions_ready: boolean;
       controls_ready: boolean;
-      native_ready: boolean;
       actions_ready: boolean;
       deletion_ready: boolean;
       sudo_ready: boolean;
@@ -20,9 +19,6 @@ export async function GET() {
          to_regclass('public.account_sessions') IS NOT NULL AS sessions_ready,
          to_regclass('public.account_backchannel_logout_replays') IS NOT NULL
            AND to_regclass('public.account_auth_rate_limits') IS NOT NULL AS controls_ready,
-         to_regclass('public.account_native_handoffs') IS NOT NULL
-           AND to_regclass('public.account_native_bridges') IS NOT NULL
-           AND to_regclass('public.account_native_bridge_request_nonces') IS NOT NULL AS native_ready,
          to_regclass('public.account_action_results') IS NOT NULL AS actions_ready,
          to_regclass('public.account_deletion_intents') IS NOT NULL
            AND to_regclass('public.account_deletion_confirmations') IS NOT NULL AS deletion_ready,
@@ -35,6 +31,7 @@ export async function GET() {
          (SELECT count(*) = 7
             FROM account_center_schema_migrations
            WHERE name = ANY($1::text[])) AS migrations_ready`,
+      // 0008_drop_native_handoff.sql is intentionally not required: it runs after this code is live.
       [[
         "0001_bff_web_sessions.sql",
         "0002_auth_security_controls.sql",
@@ -48,7 +45,6 @@ export async function GET() {
     if (
       !result.rows[0]?.sessions_ready ||
       !result.rows[0]?.controls_ready ||
-      !result.rows[0]?.native_ready ||
       !result.rows[0]?.actions_ready ||
       !result.rows[0]?.deletion_ready ||
       !result.rows[0]?.sudo_ready ||
