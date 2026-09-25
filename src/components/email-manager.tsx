@@ -75,6 +75,20 @@ export const emailCopy = {
     remove: "Kaldır",
     removeBlocked: "Bu adres birincil adresin ve yerine geçebilecek, YTÜ hesabınla doğrulanmış bir okul e-postan yok; kaldırırsan giriş yapabileceğin bir adres kalmaz. YTÜ hesabını bağlayabilir ya da adresi değiştirebilirsin.",
     waiting: "Bekleyen bir kod var — gir",
+    addAnother: "Başka bir adres ekle",
+  },
+  /**
+   * A1c: the primary is an address set before v2 that is neither the school
+   * nor a personal address. Proving it with the code makes it the personal
+   * e-mail; it stays the primary.
+   */
+  legacy: {
+    badge: "Kişisel e-posta olarak doğrulanmamış",
+    detail: "Birincil adresin; kişisel e-posta olarak henüz doğrulanmadı. Bu adrese gelen 6 haneli kodu girersen kişisel e-postan olur ve birincil adresin olarak kalır.",
+    prove: "Kodla doğrula",
+    title: "Birincil adresini doğrula",
+    hint: (address: string) =>
+      `${address} adresine 6 haneli bir doğrulama kodu göndereceğiz; kod 10 dakika geçerli. Kodu girdiğinde bu adres kişisel e-postan olur ve birincil adresin olarak kalır. Göndermeden önce kimliğini doğrulaman istenir.`,
   },
   add: {
     title: "Kişisel e-posta ekle",
@@ -97,6 +111,7 @@ export const emailCopy = {
     title: "Doğrulama kodunu gir",
     sentTo: (address: string) => `${address} adresine 6 haneli bir kod gönderdik. Kodu kimseyle paylaşma.`,
     replaces: (current: string) => `Kodu girdiğinde ${current} yerine bu adres kişisel e-postan olur.`,
+    keepsPrimary: "Kodu girdiğinde bu adres kişisel e-postan olur; birincil adresin olarak kalır.",
     attemptsLeft: (attemptsLeft: number) => `${attemptsLeft} deneme hakkın kaldı.`,
     label: "Doğrulama kodu",
     hint: "Postadaki 6 rakamı gir; araya giren boşluklar sorun değil.",
@@ -113,6 +128,7 @@ export const emailCopy = {
     confirmed: (address: string) => `${address} doğrulandı.`,
     replaced: (address: string, previous: string) =>
       `${address} doğrulandı; kişisel e-postan artık bu adres. ${previous} ile artık giriş yapamazsın.`,
+    proven: (address: string) => `${address} doğrulandı; artık kişisel e-postan ve birincil adresin olarak kalıyor.`,
   },
   primary: {
     title: "Birincil e-posta",
@@ -120,6 +136,8 @@ export const emailCopy = {
     none: (email: string | null) => email
       ? `Şu anki birincil adresin ${email}; okul ya da kişisel adreslerinden biri değil. Aşağıdan birini seçebilirsin.`
       : "Birincil adresin yok. Aşağıdan birini seçebilirsin.",
+    legacy: (email: string, canChoose: boolean) =>
+      `Şu anki birincil adresin ${email}; kişisel e-posta olarak henüz doğrulanmadı. Yukarıdan kodla doğrularsan birincil adresin olarak kalır.${canChoose ? " Ya da aşağıdan okul e-postanı seçebilirsin." : ""}`,
     noAddress: "Birincil adres seçmek için önce bir kişisel e-posta ekle ya da YTÜ hesabını bağla.",
     schoolUnverified: "YTÜ hesabın bağlanmadan birincil adres yapılamaz.",
     personalUnverified: "Doğrulanmadığı için birincil adres yapılamaz; adresi kaldırıp yeniden ekle ve gelen kodla doğrula.",
@@ -143,8 +161,12 @@ export const emailCopy = {
 type Notice = { tone: "positive" | "warning"; title: string; detail: string };
 
 type Flow =
-  /** Adding a first personal address, or replacing the existing one (`change`); `waiting` restores the code panel. */
-  | { kind: "add" | "change"; waiting?: PendingEmailChange }
+  /**
+   * Adding a first personal address, replacing the existing one (`change`),
+   * or proving the legacy primary as the personal address (`prove`, A1c);
+   * `waiting` restores the code panel.
+   */
+  | { kind: "add" | "change" | "prove"; waiting?: PendingEmailChange }
   | { kind: "remove" };
 
 function optionalAddress(value: unknown): value is string | null {
@@ -204,10 +226,26 @@ export function parsePendingPayload(value: unknown): PendingEmailChange | null |
   };
 }
 
+/**
+ * The addresses the account already owns, so asking for their code would be
+ * a no-op: the school and the personal address, as the SPI counts them. The
+ * primary is one of the two, except a legacy primary, which is exactly what
+ * a person proves to make it the personal address.
+ */
 function knownAddresses(payload: EmailPayload) {
-  return [payload.email, payload.schoolEmail, payload.personalEmail]
+  return [payload.schoolEmail, payload.personalEmail]
     .filter((address): address is string => address !== null)
     .map(normalizeEmailAddress);
+}
+
+/**
+ * A1c: the Primary e-mail when it is neither the school nor a personal
+ * address (set before v2) and the person has no personal address yet;
+ * otherwise `null`. Its code makes it the personal address, and it stays
+ * the primary (the SPI keeps a proven current primary primary).
+ */
+export function legacyPrimaryOf(payload: Pick<EmailPayload, "email" | "primary" | "personalEmail">) {
+  return payload.primary === "none" && payload.email !== null && payload.personalEmail === null ? payload.email : null;
 }
 
 /**
@@ -281,6 +319,7 @@ type OpenCode = { address: string; expiresAt: string; closesAt: number };
 function PersonalEmailFlow({
   payload,
   replacing,
+  proving,
   waiting,
   onDone,
   onCancel,
@@ -290,6 +329,8 @@ function PersonalEmailFlow({
 }: FlowCallbacks & {
   payload: EmailPayload;
   replacing: string | null;
+  /** The legacy primary this flow proves (A1c): no address to type, the code goes to it. */
+  proving: string | null;
   waiting?: PendingEmailChange;
   onDone: (address: string) => void;
   /**
@@ -381,6 +422,11 @@ function PersonalEmailFlow({
       }
       if (!again && outcome.kind === "error") {
         const error = errorOf(outcome.body);
+        if (proving && (error === "invalid_address" || error === "email_taken")) {
+          // No address field to point at: the refusal is the panel's own message.
+          setFeedback({ tone: "danger", detail: detailOf(outcome.body, error === "email_taken" ? emailCopy.add.taken : emailCopy.add.invalid) });
+          return;
+        }
         if (error === "invalid_address" || error === "email_taken") {
           const detail = detailOf(outcome.body, error === "email_taken" ? emailCopy.add.taken : emailCopy.add.invalid);
           if (error === "email_taken") setTaken((previous) => ({ ...previous, [address]: detail }));
@@ -482,6 +528,37 @@ function PersonalEmailFlow({
     }
   };
 
+  if (!change && proving) {
+    const hintId = `${baseId}-prove-hint`;
+    return (
+      <form
+        className="security-panel"
+        aria-labelledby={`${baseId}-title`}
+        aria-describedby={hintId}
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!sendBlocked) void send(proving, false);
+        }}
+      >
+        <h3 id={`${baseId}-title`} className="security-panel__title">
+          <MailCheck aria-hidden="true" size={16} />
+          {emailCopy.legacy.title}
+        </h3>
+        <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
+        <p id={hintId} className="email-code__lead">{emailCopy.legacy.hint(proving)}</p>
+        <div className="security-panel__actions">
+          <button className="secondary-button" type="button" disabled={pending} onClick={() => onCancel()}>
+            Vazgeç
+          </button>
+          <button className="primary-button" type="submit" autoFocus disabled={sendBlocked}>
+            {pending ? <ActionProgress label={emailCopy.add.sending} /> : emailCopy.add.send}
+          </button>
+        </div>
+      </form>
+    );
+  }
+
   if (!change) {
     const inputId = `${baseId}-address`;
     const hintId = `${inputId}-hint`;
@@ -560,6 +637,7 @@ function PersonalEmailFlow({
       </h3>
       <p className="email-code__lead">{emailCopy.code.sentTo(change.address)}</p>
       {replacing ? <p className="email-code__lead">{emailCopy.code.replaces(replacing)}</p> : null}
+      {proving ? <p className="email-code__lead">{emailCopy.code.keepsPrimary}</p> : null}
       {!codeClosed ? (
         <p className="email-code__timer" role="timer">
           {emailCopy.code.remaining} <strong>{formatCountdown(remaining)}</strong>
@@ -723,13 +801,15 @@ function PrimarySelector({
     }
   };
 
+  const legacy = legacyPrimaryOf(payload);
+
   if (options.length === 0) {
     return (
       <div className="settings-row security-empty">
         <span className="settings-row__icon"><Star aria-hidden="true" size={19} /></span>
         <span className="settings-row__copy">
           <strong>{payload.email ?? emailCopy.school.missing}</strong>
-          <small>{emailCopy.primary.noAddress}</small>
+          <small>{legacy ? emailCopy.primary.legacy(legacy, false) : emailCopy.primary.noAddress}</small>
         </span>
       </div>
     );
@@ -739,7 +819,11 @@ function PrimarySelector({
     <form className="email-primary" onSubmit={(event) => void save(event)} aria-busy={pending}>
       <fieldset className="email-primary__options" disabled={pending}>
         <legend className="sr-only">{emailCopy.primary.title}</legend>
-        {current === null ? <p className="email-primary__none">{emailCopy.primary.none(payload.email)}</p> : null}
+        {current === null ? (
+          <p className="email-primary__none">
+            {legacy ? emailCopy.primary.legacy(legacy, true) : emailCopy.primary.none(payload.email)}
+          </p>
+        ) : null}
         {options.map((option) => {
           const descriptionId = `${baseId}-${option.which}-blocked`;
           return (
@@ -980,7 +1064,9 @@ export function EmailManager() {
       }
       if (automatic && waiting.expiresAt === dismissedRef.current) return;
       dismiss(null);
-      changeFlow({ kind: current.personalEmail ? "change" : "add", waiting });
+      const legacy = legacyPrimaryOf(current);
+      const proving = legacy !== null && normalizeEmailAddress(legacy) === normalizeEmailAddress(waiting.address);
+      changeFlow({ kind: current.personalEmail ? "change" : proving ? "prove" : "add", waiting });
     } catch {
       // The page works without it; the next load or return asks again.
     }
@@ -1062,6 +1148,7 @@ export function EmailManager() {
   const busy = flow !== null;
   const callbacks: FlowCallbacks = { ensureSudo, onCsrfRenewed: csrfRenewed, onAuthenticationRequired };
   const personalEmail = payload.personalEmail;
+  const legacyPrimary = legacyPrimaryOf(payload);
   // Only a school address proven by the YTÜ link can take over a removed primary personal address.
   const schoolFallback = payload.schoolEmail !== null && payload.verifiedYtu;
   const removeBlocked = payload.primary === "personal" && !schoolFallback;
@@ -1129,6 +1216,40 @@ export function EmailManager() {
               </button>
             </div>
           </div>
+        ) : legacyPrimary ? (
+          <>
+            <div className="settings-row" data-has-trailing="">
+              <span className="settings-row__icon"><Mail aria-hidden="true" size={19} /></span>
+              <span className="settings-row__copy">
+                <strong className="email-address">{legacyPrimary}</strong>
+                <small>{emailCopy.legacy.detail}</small>
+              </span>
+              <div className="settings-row__trailing security-row-actions">
+                <StatusBadge tone="warning">{emailCopy.legacy.badge}</StatusBadge>
+                <button
+                  className="security-action"
+                  type="button"
+                  aria-label={`${legacyPrimary} — ${emailCopy.legacy.prove}`}
+                  disabled={busy}
+                  onClick={(event) => openFlow({ kind: "prove" }, event.currentTarget)}
+                >
+                  <MailCheck aria-hidden="true" size={15} />
+                  {emailCopy.legacy.prove}
+                </button>
+              </div>
+            </div>
+            <div className="security-group-actions">
+              <button
+                className="security-action"
+                type="button"
+                disabled={busy}
+                onClick={(event) => openFlow({ kind: "add" }, event.currentTarget)}
+              >
+                <Plus aria-hidden="true" size={15} />
+                {emailCopy.personal.addAnother}
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <div className="settings-row security-empty">
@@ -1177,11 +1298,14 @@ export function EmailManager() {
             key={flow.waiting?.expiresAt ?? flow.kind}
             payload={payload}
             replacing={flow.kind === "change" ? personalEmail : null}
+            proving={flow.kind === "prove" ? legacyPrimary : null}
             waiting={flow.waiting}
             onDone={(address) => void finish(
               flow.kind === "change" && personalEmail
                 ? emailCopy.code.replaced(address, personalEmail)
-                : emailCopy.code.confirmed(address),
+                : flow.kind === "prove"
+                  ? emailCopy.code.proven(address)
+                  : emailCopy.code.confirmed(address),
             )}
             onCancel={closeFlow}
             {...callbacks}

@@ -577,6 +577,112 @@ describe("EmailManager", () => {
     });
   });
 
+  // A1c: a primary set before v2 that is neither the school nor a personal address.
+  describe("a legacy primary", () => {
+    const legacy = { email: "ada@hotmail.com", primary: "none" };
+    const proven = { email: "ada@hotmail.com", primary: "personal", personalEmail: "ada@hotmail.com", personalEmailVerified: true };
+
+    it("shows it as not yet proven as the personal e-mail instead of saying there is none", async () => {
+      mockApi({ email: [{ body: payload(legacy) }] });
+      const { container } = render(<EmailManager />);
+
+      const row = (await screen.findByText("ada@hotmail.com", { selector: "strong" })).closest<HTMLElement>(".settings-row")!;
+      expect(row.closest("section")).toHaveTextContent("Kişisel e-posta");
+      expect(within(row).getByText("Kişisel e-posta olarak doğrulanmamış")).toBeInTheDocument();
+      expect(row).toHaveTextContent(
+        "Birincil adresin; kişisel e-posta olarak henüz doğrulanmadı. Bu adrese gelen 6 haneli kodu girersen kişisel e-postan olur ve birincil adresin olarak kalır.",
+      );
+      expect(within(row).getByRole("button", { name: "ada@hotmail.com — Kodla doğrula" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Başka bir adres ekle" })).toBeEnabled();
+      expect(screen.queryByText("Henüz kişisel e-posta eklemedin.")).not.toBeInTheDocument();
+      expect(container).not.toHaveTextContent("okul ya da kişisel adreslerinden biri değil");
+
+      const primary = screen.getByRole("group", { name: "Birincil e-posta" });
+      expect(primary).toHaveTextContent(
+        "Şu anki birincil adresin ada@hotmail.com; kişisel e-posta olarak henüz doğrulanmadı. Yukarıdan kodla doğrularsan birincil adresin olarak kalır. Ya da aşağıdan okul e-postanı seçebilirsin.",
+      );
+      expect(within(primary).getAllByRole("radio")).toHaveLength(1);
+      expect(within(primary).getByRole("radio", { name: /Okul e-postası/ })).not.toBeChecked();
+    });
+
+    it("says the same without a school address to choose instead", async () => {
+      mockApi({ email: [{ body: payload({ ...legacy, schoolEmail: null, verifiedYtu: false }) }] });
+      render(<EmailManager />);
+      const primary = await screen.findByRole("heading", { level: 2, name: "Birincil e-posta" });
+      const section = primary.closest("section")!;
+      expect(section).toHaveTextContent("Şu anki birincil adresin ada@hotmail.com; kişisel e-posta olarak henüz doğrulanmadı. Yukarıdan kodla doğrularsan birincil adresin olarak kalır.");
+      expect(section).not.toHaveTextContent("önce bir kişisel e-posta ekle");
+      expect(section).not.toHaveTextContent("Ya da aşağıdan");
+    });
+
+    it("proves that very address with the code flow: Sudo mode, the code, then it is the personal e-mail and still the primary", async () => {
+      const api = mockApi({
+        email: [{ body: payload(legacy) }, { body: payload(proven) }],
+        change: [challenge, codeSent],
+        confirm: [done],
+      });
+      render(<EmailManager />);
+      fireEvent.click(await screen.findByRole("button", { name: "ada@hotmail.com — Kodla doğrula" }));
+      const start = await screen.findByRole("form", { name: "Birincil adresini doğrula" });
+      expect(start).toHaveTextContent(
+        "ada@hotmail.com adresine 6 haneli bir doğrulama kodu göndereceğiz; kod 10 dakika geçerli. Kodu girdiğinde bu adres kişisel e-postan olur ve birincil adresin olarak kalır. Göndermeden önce kimliğini doğrulaman istenir.",
+      );
+      expect(within(start).queryByRole("textbox")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "ada@hotmail.com — Kodla doğrula" })).toBeDisabled();
+      fireEvent.click(within(start).getByRole("button", { name: "Kod gönder" }));
+
+      const form = await codeForm();
+      expect(within(form).getByText(/ada@hotmail\.com adresine 6 haneli bir kod gönderdik/)).toBeInTheDocument();
+      expect(within(form).getByText("Kodu girdiğinde bu adres kişisel e-postan olur; birincil adresin olarak kalır.")).toBeInTheDocument();
+      expect(sudo.ensureSudo).toHaveBeenCalledWith({ challenged: true });
+      expect(api.of("change")[1]!.body).toEqual({ address: "ada@hotmail.com" });
+      enterCode(form, "123456");
+
+      await findNotice("ada@hotmail.com doğrulandı; artık kişisel e-postan ve birincil adresin olarak kalıyor.");
+      expect(api.of("confirm")[0]!.body).toEqual({ code: "123456" });
+      const row = (await screen.findByText("Kodla doğrulandı.")).closest<HTMLElement>(".settings-row")!;
+      expect(within(row).getByText("ada@hotmail.com", { selector: "strong" })).toBeInTheDocument();
+      expect(within(row).getByText("Doğrulandı")).toBeInTheDocument();
+      expect(within(screen.getByRole("group", { name: "Birincil e-posta" })).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
+      expect(screen.queryByText("Kişisel e-posta olarak doğrulanmamış")).not.toBeInTheDocument();
+    });
+
+    it("explains a refusal of the address and mails nothing", async () => {
+      const api = mockApi({
+        email: [{ body: payload(legacy) }],
+        change: [{ status: 409, body: { error: "email_taken", detail: "Bu e-posta adresi başka bir hesapta kayıtlı. Başka bir adres dene.", field: "address" } }],
+      });
+      render(<EmailManager />);
+      fireEvent.click(await screen.findByRole("button", { name: "ada@hotmail.com — Kodla doğrula" }));
+      const start = await screen.findByRole("form", { name: "Birincil adresini doğrula" });
+      fireEvent.click(within(start).getByRole("button", { name: "Kod gönder" }));
+      expect(await within(start).findByRole("alert")).toHaveTextContent("Bu e-posta adresi başka bir hesapta kayıtlı.");
+      expect(screen.queryByRole("form", { name: "Doğrulama kodunu gir" })).not.toBeInTheDocument();
+      fireEvent.click(within(start).getByRole("button", { name: "Vazgeç" }));
+      await waitFor(() => expect(screen.queryByRole("form")).not.toBeInTheDocument());
+      expect(api.of("confirm")).toHaveLength(0);
+    });
+
+    it("brings back a code already mailed to it as its proof", async () => {
+      mockApi({ email: [{ body: payload(legacy) }], pending: [waiting("ada@hotmail.com", 4)] });
+      render(<EmailManager />);
+      const form = await codeForm();
+      expect(within(form).getByText("Kodu girdiğinde bu adres kişisel e-postan olur; birincil adresin olarak kalır.")).toBeInTheDocument();
+      expect(within(form).getByText("4 deneme hakkın kaldı.")).toBeInTheDocument();
+    });
+
+    it("accepts the address typed into the add form too, since the account does not own it as personal yet", async () => {
+      const api = mockApi({ email: [{ body: payload(legacy) }], change: [codeSent] });
+      render(<EmailManager />);
+      fireEvent.click(await screen.findByRole("button", { name: "Başka bir adres ekle" }));
+      const form = await screen.findByRole("form", { name: "Kişisel e-posta ekle" });
+      fireEvent.change(within(form).getByLabelText("E-posta adresi"), { target: { value: "ADA@hotmail.com" } });
+      fireEvent.click(within(form).getByRole("button", { name: "Kod gönder" }));
+      await codeForm();
+      expect(api.of("change")[0]!.body).toEqual({ address: "ada@hotmail.com" });
+    });
+  });
+
   describe("primary address", () => {
     it("switches the primary behind Sudo mode and re-reads the addresses", async () => {
       const api = mockApi({
