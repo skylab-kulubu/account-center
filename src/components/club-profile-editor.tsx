@@ -19,15 +19,16 @@ import Link from "next/link";
 import type { ChangeEvent, FormEvent } from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ConfirmationDialog } from "@/components/confirmation-dialog";
-import { StatusBadge } from "@/components/settings";
+import { SettingsRow, StatusBadge } from "@/components/settings";
 import { ActionProgress } from "@/components/ui-states";
 import {
-  CLUB_PROFILE_EDITABLE_FIELDS,
   CLUB_PROFILE_LINKEDIN_MAX_LENGTH,
   CLUB_PROFILE_PICTURE_FIELD,
   CLUB_PROFILE_PICTURE_MAX_BYTES,
   CLUB_PROFILE_PICTURE_TYPES,
   CLUB_PROFILE_TEXT_MAX_LENGTH,
+  CLUB_PROFILE_YTU_FIELDS,
+  clubProfileEditableFields,
   hasForbiddenCharacters,
   isClubProfilePictureType,
   isLinkedinProfileUrl,
@@ -126,6 +127,7 @@ export function parseClubProfileView(value: unknown): ClubProfileView | null {
     !optionalText(value.department) ||
     !optionalText(value.linkedin) ||
     (value.profilePictureUrl !== null && !httpUrl(value.profilePictureUrl)) ||
+    typeof value.ytuLinked !== "boolean" ||
     !optionalText(value.updatedAt, 64)
   ) return null;
   return {
@@ -138,13 +140,20 @@ export function parseClubProfileView(value: unknown): ClubProfileView | null {
     department: value.department,
     linkedin: value.linkedin,
     profilePictureUrl: value.profilePictureUrl as string | null,
+    ytuLinked: value.ytuLinked,
     updatedAt: value.updatedAt,
   };
 }
 
-function parseProblem(value: unknown, status: number, fallback: SafeProblem): SafeProblem {
+/** `editable` are the fields with an input; a problem about any other field is shown as a banner. */
+function parseProblem(
+  value: unknown,
+  status: number,
+  fallback: SafeProblem,
+  editable: readonly ClubProfileEditableField[],
+): SafeProblem {
   if (!isObject(value)) return { ...fallback, status };
-  const field = typeof value.field === "string" && (CLUB_PROFILE_EDITABLE_FIELDS as readonly string[]).includes(value.field)
+  const field = typeof value.field === "string" && (editable as readonly string[]).includes(value.field)
     ? value.field as ClubProfileEditableField
     : undefined;
   return {
@@ -174,7 +183,7 @@ function formValuesOf(profile: ClubProfileView): FormValues {
 
 function dirtyFields(profile: ClubProfileView, values: FormValues) {
   const changes: Partial<FormValues> = {};
-  for (const field of CLUB_PROFILE_EDITABLE_FIELDS) {
+  for (const field of clubProfileEditableFields(profile.ytuLinked)) {
     const next = values[field].trim();
     if (next !== (profile[field] ?? "")) changes[field] = next;
   }
@@ -260,6 +269,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
     if (element?.isConnected) element.focus();
   }, [confirmRemoval, feedback, fieldErrors, pending]);
 
+  const editableFields = clubProfileEditableFields(profile.ytuLinked);
   const changes = dirtyFields(profile, values);
   const dirty = Object.keys(changes).length > 0;
 
@@ -270,7 +280,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
   }, []);
 
   const failWith = useCallback((response: Response, body: unknown, fallback: SafeProblem) => {
-    const problem = parseProblem(body, response.status, fallback);
+    const problem = parseProblem(body, response.status, fallback, clubProfileEditableFields(profile.ytuLinked));
     if (problem.field) {
       setFieldErrors({ [problem.field]: problem.detail });
       setFeedback(null);
@@ -278,7 +288,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
       return;
     }
     setFeedback({ tone: "danger", problem });
-  }, []);
+  }, [profile.ytuLinked]);
 
   const request = useCallback(async (
     input: string,
@@ -321,13 +331,13 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
     event.preventDefault();
     if (pending) return;
     const errors: Partial<Record<ClubProfileEditableField, string>> = {};
-    for (const field of CLUB_PROFILE_EDITABLE_FIELDS) {
+    for (const field of editableFields) {
       const error = localFieldError(field, values[field]);
       if (error) errors[field] = error;
     }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      const first = CLUB_PROFILE_EDITABLE_FIELDS.find((field) => errors[field]);
+      const first = editableFields.find((field) => errors[field]);
       if (first) fieldRefs.current[first]?.focus();
       return;
     }
@@ -526,10 +536,30 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
       <section className="settings-section" aria-labelledby={formHeadingId}>
         <div className="settings-section__heading">
           <h2 id={formHeadingId}>Kulüp bilgileri</h2>
-          <p>Üniversite, fakülte, bölüm ve LinkedIn bağlantın kulüp kayıtlarında ve takım listelerinde kullanılır.</p>
+          <p>
+            {profile.ytuLinked
+              ? "Üniversite, fakülte ve bölüm her YTÜ girişinde YTÜ hesabından güncellenir. LinkedIn bağlantın kulüp kayıtlarında ve takım listelerinde kullanılır."
+              : "Üniversite, fakülte, bölüm ve LinkedIn bağlantın kulüp kayıtlarında ve takım listelerinde kullanılır."}
+          </p>
         </div>
+        {profile.ytuLinked ? (
+          <div className="settings-group" role="group" aria-label="YTÜ hesabından gelen bilgiler">
+            {CLUB_PROFILE_YTU_FIELDS.map((field) => {
+              const Icon = fieldIcons[field];
+              return (
+                <SettingsRow
+                  key={field}
+                  icon={<Icon aria-hidden="true" size={19} />}
+                  title={fieldCopy[field].label}
+                  description={profile[field] ?? "YTÜ hesabında kayıtlı değil"}
+                  trailing={<StatusBadge>YTÜ hesabından gelir</StatusBadge>}
+                />
+              );
+            })}
+          </div>
+        ) : null}
         <form className="profile-form" noValidate onSubmit={(event) => void submit(event)}>
-          {CLUB_PROFILE_EDITABLE_FIELDS.map((field) => {
+          {editableFields.map((field) => {
             const Icon = fieldIcons[field];
             const inputId = `${idPrefix}-${field}`;
             const hintId = `${inputId}-hint`;

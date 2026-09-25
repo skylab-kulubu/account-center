@@ -8,6 +8,24 @@ export const CLUB_PROFILE_EDITABLE_FIELDS = ["university", "faculty", "departmen
 
 export type ClubProfileEditableField = (typeof CLUB_PROFILE_EDITABLE_FIELDS)[number];
 
+/**
+ * The fields that follow the YTÜ Microsoft login for a YTÜ-linked person
+ * (core's `ytuLinked`): shown read-only with "YTÜ hesabından gelir", and a
+ * change is refused by the BFF and by core.
+ */
+export const CLUB_PROFILE_YTU_FIELDS = ["university", "faculty", "department"] as const;
+
+export type ClubProfileYtuField = (typeof CLUB_PROFILE_YTU_FIELDS)[number];
+
+export function isClubProfileYtuField(field: string): field is ClubProfileYtuField {
+  return (CLUB_PROFILE_YTU_FIELDS as readonly string[]).includes(field);
+}
+
+/** The fields the person edits: LinkedIn only when YTÜ-linked, all four otherwise. */
+export function clubProfileEditableFields(ytuLinked: boolean): readonly ClubProfileEditableField[] {
+  return ytuLinked ? CLUB_PROFILE_EDITABLE_FIELDS.filter((field) => !isClubProfileYtuField(field)) : CLUB_PROFILE_EDITABLE_FIELDS;
+}
+
 /** Trimmed length cap for university, faculty and department. */
 export const CLUB_PROFILE_TEXT_MAX_LENGTH = 120;
 

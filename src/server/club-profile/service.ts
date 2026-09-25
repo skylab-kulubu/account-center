@@ -25,6 +25,8 @@ export type ClubProfileView = {
   department: string | null;
   linkedin: string | null;
   profilePictureUrl: string | null;
+  /** University, faculty and department follow the YTÜ login and are read-only. */
+  ytuLinked: boolean;
   updatedAt: string | null;
 };
 
@@ -45,6 +47,7 @@ export function toClubProfileView(profile: CoreProfile): ClubProfileView {
     department: profile.department,
     linkedin: profile.linkedin,
     profilePictureUrl: profile.profilePictureUrl,
+    ytuLinked: profile.ytuLinked,
     updatedAt: profile.updatedAt,
   };
 }

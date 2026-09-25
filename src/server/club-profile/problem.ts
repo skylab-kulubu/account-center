@@ -41,6 +41,17 @@ export const clubProfileDisabledProblem: ClubProfileProblem = {
   detail: "Bu ortamda core bağlantısı tanımlı değil; SKY numarası, öğrenci kartı ve kulüp bilgileri burada görünmez. Kimlik bilgilerin bundan etkilenmez.",
 };
 
+/** A change to a field that follows the YTÜ login; `field` is set when the BFF caught it. */
+function ytuManagedProblem(field?: ClubProfileEditableField): ClubProfileProblem {
+  return {
+    type: `${PROBLEM_BASE}club-profile-ytu-managed`,
+    title: "Bu bilgi YTÜ hesabından gelir",
+    status: 409,
+    detail: "Üniversite, fakülte ve bölüm her YTÜ girişinde YTÜ hesabından güncellenir; buradan değiştirilemez. Kulüp profilin değişmedi.",
+    ...(field ? { field } : {}),
+  };
+}
+
 export const pictureTooLargeProblem: ClubProfileProblem = {
   type: `${PROBLEM_BASE}club-profile-picture`,
   title: "Fotoğraf çok büyük",
@@ -78,11 +89,15 @@ function validationDetail(error: ClubProfileValidationError) {
       return `${label} görünmez, biçimlendirme ya da kontrol karakteri içeremez.`;
     case "linkedin_url":
       return "LinkedIn bağlantısı https:// ile başlamalı ve linkedin.com ya da www.linkedin.com adresinde olmalı.";
+    case "ytu_managed":
+      return ytuManagedProblem().detail;
   }
 }
 
 function rejectedProblem(status: number): ClubProfileProblem {
   if (status === 413) return pictureTooLargeProblem;
+  // Core answers 409 on /v1/users/me only for a YTÜ field change (`ytu_managed_field`).
+  if (status === 409) return ytuManagedProblem();
   if (status === 415) {
     return {
       type: `${PROBLEM_BASE}club-profile-picture`,
@@ -109,6 +124,7 @@ function rejectedProblem(status: number): ClubProfileProblem {
 
 export function toClubProfileProblem(error: unknown): ClubProfileProblem {
   if (error instanceof ClubProfileValidationError) {
+    if (error.reason === "ytu_managed" && error.field !== "body") return ytuManagedProblem(error.field);
     return {
       type: `${PROBLEM_BASE}club-profile-invalid`,
       title: "Bilgiler doğrulanamadı",
