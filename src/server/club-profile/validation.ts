@@ -6,6 +6,7 @@ import {
   CLUB_PROFILE_PICTURE_MAX_BYTES,
   CLUB_PROFILE_TEXT_MAX_LENGTH,
   hasForbiddenCharacters,
+  isClubProfileYtuField,
   isLinkedinProfileUrl,
   normalizeLinkedinProfileUrl,
 } from "@/config/club-profile";
@@ -27,7 +28,8 @@ export type ClubProfileValidationReason =
   | "not_text"
   | "too_long"
   | "forbidden_characters"
-  | "linkedin_url";
+  | "linkedin_url"
+  | "ytu_managed";
 
 export class ClubProfileValidationError extends Error {
   constructor(
@@ -88,16 +90,23 @@ export function parseClubProfileInput(body: unknown): ClubProfileInput {
   return input;
 }
 
-/** Only the members whose value differs from what core currently holds; an absent core value counts as empty. */
+/**
+ * Only the members whose value differs from what core currently holds; an
+ * absent core value counts as empty. For a YTÜ-linked person a change to
+ * university, faculty or department is refused (`ytu_managed`), since those
+ * follow the YTÜ login; sending the stored value back is no change.
+ */
 export function diffClubProfilePatch(
-  current: Pick<CoreProfile, ClubProfileEditableField>,
+  current: Pick<CoreProfile, ClubProfileEditableField | "ytuLinked">,
   input: ClubProfileInput,
 ): CoreProfilePatch {
   const patch: CoreProfilePatch = {};
   for (const field of CLUB_PROFILE_EDITABLE_FIELDS) {
     const next = input[field];
     if (next === undefined) continue;
-    if (next !== (current[field] ?? "")) patch[field] = next;
+    if (next === (current[field] ?? "")) continue;
+    if (current.ytuLinked && isClubProfileYtuField(field)) throw new ClubProfileValidationError(field, "ytu_managed");
+    patch[field] = next;
   }
   return patch;
 }

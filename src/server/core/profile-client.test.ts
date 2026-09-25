@@ -58,6 +58,7 @@ describe("Core profile HTTP client", () => {
       profilePictureId: "7c1e0a2b-5d6f-4a8b-9c0d-000000000002",
       profilePictureUrl: "https://cdn.yildizskylab.com/media/profile/7c1e0a2b-5d6f-4a8b-9c0d-000000000002.webp",
       phone: "+905551112233",
+      ytuLinked: false,
       createdAt: "2025-10-01T09:00:00Z",
       updatedAt: "2026-09-21T13:10:41.130Z",
     });
@@ -85,7 +86,7 @@ describe("Core profile HTTP client", () => {
     expect(Object.keys(profile).sort()).toEqual([
       "createdAt", "department", "email", "faculty", "firstName", "id", "lastName", "linkedin", "phone",
       "profilePictureId", "profilePictureUrl", "schoolEmail", "skyNumber", "studentCardLinked",
-      "university", "updatedAt", "username",
+      "university", "updatedAt", "username", "ytuLinked",
     ]);
     expect(JSON.stringify(profile)).not.toContain("memberships");
   });
@@ -103,11 +104,21 @@ describe("Core profile HTTP client", () => {
       firstName: null,
       skyNumber: null,
       studentCardLinked: false,
+      ytuLinked: false,
       linkedin: null,
       profilePictureId: null,
       profilePictureUrl: null,
       phone: null,
     });
+  });
+
+  it("reads whether university, faculty and department follow the YTÜ login", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ ...meFixture, ytuLinked: true })));
+    await expect(new CoreProfileHttpClient(baseUrl).getMe(accessToken)).resolves.toMatchObject({ ytuLinked: true });
+    // A core older than C2 does not send the member: nobody is YTÜ-linked then.
+    const olderCore = Object.fromEntries(Object.entries(meFixture).filter(([key]) => key !== "ytuLinked"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(olderCore)));
+    await expect(new CoreProfileHttpClient(baseUrl).getMe(accessToken)).resolves.toMatchObject({ ytuLinked: false });
   });
 
   it("patches only the allowed club-profile and shadow-name fields as JSON", async () => {
@@ -236,6 +247,8 @@ describe("Core profile HTTP client", () => {
     for (const body of [
       { ...meFixture, id: "" },
       { ...meFixture, studentCardLinked: "yes" },
+      { ...meFixture, ytuLinked: "true" },
+      { ...meFixture, ytuLinked: 1 },
       { ...meFixture, profilePictureUrl: "/media/relative.webp" },
       { ...meFixture, profilePictureUrl: "javascript:alert(1)" },
       { ...meFixture, createdAt: "yesterday" },
