@@ -163,6 +163,71 @@ test("club profile fields and picture round-trip through the mock core", async (
   }
 });
 
+test("a YTÜ-linked person sees university, faculty and department from the YTÜ account", async ({ context, page, playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "account-ui-matrix", "one browser-backed pass is sufficient");
+  test.setTimeout(90_000);
+  const fixture = await installSession(context, `club-profile-ytu-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  const api = await playwright.request.newContext({
+    baseURL: baseUrl,
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: { cookie: `${sessionCookieName}=${fixture.handle}` },
+  });
+  const errors = collectPageErrors(page);
+
+  try {
+    const seeded = await inspector.put(`${mockCoreUrl}/__e2e/users/${encodeURIComponent(fixture.subject)}`, {
+      data: { ytuLinked: true, faculty: "Bilgisayar ve Bilişim Bilimleri Fakültesi", department: "Bilgisayar Mühendisliği" },
+    });
+    expect(seeded.status()).toBe(200);
+
+    await test.step("the BFF refuses a YTÜ field change before core sees it", async () => {
+      const read = await api.get("/api/account/club-profile");
+      expect(read.status()).toBe(200);
+      const { csrfToken, profile } = await read.json() as { csrfToken: string; profile: Record<string, unknown> };
+      expect(profile.ytuLinked).toBe(true);
+      const refused = await api.patch("/api/account/club-profile", {
+        headers: { origin: baseUrl, "sec-fetch-site": "same-origin", "x-csrf-token": csrfToken, "content-type": "application/json" },
+        data: JSON.stringify({ department: "Fizik" }),
+      });
+      expect(refused.status()).toBe(409);
+      expect(await refused.json()).toMatchObject({ status: 409, field: "department", title: "Bu bilgi YTÜ hesabından gelir" });
+      const state = await mockCoreState(inspector, fixture.subject);
+      expect(state.requests.filter(({ method }) => method === "PATCH")).toHaveLength(0);
+      expect(state.profile.department).toBe("Bilgisayar Mühendisliği");
+    });
+
+    await test.step("the page shows the three fields read-only and saves LinkedIn alone", async () => {
+      await gotoClubProfile(page);
+      const fromYtu = page.getByRole("group", { name: "YTÜ hesabından gelen bilgiler" });
+      await expect(fromYtu).toContainText("Yıldız Teknik Üniversitesi");
+      await expect(fromYtu).toContainText("Bilgisayar ve Bilişim Bilimleri Fakültesi");
+      await expect(fromYtu).toContainText("Bilgisayar Mühendisliği");
+      await expect(fromYtu.getByText("YTÜ hesabından gelir")).toHaveCount(3);
+      await expect(page.locator("input[name='university'], input[name='faculty'], input[name='department']")).toHaveCount(0);
+
+      const accessibility = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+        .analyze();
+      expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([]);
+
+      await page.getByLabel("LinkedIn bağlantısı").fill("https://www.linkedin.com/in/ada-ytu");
+      const patchResponse = page.waitForResponse((response) =>
+        response.url().endsWith("/api/account/club-profile") && response.request().method() === "PATCH");
+      await page.getByRole("button", { name: "Kaydet" }).click();
+      expect((await patchResponse).status()).toBe(200);
+      await expect(page.getByRole("status")).toContainText("Kulüp bilgilerin kaydedildi.");
+      const state = await mockCoreState(inspector, fixture.subject);
+      expect(state.requests.find(({ method }) => method === "PATCH")?.body).toEqual({ linkedin: "https://www.linkedin.com/in/ada-ytu" });
+    });
+
+    expect(errors).toEqual([]);
+  } finally {
+    await api.dispose();
+    await inspector.dispose();
+  }
+});
+
 test("the editable club profile passes axe and fits a 320px WebView", async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name !== "account-ui-matrix", "one accessibility pass of the ready state is sufficient");
   const { defaultBrowserType: _browserType, ...pixel } = devices["Pixel 7"];
