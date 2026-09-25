@@ -513,6 +513,98 @@ test("changing the personal address that is primary moves the primary to the new
   expect(errors).toEqual([]);
 });
 
+// A1c: a primary set before v2 that is neither the school nor a personal address.
+test("a legacy primary is shown as not yet proven and becomes the personal e-mail with its own code, staying primary", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `email-legacy-${testInfo.retry}`);
+  const errors = failOnPageErrors(page);
+  const network = recordRequests(page);
+  const legacyAddress = "ada.legacy@example.com";
+  const state: EmailState = {
+    email: legacyAddress,
+    emailVerified: false,
+    primary: "none",
+    schoolEmail,
+    verifiedYtu: true,
+    personalEmail: null,
+    personalEmailVerified: false,
+  };
+  const waiting = await mockEmail(page, state);
+  await mockIdentity(page, state);
+  const proofs = await mockSudo(page);
+  const mutations: Mutation[] = [];
+  await page.route("**/api/account/email/change-request", async (route) => {
+    await recordMutation(route, mutations);
+    if (mutations.filter(({ path }) => path.endsWith("/change-request")).length === 1) {
+      await route.fulfill({ status: 428, json: sudoChallenge });
+      return;
+    }
+    const { address } = route.request().postDataJSON() as { address: string };
+    const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    waiting.current = { address, expiresAt, attemptsLeft: 5 };
+    await route.fulfill({ status: 202, json: withSecondsLeft({ expiresAt }) });
+  });
+  await page.route("**/api/account/email/confirm", async (route) => {
+    await recordMutation(route, mutations);
+    const { code } = route.request().postDataJSON() as { code: string };
+    if (code !== mailedCode || waiting.current === null) {
+      await route.fulfill({ status: 400, json: { error: "invalid_code", detail: "Doğrulama kodu yanlış. 4 deneme hakkın kaldı.", attemptsLeft: 4 } });
+      return;
+    }
+    // The SPI keeps a proven current primary primary and marks it verified.
+    state.personalEmail = waiting.current.address;
+    state.personalEmailVerified = true;
+    state.primary = "personal";
+    state.emailVerified = true;
+    waiting.current = null;
+    await route.fulfill({ status: 204 });
+  });
+
+  await gotoEmail(page);
+  await expect(page.getByText("Kişisel e-posta olarak doğrulanmamış")).toBeVisible();
+  await expect(page.getByText(
+    "Birincil adresin; kişisel e-posta olarak henüz doğrulanmadı. Bu adrese gelen 6 haneli kodu girersen kişisel e-postan olur ve birincil adresin olarak kalır.",
+  )).toBeVisible();
+  await expect(page.getByText("Henüz kişisel e-posta eklemedin.")).toHaveCount(0);
+  await expect(page.getByText(/okul ya da kişisel adreslerinden biri değil/)).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Birincil e-posta" })).toContainText(
+    `Şu anki birincil adresin ${legacyAddress}; kişisel e-posta olarak henüz doğrulanmadı. Yukarıdan kodla doğrularsan birincil adresin olarak kalır.`,
+  );
+
+  await page.getByRole("button", { name: `${legacyAddress} — Kodla doğrula` }).click();
+  const start = page.getByRole("form", { name: "Birincil adresini doğrula" });
+  await expect(start).toContainText(`${legacyAddress} adresine 6 haneli bir doğrulama kodu göndereceğiz; kod 10 dakika geçerli.`);
+  await start.getByRole("button", { name: "Kod gönder" }).click();
+  await completeSudoDialog(page);
+  const code = page.getByRole("form", { name: "Doğrulama kodunu gir" });
+  await expect(code).toContainText(`${legacyAddress} adresine 6 haneli bir kod gönderdik.`);
+  await expect(code).toContainText("Kodu girdiğinde bu adres kişisel e-postan olur; birincil adresin olarak kalır.");
+  await code.getByLabel("Doğrulama kodu").fill(mailedCode);
+  await code.getByRole("button", { name: "Doğrula" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "İşlem tamamlandı" })).toContainText(
+    `${legacyAddress} doğrulandı; artık kişisel e-postan ve birincil adresin olarak kalıyor.`,
+  );
+  await expect(page.getByText("Kodla doğrulandı.")).toBeVisible();
+  await expect(page.getByText("Kişisel e-posta olarak doğrulanmamış")).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Birincil e-posta" }).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
+
+  await page.getByRole("navigation", { name: "Hesap ayarları" }).getByRole("link", { name: "Kimlik" }).click();
+  await expect(page.getByText(new RegExp(`^${legacyAddress.replace(/\./g, "\\.")} · Kulüp postaları bu adrese gelir`))).toBeVisible();
+
+  expect(proofs).toEqual([{ password: sudoPassword }]);
+  expect(mutations.map(({ method, path, body }) => [method, path, body])).toEqual([
+    ["POST", "/api/account/email/change-request", { address: legacyAddress }],
+    ["POST", "/api/account/email/change-request", { address: legacyAddress }],
+    ["POST", "/api/account/email/confirm", { code: mailedCode }],
+  ]);
+  for (const url of network.urls()) {
+    expect(url).not.toContain(mailedCode);
+    expect(decodeURIComponent(url)).not.toContain(legacyAddress);
+  }
+  expect(network.hosts().has(keycloakHost)).toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test("the ten-minute countdown closes the code input when it runs out", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   await installAuthenticatedSession(context, `email-expiry-${testInfo.retry}`);
@@ -640,12 +732,22 @@ test("the e-mail page with its forms and dialog passes axe and fits a 320px WebV
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
 
-      // Without a personal address the add form and the code panel appear.
+      // Without a personal address, the primary left from before v2 (A1c) is offered for its code.
       state.personalEmail = null;
       state.personalEmailVerified = false;
       state.primary = "none";
       await gotoEmail(page);
-      await openAddForm(page);
+      await expect(page.getByText("Kişisel e-posta olarak doğrulanmamış")).toBeVisible();
+      await analyze("legacy primary");
+      await page.getByRole("button", { name: `${personalEmail} — Kodla doğrula` }).click();
+      const prove = page.getByRole("form", { name: "Birincil adresini doğrula" });
+      await expect(prove).toBeVisible();
+      await analyze("legacy primary proof");
+      await prove.getByRole("button", { name: "Vazgeç" }).click();
+
+      // The add form and the code panel.
+      await page.getByRole("button", { name: "Başka bir adres ekle" }).click();
+      await expect(page.getByRole("form", { name: "Kişisel e-posta ekle" })).toBeVisible();
       await analyze("add form");
       await page.getByRole("form", { name: "Kişisel e-posta ekle" }).getByLabel("E-posta adresi").fill("ada.new@example.com");
       await page.getByRole("form", { name: "Kişisel e-posta ekle" }).getByRole("button", { name: "Kod gönder" }).click();
