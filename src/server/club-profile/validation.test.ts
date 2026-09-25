@@ -173,6 +173,31 @@ describe("club-profile patch diffing", () => {
     expect(diffClubProfilePatch(current, {})).toEqual({});
     expect(diffClubProfilePatch(current, { department: "Bilgisayar Mühendisliği" })).toEqual({});
   });
+
+  it("refuses to change university, faculty or department of a YTÜ-linked person", () => {
+    const linked = { ...current, ytuLinked: true };
+    const refusal = (input: Parameters<typeof diffClubProfilePatch>[1]) => {
+      try {
+        diffClubProfilePatch(linked, input);
+      } catch (error) {
+        if (error instanceof ClubProfileValidationError) return { field: error.field, reason: error.reason };
+        throw error;
+      }
+      throw new Error("expected the change to be refused");
+    };
+    expect(refusal({ department: "Fizik" })).toEqual({ field: "department", reason: "ytu_managed" });
+    expect(refusal({ faculty: "", linkedin: "" })).toEqual({ field: "faculty", reason: "ytu_managed" });
+    expect(refusal({ university: "Boğaziçi Üniversitesi" })).toEqual({ field: "university", reason: "ytu_managed" });
+    // The stored values sent back are no change; LinkedIn stays editable.
+    expect(diffClubProfilePatch(linked, {
+      university: "Yıldız Teknik Üniversitesi",
+      faculty: "Elektrik-Elektronik Fakültesi",
+      department: "Bilgisayar Mühendisliği",
+      linkedin: "",
+    })).toEqual({ linkedin: "" });
+    // Someone who is not YTÜ-linked edits all four.
+    expect(diffClubProfilePatch({ ...current, ytuLinked: false }, { department: "Fizik" })).toEqual({ department: "Fizik" });
+  });
 });
 
 describe("club-profile picture validation", () => {

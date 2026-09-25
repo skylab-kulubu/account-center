@@ -62,6 +62,12 @@ export type CoreProfile = {
   profilePictureId: string | null;
   profilePictureUrl: string | null;
   phone: string | null;
+  /**
+   * University, faculty and department follow the YTÜ Microsoft login and
+   * core refuses to change them (`409`). Core decides who is YTÜ-linked; a
+   * core that predates the member reports nobody as linked.
+   */
+  ytuLinked: boolean;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -159,6 +165,7 @@ function parseProfile(value: unknown): CoreProfile {
     !nullableStringKeys.every((key) => nullableString(value[key])) ||
     (value.studentCardLinked !== undefined && value.studentCardLinked !== null &&
       typeof value.studentCardLinked !== "boolean") ||
+    (value.ytuLinked !== undefined && value.ytuLinked !== null && typeof value.ytuLinked !== "boolean") ||
     !nullableString(value.profilePictureUrl, 2_048) ||
     (typeof value.profilePictureUrl === "string" && !absoluteHttpUrl(value.profilePictureUrl)) ||
     !nullableString(value.createdAt, 64) ||
@@ -185,6 +192,7 @@ function parseProfile(value: unknown): CoreProfile {
     profilePictureId: text("profilePictureId"),
     profilePictureUrl: (value.profilePictureUrl as string | null | undefined) ?? null,
     phone: text("phone"),
+    ytuLinked: value.ytuLinked === true,
     createdAt: (value.createdAt as string | null | undefined) ?? null,
     updatedAt: (value.updatedAt as string | null | undefined) ?? null,
   };

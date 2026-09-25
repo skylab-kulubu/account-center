@@ -12,12 +12,16 @@ import { join } from "node:path";
  * token subject so every seeded session starts from the fixture, and
  * `GET /__e2e/users/{sub}` exposes what core received for assertions. The
  * self-delete intake is served too; `GET /__e2e/account-deletion-intakes/{sub}`
- * lists which proof headers each intake call carried.
+ * lists which proof headers each intake call carried. `PUT /__e2e/users/{sub}`
+ * merges profile members before the first page load (for example
+ * `ytuLinked`), the way core's YTÜ login would have set them.
  */
 
 const MAX_PICTURE_BYTES = 5 * 1_024 * 1_024;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{43}$/;
 const patchableFields = ["firstName", "lastName", "linkedin", "university", "faculty", "department"];
+/** Core refuses a change to these for a YTÜ-linked person (`409`, code `ytu_managed_field`). */
+const ytuFields = ["university", "faculty", "department"];
 
 function problem(response, status, title) {
   response.writeHead(status, { "content-type": "application/problem+json" });
@@ -227,6 +231,18 @@ export function startMockCore({
         return json(response, 200, deletionIntakes.get(decodeURIComponent(intakeInspection[1])) ?? []);
       }
       const inspection = /^\/__e2e\/users\/([^/]+)$/.exec(url.pathname);
+      if (inspection && request.method === "PUT") {
+        let overrides;
+        try {
+          overrides = JSON.parse((await readBody(request)).toString("utf8"));
+        } catch {
+          return problem(response, 400, "Bad Request");
+        }
+        if (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)) return problem(response, 400, "Bad Request");
+        const user = userFor(decodeURIComponent(inspection[1]));
+        Object.assign(user.profile, overrides);
+        return json(response, 200, user.profile);
+      }
       if (inspection && request.method === "GET") {
         const user = users.get(decodeURIComponent(inspection[1]));
         if (!user) return problem(response, 404, "Not Found");
@@ -262,6 +278,15 @@ export function startMockCore({
         if (typeof patch !== "object" || patch === null || Array.isArray(patch)) return problem(response, 400, "Bad Request");
         for (const [key, value] of Object.entries(patch)) {
           if (!patchableFields.includes(key) || typeof value !== "string") return problem(response, 400, "Bad Request");
+        }
+        for (const [key, value] of Object.entries(patch)) {
+          if (user.profile.ytuLinked === true && ytuFields.includes(key) && value.trim() !== (user.profile[key] ?? "")) {
+            response.writeHead(409, { "content-type": "application/problem+json" });
+            return response.end(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, code: "ytu_managed_field" }));
+          }
+        }
+        for (const [key, value] of Object.entries(patch)) {
+          if (user.profile.ytuLinked === true && ytuFields.includes(key)) continue;
           user.profile[key] = value.trim() === "" ? null : value.trim();
         }
         user.profile.updatedAt = new Date().toISOString();

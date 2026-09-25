@@ -14,7 +14,15 @@ const profile: ClubProfileView = {
   department: "Bilgisayar Mühendisliği",
   linkedin: "https://www.linkedin.com/in/ada-lovelace",
   profilePictureUrl: "https://cdn.yildizskylab.com/media/profile/current.webp",
+  ytuLinked: false,
   updatedAt: "2026-09-21T13:10:41.130Z",
+};
+
+const ytuLinked: ClubProfileView = {
+  ...profile,
+  faculty: "Bilgisayar ve Bilişim Bilimleri Fakültesi",
+  department: null,
+  ytuLinked: true,
 };
 
 const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
@@ -62,6 +70,9 @@ describe("parseClubProfileView", () => {
     expect(parseClubProfileView({ ...profile, profilePictureUrl: "javascript:alert(1)" })).toBeNull();
     expect(parseClubProfileView({ ...profile, profilePictureUrl: "/relative.png" })).toBeNull();
     expect(parseClubProfileView({ ...profile, studentCardLinked: "yes" })).toBeNull();
+    expect(parseClubProfileView(ytuLinked)).toEqual(ytuLinked);
+    expect(parseClubProfileView({ ...profile, ytuLinked: "true" })).toBeNull();
+    expect(parseClubProfileView(Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "ytuLinked")))).toBeNull();
     expect(parseClubProfileView({ ...profile, faculty: 3 })).toBeNull();
     expect(parseClubProfileView(null)).toBeNull();
   });
@@ -209,6 +220,57 @@ describe("ClubProfileEditor form", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profili güvenle durduruldu");
     expect(screen.getByLabelText("Bölüm")).toHaveValue("Matematik");
+  });
+});
+
+describe("ClubProfileEditor for a YTÜ-linked person", () => {
+  it("shows university, faculty and department read-only as coming from the YTÜ account", () => {
+    renderEditor(ytuLinked);
+
+    expect(screen.queryByLabelText("Üniversite")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Fakülte")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Bölüm")).not.toBeInTheDocument();
+    expect(document.querySelectorAll("input:not([type=file])")).toHaveLength(1);
+    expect(screen.getByLabelText("LinkedIn bağlantısı")).toHaveValue("https://www.linkedin.com/in/ada-lovelace");
+
+    const group = screen.getByRole("group", { name: "YTÜ hesabından gelen bilgiler" });
+    expect(Array.from(group.children, (row) => row.textContent)).toEqual([
+      "ÜniversiteYıldız Teknik ÜniversitesiYTÜ hesabından gelir",
+      "FakülteBilgisayar ve Bilişim Bilimleri FakültesiYTÜ hesabından gelir",
+      "BölümYTÜ hesabında kayıtlı değilYTÜ hesabından gelir",
+    ]);
+    expect(screen.getByText(/her YTÜ girişinde YTÜ hesabından güncellenir/)).toBeInTheDocument();
+  });
+
+  it("saves LinkedIn alone", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(json({
+      changed: true,
+      profile: { ...ytuLinked, linkedin: "https://www.linkedin.com/in/ada-2026" },
+    }));
+    renderEditor(ytuLinked);
+
+    fireEvent.change(screen.getByLabelText("LinkedIn bağlantısı"), { target: { value: "https://www.linkedin.com/in/ada-2026" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/account/club-profile", expect.objectContaining({
+      body: JSON.stringify({ linkedin: "https://www.linkedin.com/in/ada-2026" }),
+    })));
+    expect(await screen.findByRole("status")).toHaveTextContent("Kulüp bilgilerin kaydedildi.");
+  });
+
+  it("reports a refused YTÜ field as a banner since the field has no input", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(problem({
+      type: "https://my.yildizskylab.com/problems/club-profile-ytu-managed",
+      title: "Bu bilgi YTÜ hesabından gelir",
+      detail: "Üniversite, fakülte ve bölüm her YTÜ girişinde YTÜ hesabından güncellenir; buradan değiştirilemez.",
+      field: "department",
+    }, 409));
+    renderEditor(ytuLinked);
+
+    fireEvent.change(screen.getByLabelText("LinkedIn bağlantısı"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Bu bilgi YTÜ hesabından gelir");
   });
 });
 
