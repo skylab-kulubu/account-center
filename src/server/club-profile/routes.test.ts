@@ -141,6 +141,7 @@ const expectedView = {
   department: "Bilgisayar Mühendisliği",
   linkedin: "https://www.linkedin.com/in/ada-lovelace",
   profilePictureUrl: "https://cdn.yildizskylab.com/media/profile/7c1e0a2b-5d6f-4a8b-9c0d-000000000002.webp",
+  ytuLinked: false,
   updatedAt: "2026-09-21T13:10:41.130Z",
 };
 
@@ -359,6 +360,33 @@ describe("club-profile BFF routes", () => {
       }
       expect(routeMocks.getMe).not.toHaveBeenCalled();
       expect(routeMocks.patchMe).not.toHaveBeenCalled();
+    });
+
+    it("answers 409 for a YTÜ field change of a YTÜ-linked person and leaves core untouched", async () => {
+      routeMocks.getMe.mockResolvedValue({ ...profile, ytuLinked: true });
+
+      const response = await PATCH(patchRequest({ department: "Fizik", linkedin: "" }));
+
+      expect(response.status).toBe(409);
+      expect(response.headers.get("content-type")).toBe("application/problem+json");
+      await expect(response.json()).resolves.toMatchObject({
+        type: "https://my.yildizskylab.com/problems/club-profile-ytu-managed",
+        title: "Bu bilgi YTÜ hesabından gelir",
+        status: 409,
+        field: "department",
+      });
+      expect(routeMocks.patchMe).not.toHaveBeenCalled();
+    });
+
+    it("maps core's own 409 for a YTÜ field to the same problem", async () => {
+      routeMocks.patchMe.mockRejectedValue(new CoreProfileRejectedError(409));
+
+      const response = await PATCH(patchRequest({ faculty: "Makine Fakültesi" }));
+
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      expect(body).toMatchObject({ type: "https://my.yildizskylab.com/problems/club-profile-ytu-managed", status: 409 });
+      expect(body.field).toBeUndefined();
     });
 
     it.each([

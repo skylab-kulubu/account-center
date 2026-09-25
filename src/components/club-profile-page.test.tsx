@@ -25,6 +25,7 @@ const clubProfile: ClubProfileView = {
   department: "Bilgisayar Mühendisliği",
   linkedin: "https://www.linkedin.com/in/ada-lovelace",
   profilePictureUrl: "https://cdn.yildizskylab.com/media/profile/picture.webp",
+  ytuLinked: false,
   updatedAt: "2026-09-21T13:10:41.130Z",
 };
 

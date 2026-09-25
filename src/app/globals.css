@@ -1506,6 +1506,10 @@ a.settings-row:hover .settings-row__chevron {
   background: var(--accent-muted);
 }
 
+.settings-group + .profile-form {
+  margin-top: 12px;
+}
+
 .profile-form {
   display: flex;
   flex-direction: column;
