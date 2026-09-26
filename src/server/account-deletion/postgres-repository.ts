@@ -186,18 +186,33 @@ function coreDates(status: CoreAccountDeletionStatus) {
   return { requestedAt, updatedAt, receiptExpiresAt, completedAt };
 }
 
+/**
+ * The stored status stays only when it is known to be newer than core's:
+ * - `completed` is terminal in core. A stored one never changes, and an
+ *   incoming one always wins, whatever its `updated_at`.
+ * - Otherwise the stored status stays while its `updated_at` is newer than
+ *   core's and not in the future. An older core wrote the next attempt's time
+ *   into `updated_at`; such a stamp proves nothing and must not hide a retry's
+ *   or a completion's status (account-erasure ticket 13).
+ */
+const storedStatusStays = `(status = 'completed'
+    OR ($3 <> 'completed' AND updated_at > $6 AND updated_at <= now()))`;
+
 const statusUpdate = `status = CASE
-    WHEN status = 'completed' OR updated_at > $6 THEN status
+    WHEN ${storedStatusStays} THEN status
     ELSE $3
   END,
   partial = CASE
-    WHEN status = 'completed' OR updated_at > $6 THEN partial
+    WHEN ${storedStatusStays} THEN partial
     ELSE $4
   END,
   requested_at = COALESCE(requested_at, $5),
-  updated_at = GREATEST(updated_at, $6),
+  updated_at = CASE
+    WHEN status <> 'completed' AND updated_at > now() THEN GREATEST(created_at, $6)
+    ELSE GREATEST(updated_at, $6)
+  END,
   completed_at = CASE
-    WHEN status = 'completed' OR updated_at > $6 THEN completed_at
+    WHEN ${storedStatusStays} THEN completed_at
     ELSE $7
   END,
   receipt_expires_at = GREATEST(COALESCE(receipt_expires_at, $8), $8)`;
