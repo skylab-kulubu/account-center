@@ -1647,6 +1647,19 @@ a.settings-row:hover .settings-row__chevron {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.deletion-step__limits {
+  display: grid;
+  gap: 6px;
+  margin: 13px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  color: var(--ink-faint);
+  font-size: 0.68rem;
+  line-height: 1.55;
+  list-style: none;
+}
+
 .deletion-confirmation {
   display: flex;
   flex-direction: column;

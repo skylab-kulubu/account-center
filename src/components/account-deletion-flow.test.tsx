@@ -51,6 +51,22 @@ describe("account deletion UI", () => {
     expect(confirmation.closest("form")).toHaveAttribute("action", "/api/account/deletion");
   });
 
+  it("says what backups and old addresses keep, as part of the confirmation", () => {
+    render(<AccountDeletionConfirmation csrfToken="session-csrf" enabled reauthenticated />);
+    const confirmation = screen.getByLabelText(/onay metni/i);
+    const limits = screen.getAllByRole("listitem");
+
+    expect(limits.map((limit) => limit.textContent)).toEqual([
+      "Verilerin şifreli yedeklerde en çok 90 gün daha kalır. Bu sürede bir yedekten geri dönülürse silme yeniden uygulanır.",
+      "Eski e-posta adreslerin saklanmaz. Bu yüzden yalnız eski bir adresinle kaydedilmiş veriler silinmeyebilir.",
+    ]);
+    for (const limit of limits) {
+      // Read in order before the field, not announced as a status or hidden.
+      expect(limit.compareDocumentPosition(confirmation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(limit.closest("[role='status'], [aria-live], [aria-hidden='true']")).toBeNull();
+    }
+  });
+
   it("never offers a Keycloak step, whatever the BFF answers", async () => {
     prepared("keycloak_reauthentication");
     render(<AccountDeletionConfirmation csrfToken="session-csrf" enabled reauthenticated={false} />);

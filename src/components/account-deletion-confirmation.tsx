@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { LockKeyhole, Trash2 } from "lucide-react";
 import { useSudo } from "@/components/sudo-provider";
+import { ACCOUNT_DELETION_BACKUP_RETENTION_DAYS } from "@/config/account-deletion";
 import { isObject, runWithSudo } from "@/lib/security-client";
 
 const CONFIRMATION = "HESABIMI SİL";
@@ -33,6 +34,17 @@ const copy = {
   unavailable: "Hesap silme işlemi şu anda başlatılamıyor. Hesabında hiçbir değişiklik yapılmadı; kısa bir süre sonra tekrar dene.",
   sessionEnded: "Oturumun sona ermiş görünüyor. Sayfayı yenileyip yeniden dene.",
 } as const;
+
+/**
+ * What the deletion cannot reach, said before the person confirms: data
+ * outlives it in backups for a bounded time, and addresses the account no
+ * longer uses are not kept anywhere, so data held only under one of them
+ * cannot be found (account-erasure ticket 20).
+ */
+const limits = [
+  `Verilerin şifreli yedeklerde en çok ${ACCOUNT_DELETION_BACKUP_RETENTION_DAYS} gün daha kalır. Bu sürede bir yedekten geri dönülürse silme yeniden uygulanır.`,
+  "Eski e-posta adreslerin saklanmaz. Bu yüzden yalnız eski bir adresinle kaydedilmiş veriler silinmeyebilir.",
+] as const;
 
 const errorFeedback: Record<AccountDeletionError, string> = {
   proof_expired: "Doğrulama süren doldu veya silme onayın geçersizdi. Devam etmek için kimliğini yeniden doğrula.",
@@ -177,6 +189,9 @@ export function AccountDeletionConfirmation({
             Bu işlem geri alınamaz. Devam etmek için aşağıdaki alana büyük harflerle
             {" "}<b>{CONFIRMATION}</b> yaz.
           </p>
+          <ul className="deletion-step__limits">
+            {limits.map((limit) => <li key={limit}>{limit}</li>)}
+          </ul>
           <form action="/api/account/deletion" className="deletion-confirmation" method="post">
             <input type="hidden" name="csrfToken" value={csrfToken} />
             <label htmlFor="account-deletion-confirmation">Onay metni</label>
