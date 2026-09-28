@@ -273,6 +273,106 @@ databaseDescribe("PostgreSQL account deletion intents", () => {
     });
   });
 
+  it("lets an incoming completed win over a newer stored status", async () => {
+    const saved = await repository.saveReauthentication(awaiting());
+    const accepted = await repository.acceptCore(
+      await confirmed(saved),
+      processing,
+      Buffer.alloc(32, 9),
+      "encrypted-core-receipt",
+    );
+    if (!accepted) throw new Error("expected Core acceptance");
+    const manual = await repository.recordCoreReceiptStatus(accepted, {
+      ...processing,
+      status: "manual_intervention",
+      updatedAt: "2026-09-20T12:00:04.000Z",
+    });
+    if (!manual) throw new Error("expected manual intervention");
+    // Core never leaves completed, so its completion is the latest word even
+    // when it carries an older updatedAt than the stored status.
+    const completed = await repository.recordCoreReceiptStatus(manual, {
+      ...processing,
+      status: "completed",
+      partial: false,
+      updatedAt: "2026-09-20T12:00:03.000Z",
+      completedAt: "2026-09-20T12:00:03.000Z",
+    });
+    expect(completed).toMatchObject({
+      status: "completed",
+      partial: false,
+      completedAt: new Date("2026-09-20T12:00:03.000Z"),
+      updatedAt: new Date("2026-09-20T12:00:04.000Z"),
+    });
+    if (!completed) throw new Error("expected completion");
+    await expect(repository.recordCoreReceiptStatus(completed, {
+      ...processing,
+      status: "manual_intervention",
+      updatedAt: "2026-09-20T12:00:09.000Z",
+    })).resolves.toMatchObject({ status: "completed", completedAt: new Date("2026-09-20T12:00:03.000Z") });
+  });
+
+  // Ticket 13: an older core wrote the next attempt's time into updatedAt,
+  // so a stored status could carry a future stamp.
+  it("does not let a stored future updatedAt hide a newer status", async () => {
+    const at = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
+    const receiptExpiresAt = at(30 * 24 * 60 * 60);
+    const accept = async () => {
+      await pool.query("TRUNCATE account_deletion_intents CASCADE");
+      const saved = await repository.saveReauthentication(awaiting());
+      const accepted = await repository.acceptCore(
+        await confirmed(saved),
+        processing,
+        Buffer.alloc(32, 9),
+        "encrypted-core-receipt",
+      );
+      if (!accepted) throw new Error("expected Core acceptance");
+      // Manual intervention stamped with the next attempt, 30 s ahead.
+      const manual = await repository.recordCoreReceiptStatus(accepted, {
+        ...processing,
+        status: "manual_intervention",
+        updatedAt: at(30),
+        receiptExpiresAt,
+      });
+      if (!manual) throw new Error("expected manual intervention");
+      return manual;
+    };
+
+    // The person retried at once and core completed the request.
+    const completedAt = at(-1);
+    await expect(repository.recordCoreReceiptStatus(await accept(), {
+      ...processing,
+      status: "completed",
+      partial: false,
+      updatedAt: completedAt,
+      completedAt,
+      receiptExpiresAt,
+    })).resolves.toMatchObject({
+      status: "completed",
+      partial: false,
+      completedAt: new Date(completedAt),
+      updatedAt: new Date(completedAt),
+    });
+
+    // The retry itself: pending replaces the stored status, and the stamp
+    // becomes core's, so an out-of-order older read no longer wins.
+    const retriedAt = at(-2);
+    const retried = await repository.recordCoreReceiptStatus(await accept(), {
+      ...processing,
+      status: "pending",
+      partial: true,
+      updatedAt: retriedAt,
+      receiptExpiresAt,
+    });
+    expect(retried).toMatchObject({ status: "pending", updatedAt: new Date(retriedAt) });
+    if (!retried) throw new Error("expected the retry's status");
+    await expect(repository.recordCoreReceiptStatus(retried, {
+      ...processing,
+      status: "manual_intervention",
+      updatedAt: at(-3),
+      receiptExpiresAt,
+    })).resolves.toMatchObject({ status: "pending", updatedAt: new Date(retriedAt) });
+  });
+
   it("rejects impossible persisted lifecycle combinations", async () => {
     const saved = await repository.saveReauthentication(awaiting());
     await expect(pool.query(
