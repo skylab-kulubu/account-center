@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
 import {
@@ -100,6 +101,13 @@ async function confirmDeletion(page: Page) {
 
   const confirmation = page.getByLabel("Onay metni");
   await expect(confirmation).toBeVisible();
+  // What the deletion cannot reach is said on the confirmation itself.
+  await expect(page.getByRole("listitem").filter({ hasText: "şifreli yedeklerde en çok 90 gün" })).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "Eski e-posta adreslerin saklanmaz" })).toBeVisible();
+  const accessibility = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([]);
   const submit = page.getByRole("button", { name: "Hesabımı kalıcı olarak sil" });
   await expect(submit).toBeDisabled();
   await confirmation.fill("hesabımı sil");
