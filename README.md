@@ -194,7 +194,11 @@ ister ve Keycloak tarafında `account-center` istemcisinin
 `account.manage-account-links` scope mapping'ine, kişinin de
 `account.manage-account` rolüne ihtiyaç duyar (K2 reconcile). Yeni bir gizli
 değer gerekmez; sudo proof'ları mevcut `TOKEN_ENCRYPTION_KEY` ile oturum
-kaydında şifrelenir.
+kaydında şifrelenir. `ANDROID_ASSET_LINKS_*` ve `APPLE_APP_SITE_ASSOCIATION_*`
+çiftleri de isteğe bağlıdır: Mobile Lab'in verdiği değerlerle
+`/.well-known/assetlinks.json` ve `/.well-known/apple-app-site-association`
+dosyalarını üretir, tanımsızsa bu yollar `404` döner; `/internal/*` ise her
+zaman `404`'tür. Biçimler [kenar güveni belgesinde](docs/auth-edge-trust.md#public-yol-sınırı-internal-ve-well-known).
 
 Sürüm geçişi: bu sürüm Keycloak kullanıcı token'ında K2 geçişi boyunca
 eski `aud=account` ve güncel `aud=["account","core"]` kümelerinden tam olarak
