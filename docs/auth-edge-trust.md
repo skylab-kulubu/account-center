@@ -6,6 +6,40 @@ Platform bugün Dokploy host'u üzerinde çalışan bir Traefik'in arkasındadı
 
 Cloudflare proxy'si şu anda **kapalıdır**: `CF-Connecting-IP` origin'e hiç ulaşmaz. Cloudflare ileride tekrar açılırsa mod değiştirilir, kod değişmez.
 
+## Public yol sınırı: `/internal` ve `/.well-known`
+
+### `/internal/*` her zaman 404
+
+Account Center'ın hiçbir internal ucu kalmadı; sonuncusu olan `POST /internal/v1/native-handoff/redeem` ADR-0048 ile emekliye ayrıldı. Bu yüzden `/internal` ve altındaki **her** istek, oturum kontrolünden önce proxy'de gövdesiz, `Cache-Control: no-store` taşıyan bir `404` alır; login sayfasına yönlendirilmez. Proxy matcher'ı bu yol için ayrı bir girdi taşır, böylece `Purpose: prefetch` / `Next-Router-Prefetch` başlıklı istekler de korumadan kaçamaz.
+
+Core'daki gibi `X-Forwarded-*`, `Forwarded` veya `X-Real-Ip` başlığına bakıp "public edge'den geldi" ayrımı **yapılmaz**: ayırt edilecek bir iç çağıran yoktur ve başlığa dayalı bir ayrım, başlıksız doğrudan erişime (container ağı) kapı bırakmaktan başka bir şey kazandırmaz. İleride `app/internal` altına bir uç eklenirse bu koruma bilinçli olarak değiştirilmeden erişilemez; o gün ağ sınırıyla (ayrı entrypoint, mTLS) birlikte tasarlanır.
+
+Traefik'te `my.yildizskylab.com` router'ına `/internal` önekini reddeden middleware (OPS1) yine önerilir; uygulama katmanı ikinci savunma hattıdır. Uygulama gelen hiçbir `X-Sky-*` başlığını okumaz (`X-Sky-Sudo` yalnız Keycloak'a giden çağrılarda kullanılır).
+
+### `/.well-known/*` uygulamanındır
+
+`/.well-known` makineler içindir: login yönlendirmesinden muaftır ve uygulama kendisi yanıtlar. İki dosya, Mobile Lab'in vereceği değerlerle ortam değişkenlerinden üretilir; değerler repoya girmez.
+
+| Dosya | Değişkenler (ikisi birlikte) | Yayımlanan ilişki |
+| --- | --- | --- |
+| `/.well-known/assetlinks.json` | `ANDROID_ASSET_LINKS_PACKAGE_NAME`, `ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS` | `delegate_permission/common.get_login_creds` |
+| `/.well-known/apple-app-site-association` | `APPLE_APP_SITE_ASSOCIATION_TEAM_ID`, `APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID` | `webcredentials.apps: ["<TEAM_ID>.<BUNDLE_ID>"]` |
+
+Biçimler (Mobile Lab bu biçimde teslim eder; örnekler yalnız biçim içindir):
+
+- `ANDROID_ASSET_LINKS_PACKAGE_NAME`: uygulamanın Android application ID'si (`applicationId`). En az iki noktalı parça, her parça harfle başlar ve yalnız `A-Z a-z 0-9 _` içerir; en fazla 255 karakter. Örnek biçim: `org.skylab.mobile`.
+- `ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS`: imza sertifikalarının SHA-256 parmak izleri, virgülle ayrılmış. Her biri iki nokta ile ayrılmış 32 hex bayttır (`keytool -list -v` ya da Play Console → App integrity çıktısındaki gibi). Play App Signing anahtarı mutlaka, upload/debug anahtarı gerekiyorsa o da eklenir. Küçük harf kabul edilir, büyük harfle yayımlanır; tekrarlar tekilleşir. Örnek biçim: `AB:CD:…:EF` (32 bayt).
+- `APPLE_APP_SITE_ASSOCIATION_TEAM_ID`: 10 karakterlik Apple Developer Team ID (App ID prefix), yalnız `A-Z 0-9`. Örnek biçim: `A1B2C3D4E5`.
+- `APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID`: iOS bundle ID; en az iki noktalı parça, parçalar yalnız `A-Z a-z 0-9 -`; en fazla 155 karakter. Örnek biçim: `org.skylab.mobile`.
+
+Çift ya hep birlikte ya hiç tanımlanır. Hiçbiri tanımlı değilse dosya yayımlanmaz (`404`); biri tanımlı diğeri değilse, bir değer biçime uymuyorsa ya da yer tutucu içeriyorsa `scripts/validate-env.mjs` süreci başlatmaz.
+
+Yanıtlar: yapılandırılmış dosya `200`, `Content-Type: application/json`, `Cache-Control: public, max-age=300`; yapılandırılmamış dosya gövdesiz `404` ve `no-store`, böylece sonradan eklenen değer bir sonraki istekte görünür. Başka bir `/.well-known/*` yolu uygulamanın `404` sayfasıdır. Hiçbiri redirect değildir: Android de Apple da yönlendirilen dosyayı kabul etmez. `next.config.ts`'teki genel `Cache-Control: no-store` yalnız `/.well-known/` altında uygulanmaz; diğer güvenlik başlıkları aynen gelir. Değerler istek anında okunur, imajı yeniden kurmak gerekmez; değişken değişince container'ı yeniden başlatmak yeter.
+
+Yalnız kimlik bilgisi ilişkisi yayımlanır. App Links / Universal Links (`handle_all_urls`, `applinks`) bilinçli olarak yoktur: SkyApp'in `my.` bağlantılarını tarayıcıdan devralması ayrı bir karardır ve kod değişikliği ister.
+
+**RP ID notu.** Keycloak'taki passkey RP ID'si `yildizskylab.com`'dur (`KEYCLOAK_PASSKEY_RP_ID`). Android Credential Manager ve iOS `webcredentials` bu dosyaları RP ID alan adında, yani `https://yildizskylab.com/.well-known/…` adresinde arar; `my.` altındaki kopya yalnız `my.yildizskylab.com` için geçerlidir. Kök alan adında da gerekirse ya kökü sunan uygulama aynı içeriği yayımlar ya da Traefik'te ``Host(`yildizskylab.com`) && (Path(`/.well-known/assetlinks.json`) || Path(`/.well-known/apple-app-site-association`))`` router'ı Account Center servisine **redirect değil proxy** olarak bağlanır (route handler `Host` başlığına bakmaz). Bu bir operasyon kararıdır (OPS1).
+
 ## `AUTH_TRUSTED_PROXY` modları
 
 Değişken zorunludur ve tam olarak üç değer alır. Her mod yalnız aşağıda yazan kaynağa güvenir; başka hiçbir başlık rate-limit kimliğine katılmaz.

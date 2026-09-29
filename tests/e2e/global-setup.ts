@@ -20,6 +20,8 @@ const pages = [
   "/club-profile",
   "/delete-account",
   "/account-deletion",
+  "/.well-known/assetlinks.json",
+  "/.well-known/apple-app-site-association",
   "/api/health",
   "/api/ready",
   "/api/auth/login",

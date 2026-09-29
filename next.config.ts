@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const securityHeaders = [
-  { key: "Cache-Control", value: "no-store" },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
@@ -28,6 +27,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
+      // A configured header here replaces the one a route sets, so the
+      // app-association files under /.well-known keep their own short
+      // public caching (and their 404s their own no-store).
+      { source: "/((?!\\.well-known/).*)", headers: [{ key: "Cache-Control", value: "no-store" }] },
     ];
   },
 };

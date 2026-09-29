@@ -115,11 +115,14 @@ jobs:
             -e OIDC_UPSTREAM_SESSION_MAX_SECONDS=28800 \
             -e AUTH_TRUSTED_PROXY=cloudflare \
             -e ACCOUNT_ACCESS_GATE_MODE=off \
+            -e ANDROID_ASSET_LINKS_PACKAGE_NAME=com.yildizskylab.ci \
+            -e ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS=AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB \
             "$CANDIDATE_IMAGE"
           trap 'docker rm -f account-center-candidate >/dev/null 2>&1 || true' EXIT
           curl --fail --silent --show-error --retry 20 --retry-connrefused \
             --retry-delay 1 http://127.0.0.1:33100/api/ready
           RETIRED_HANDOFF_TEST_ORIGIN=http://127.0.0.1:33100 pnpm test:retired-handoff
+          EDGE_PATHS_TEST_ORIGIN=http://127.0.0.1:33100 pnpm test:edge-paths
       - id: meta
         uses: docker/metadata-action@v6
         with:
