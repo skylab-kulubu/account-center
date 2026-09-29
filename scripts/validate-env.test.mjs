@@ -248,6 +248,64 @@ test("validates the optional YTÜ identity provider alias whenever it is present
   assert.throws(() => validateEnvironment({ ...valid, YTU_IDP_ALIAS: "<idp-alias>" }), /placeholder/);
 });
 
+test("accepts the Mobile Lab's app-association values as pairs, or none at all", () => {
+  const fingerprint = Array.from({ length: 32 }, () => "AB").join(":");
+  const android = {
+    ANDROID_ASSET_LINKS_PACKAGE_NAME: "com.yildizskylab.skyapp",
+    ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS: `${fingerprint}, ${fingerprint.toLowerCase()}`,
+  };
+  const apple = {
+    APPLE_APP_SITE_ASSOCIATION_TEAM_ID: "A1B2C3D4E5",
+    APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID: "com.yildizskylab.skyapp",
+  };
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, ...android }));
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, ...apple }));
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, ...android, ...apple }));
+  assert.doesNotThrow(() => validateEnvironment({
+    ...valid,
+    ANDROID_ASSET_LINKS_PACKAGE_NAME: " ",
+    ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS: "",
+  }));
+
+  for (const name of Object.keys({ ...android, ...apple })) {
+    const half = { ...(name.startsWith("ANDROID_") ? android : apple) };
+    delete half[name];
+    assert.throws(() => validateEnvironment({ ...valid, ...half }), /must be set together/, name);
+  }
+  for (const invalid of ["skyapp", "com.9lab.app", "com.yildizskylab.sky-app"]) {
+    assert.throws(
+      () => validateEnvironment({ ...valid, ...android, ANDROID_ASSET_LINKS_PACKAGE_NAME: invalid }),
+      /ANDROID_ASSET_LINKS_PACKAGE_NAME/,
+    );
+  }
+  for (const invalid of [",", fingerprint.slice(3), fingerprint.replaceAll(":", ""), `${fingerprint},nope`]) {
+    assert.throws(
+      () => validateEnvironment({ ...valid, ...android, ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS: invalid }),
+      /ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS/,
+    );
+  }
+  for (const invalid of ["a1b2c3d4e5", "A1B2C3D4E", "A1B2C3D4E5.com.yildizskylab.skyapp"]) {
+    assert.throws(
+      () => validateEnvironment({ ...valid, ...apple, APPLE_APP_SITE_ASSOCIATION_TEAM_ID: invalid }),
+      /APPLE_APP_SITE_ASSOCIATION_TEAM_ID/,
+    );
+  }
+  for (const invalid of ["skyapp", "com.yildizskylab.sky_app", "com.yildizskylab.*"]) {
+    assert.throws(
+      () => validateEnvironment({ ...valid, ...apple, APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID: invalid }),
+      /APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID/,
+    );
+  }
+  assert.throws(
+    () => validateEnvironment({ ...valid, ...android, ANDROID_ASSET_LINKS_PACKAGE_NAME: "com.example.app" }),
+    /placeholder/,
+  );
+  assert.throws(
+    () => validateEnvironment({ ...valid, ...apple, APPLE_APP_SITE_ASSOCIATION_TEAM_ID: "<team-id>" }),
+    /placeholder/,
+  );
+});
+
 test("keeps account erasure default-off and requires the exact Core origin when enabled", () => {
   assert.doesNotThrow(() => validateEnvironment(valid));
   assert.doesNotThrow(() => validateEnvironment({ ...valid, ACCOUNT_ERASURE_MODE: "off" }));

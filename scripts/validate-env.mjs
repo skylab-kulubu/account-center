@@ -241,6 +241,54 @@ function validateYtuIdpAliasEnvironment(env) {
   }
 }
 
+/** Mirrors the patterns in src/server/well-known/app-association.ts. */
+const androidPackageNamePattern = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/;
+const sha256FingerprintPattern = /^[0-9A-F]{2}(?::[0-9A-F]{2}){31}$/;
+const appleTeamIdPattern = /^[A-Z0-9]{10}$/;
+const appleBundleIdPattern = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+
+/**
+ * The Mobile Lab's app-association values are optional as a pair: neither
+ * variable leaves the file unpublished (404), one without the other is a
+ * half-finished hand-over and stops the process.
+ */
+function requirePairOrNeither(env, names) {
+  const present = names.filter((name) => env[name]?.trim());
+  if (present.length === 0) return false;
+  if (present.length !== names.length) {
+    throw new Error(`${names.join(" and ")} must be set together.`);
+  }
+  const placeholder = names.find((name) => placeholderPattern.test(env[name]));
+  if (placeholder) throw new Error(`${placeholder} contains a placeholder value.`);
+  return true;
+}
+
+function validateAppAssociationEnvironment(env) {
+  if (requirePairOrNeither(env, ["ANDROID_ASSET_LINKS_PACKAGE_NAME", "ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS"])) {
+    const packageName = env.ANDROID_ASSET_LINKS_PACKAGE_NAME.trim();
+    if (packageName.length > 255 || !androidPackageNamePattern.test(packageName)) {
+      throw new Error("ANDROID_ASSET_LINKS_PACKAGE_NAME must be an Android application ID such as com.yildizskylab.skyapp.");
+    }
+    const fingerprints = env.ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS.split(",")
+      .map((entry) => entry.trim().toUpperCase())
+      .filter(Boolean);
+    if (fingerprints.length === 0 || !fingerprints.every((entry) => sha256FingerprintPattern.test(entry))) {
+      throw new Error(
+        "ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS must be comma-separated SHA-256 fingerprints of 32 colon-separated hex bytes.",
+      );
+    }
+  }
+  if (requirePairOrNeither(env, ["APPLE_APP_SITE_ASSOCIATION_TEAM_ID", "APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID"])) {
+    if (!appleTeamIdPattern.test(env.APPLE_APP_SITE_ASSOCIATION_TEAM_ID.trim())) {
+      throw new Error("APPLE_APP_SITE_ASSOCIATION_TEAM_ID must be a 10-character Apple Team ID.");
+    }
+    const bundleId = env.APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID.trim();
+    if (bundleId.length > 155 || !appleBundleIdPattern.test(bundleId)) {
+      throw new Error("APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID must be a reverse-DNS bundle ID such as com.yildizskylab.skyapp.");
+    }
+  }
+}
+
 function validateAccountErasureEnvironment(env) {
   const mode = env.ACCOUNT_ERASURE_MODE?.trim() || "off";
   if (mode !== "off" && mode !== "enforce") {
@@ -336,5 +384,6 @@ export function validateEnvironment(env) {
   validateProfilePictureOriginEnvironment(env);
   validateYtuIdpAliasEnvironment(env);
   validateAccountErasureEnvironment(env);
+  validateAppAssociationEnvironment(env);
   validateDatabaseEnvironment(env);
 }

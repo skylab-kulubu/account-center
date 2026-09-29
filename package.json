@@ -21,6 +21,7 @@
     "test:e2e:server:erasure": "node scripts/start-e2e-erasure-server.mjs",
     "test:e2e": "playwright test",
     "test:retired-handoff": "node scripts/assert-retired-handoff.mjs",
+    "test:edge-paths": "node scripts/assert-edge-paths.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {

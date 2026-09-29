@@ -1,7 +1,8 @@
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_PROFILE_PICTURE_ORIGIN } from "@/config/club-profile";
-import { proxy } from "@/proxy";
+import { config, proxy } from "@/proxy";
 
 describe("security proxy", () => {
   it("adds a unique, strict nonce policy to document responses", () => {
@@ -66,10 +67,73 @@ describe("security proxy", () => {
   it.each([
     ["GET", `/handoff?code=${"p".repeat(43)}`],
     ["POST", "/v1/native-handoff"],
-    ["POST", "/internal/v1/native-handoff/redeem"],
   ])("leaves the retired native handoff path %s %s to the router's 404 instead of the login page", (method, path) => {
     const response = proxy(new NextRequest(`https://my.yildizskylab.com${path}`, { method }));
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.get("location")).toBeNull();
+  });
+});
+
+describe("internal paths", () => {
+  const edgeHeaders = {
+    "x-forwarded-for": "203.0.113.7",
+    "x-forwarded-host": "my.yildizskylab.com",
+    "x-forwarded-proto": "https",
+    "x-real-ip": "203.0.113.7",
+    forwarded: "for=203.0.113.7;proto=https",
+  };
+
+  it.each([
+    ["GET", "/internal", {}],
+    ["GET", "/internal/", {}],
+    ["GET", "/internal/v1/x", {}],
+    ["POST", "/internal/v1/native-handoff/redeem", {}],
+    ["GET", "/internal/v1/x", edgeHeaders],
+    ["POST", "/internal/v1/native-handoff/redeem", edgeHeaders],
+    ["GET", "/internal/v1/x", { cookie: "__Host-sky-account=opaque-session" }],
+    ["DELETE", "/internal/v1/x?next=/security", { ...edgeHeaders, cookie: "__Host-sky-account=opaque-session" }],
+  ])("answers %s %s with a bare, uncached 404 before the session check", async (method, path, headers) => {
+    const response = proxy(new NextRequest(`https://my.yildizskylab.com${path}`, { method, headers }));
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("");
+  });
+
+  it("only claims the /internal segment itself", () => {
+    const response = proxy(new NextRequest("https://my.yildizskylab.com/internals"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/login?returnTo=%2Finternals");
+  });
+
+  it.each([
+    ["/internal", {}],
+    ["/internal/v1/x", {}],
+    ["/internal/v1/x", { "next-router-prefetch": "1" }],
+    ["/internal/v1/x", { purpose: "prefetch" }],
+  ])("runs for %s even on a prefetch request (%o)", (url, headers) => {
+    expect(unstable_doesMiddlewareMatch({ config, url, headers })).toBe(true);
+  });
+});
+
+describe("well-known paths", () => {
+  it.each([
+    "/.well-known/assetlinks.json",
+    "/.well-known/apple-app-site-association",
+    "/.well-known/security.txt",
+    "/.well-known",
+  ])("leaves %s to the app instead of the login page", (path) => {
+    const response = proxy(new NextRequest(`https://my.yildizskylab.com${path}`));
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("still redirects a look-alike path outside /.well-known", () => {
+    const response = proxy(new NextRequest("https://my.yildizskylab.com/.well-knownx"));
+    expect(response.status).toBe(307);
   });
 });

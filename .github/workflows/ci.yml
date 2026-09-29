@@ -52,7 +52,7 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
           TEST_ACCOUNT_ACCESS_REDIS_URL: redis://default:access-gate-test-secret@127.0.0.1:6389/15
       - run: pnpm build
-      - name: Verify the optimized server retires the native handoff
+      - name: Verify the optimized server's retired handoff, /internal and /.well-known paths
         env:
           HOSTNAME: 127.0.0.1
           PORT: "33100"
@@ -66,13 +66,18 @@ jobs:
           OIDC_UPSTREAM_SESSION_MAX_SECONDS: "28800"
           AUTH_TRUSTED_PROXY: cloudflare
           ACCOUNT_ACCESS_GATE_MODE: "off"
+          # The Android pair only: the Apple file must answer 404 when unset.
+          ANDROID_ASSET_LINKS_PACKAGE_NAME: com.yildizskylab.ci
+          ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS: "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"
           RETIRED_HANDOFF_TEST_ORIGIN: http://127.0.0.1:33100
+          EDGE_PATHS_TEST_ORIGIN: http://127.0.0.1:33100
         run: |
           pnpm db:migrate
           node .next/standalone/server.js &
           server_pid=$!
           trap 'kill "$server_pid" >/dev/null 2>&1 || true' EXIT
           pnpm test:retired-handoff
+          pnpm test:edge-paths
 
   browser:
     runs-on: ubuntu-latest
