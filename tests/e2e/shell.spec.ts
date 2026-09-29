@@ -315,6 +315,57 @@ test("retired native handoff endpoints answer 404 instead of a login form", asyn
   }
 });
 
+test("/internal answers a bare 404 before auth, also through the edge", async ({ playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one assembled-server assertion is sufficient");
+  const request = await playwright.request.newContext({
+    baseURL: baseUrl,
+    ignoreHTTPSErrors: true,
+  });
+  const edgeHeaders = {
+    "x-forwarded-for": "203.0.113.7",
+    "x-forwarded-proto": "https",
+    "x-real-ip": "203.0.113.7",
+    forwarded: "for=203.0.113.7;proto=https",
+  };
+
+  try {
+    for (const response of [
+      await request.get("/internal/v1/x", { maxRedirects: 0 }),
+      await request.get("/internal/v1/x", { maxRedirects: 0, headers: edgeHeaders }),
+      await request.post("/internal/v1/native-handoff/redeem", {
+        maxRedirects: 0,
+        headers: { ...edgeHeaders, "content-type": "application/json" },
+        data: "{}",
+      }),
+    ]) {
+      expect(response.status(), response.url()).toBe(404);
+      expect(response.headers().location, response.url()).toBeUndefined();
+      expect(await response.text(), response.url()).toBe("");
+    }
+  } finally {
+    await request.dispose();
+  }
+});
+
+test("/.well-known is answered by the app, never by the login redirect", async ({ playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one assembled-server assertion is sufficient");
+  const request = await playwright.request.newContext({
+    baseURL: baseUrl,
+    ignoreHTTPSErrors: true,
+  });
+
+  try {
+    // The browser-test servers carry no Mobile Lab values, so both files are unpublished.
+    for (const path of ["/.well-known/assetlinks.json", "/.well-known/apple-app-site-association"]) {
+      const response = await request.get(path, { maxRedirects: 0 });
+      expect(response.status(), path).toBe(404);
+      expect(response.headers().location, path).toBeUndefined();
+    }
+  } finally {
+    await request.dispose();
+  }
+});
+
 test("desktop account shell keeps navigation, skip link, and rotates its secure session", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   const { handle: originalHandle, tokenCanaries } = await installAuthenticatedSession(
