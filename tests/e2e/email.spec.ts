@@ -243,7 +243,7 @@ test("add → code → confirm → primary switch → remove, with the identity 
   await page.getByRole("navigation", { name: "Hesap ayarları" }).getByRole("link", { name: "E-posta ve giriş" }).click();
   await expect(page).toHaveURL(`${baseUrl}/email`);
   await expect(page.getByRole("heading", { level: 1, name: "E-posta ve giriş" })).toBeVisible();
-  await expect(page.getByText("Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da birincil adresin kullanılır.").first()).toBeVisible();
+  await expect(page.getByText("Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da doğrulanmış adreslerin kullanılır; iki adresle de giriş yapabilirsin.").first()).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // Add: the address, Sudo mode, then the code panel in the same page.
