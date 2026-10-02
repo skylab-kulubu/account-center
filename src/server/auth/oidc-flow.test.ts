@@ -3,6 +3,7 @@ import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { accountRoutes } from "@/config/account-routes";
 import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { InvalidOidcTransactionError, normalizeReturnTo, OidcFlowService } from "@/server/auth/oidc-flow";
+import type { OidcCallbackContext } from "@/server/auth/oidc-flow";
 import type {
   AuthorizationResult,
   BeginAuthorizationInput,
@@ -170,6 +171,23 @@ describe("OidcFlowService", () => {
     lateCallback.searchParams.set("state", protocol.proof!.state);
     current = new Date(current.getTime() + OIDC_TRANSACTION_TTL_SECONDS * 1_000);
     await expect(flow.callback(lateCallback, late.browserBinding)).rejects.toBeInstanceOf(InvalidOidcTransactionError);
+  });
+
+  it("tells the caller which flow a callback belonged to, even when it then fails, and nothing when no transaction is found", async () => {
+    const { flow, protocol } = fixture();
+    const started = await flow.begin("/");
+    protocol.rejectExchange = true;
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    callback.searchParams.set("state", protocol.proof!.state);
+
+    const context: OidcCallbackContext = {};
+    await expect(flow.callback(callback, started.browserBinding, undefined, "request-id", context)).rejects.toThrow(/nonce or PKCE/);
+    expect(context).toEqual({ purpose: "login" });
+
+    const used: OidcCallbackContext = {};
+    await expect(flow.callback(callback, started.browserBinding, undefined, "request-id", used))
+      .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+    expect(used).toEqual({});
   });
 
   it("rejects unknown state before code exchange", async () => {

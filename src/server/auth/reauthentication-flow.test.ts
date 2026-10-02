@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { InvalidOidcTransactionError, OidcFlowService } from "@/server/auth/oidc-flow";
+import type { OidcCallbackContext } from "@/server/auth/oidc-flow";
 import type {
   AuthorizationResult,
   BeginAuthorizationInput,
@@ -141,6 +142,18 @@ describe("Account Center forced re-authentication", () => {
       protocol.authorization.tokens,
       protocol.authorization.keycloakSid,
     );
+  });
+
+  it("tells the caller a failed callback was the Sudo mode fallback's", async () => {
+    const { flow, protocol } = fixture();
+    const started = await flow.beginSudoReauthentication(activeSession, "/security");
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("code", "authorization-code");
+    callback.searchParams.set("state", protocol.proof!.state);
+    const context: OidcCallbackContext = {};
+    await expect(flow.callback(callback, started.browserBinding, "o".repeat(43), "request-id", context))
+      .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+    expect(context).toEqual({ purpose: "sudo" });
   });
 
   it("keeps the Microsoft re-authentication past the PAR request_uri lifetime", async () => {

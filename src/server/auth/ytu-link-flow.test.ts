@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { InvalidOidcTransactionError, OidcFlowService } from "@/server/auth/oidc-flow";
+import type { OidcCallbackContext } from "@/server/auth/oidc-flow";
 import type {
   AuthorizationResult,
   BeginAuthorizationInput,
@@ -131,6 +132,15 @@ describe("YTÜ account link (kc_action=idp_link)", () => {
     expect(started.authorizationUrl.href).not.toContain(activeSession.subject);
     expect(started.authorizationUrl.href).not.toContain("kc_action");
     expect(started.browserBinding).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it("tells the caller a failed callback was the YTÜ link's", async () => {
+    const { flow, protocol } = fixture();
+    const started = await flow.beginYtuLink(activeSession);
+    const context: OidcCallbackContext = {};
+    await expect(flow.callback(callbackFor(protocol.proof!.state, linked), started.browserBinding, "o".repeat(43), "request-id", context))
+      .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+    expect(context).toEqual({ purpose: "ytu_link" });
   });
 
   it("keeps the link round trip (Microsoft with MFA) past the PAR request_uri lifetime", async () => {

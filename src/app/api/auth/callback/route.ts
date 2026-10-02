@@ -11,7 +11,9 @@ import {
   setEmbeddedAppCookie,
 } from "@/server/auth/http";
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
+import { oauthCallbackError } from "@/server/auth/oauth-callback-error";
 import { InvalidOidcTransactionError } from "@/server/auth/oidc-flow";
+import type { OidcCallbackContext } from "@/server/auth/oidc-flow";
 import {
   OidcContractError,
   OidcProviderStageError,
@@ -37,12 +39,14 @@ export async function GET(request: NextRequest) {
     response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
     return noStore(response);
   }
+  const context: OidcCallbackContext = {};
   try {
     const result = await services.oidc.callback(
       request.nextUrl,
       request.cookies.get(OIDC_TRANSACTION_COOKIE)?.value,
       request.cookies.get(SESSION_COOKIE)?.value,
       requestId,
+      context,
     );
     if ("sudoReauthentication" in result) {
       const destination = new URL(result.returnTo, services.config.appUrl);
@@ -89,6 +93,7 @@ export async function GET(request: NextRequest) {
     const invalidTransaction = error instanceof InvalidOidcTransactionError;
     const blocked = error instanceof AccountAccessBlockedError;
     const unavailable = error instanceof AccountAccessUnavailableError;
+    const oauthError = oauthCallbackError(request.nextUrl.searchParams);
     logAuthEvent({
       event: "oidc_login_failed",
       requestId,
@@ -103,6 +108,8 @@ export async function GET(request: NextRequest) {
       ...(error instanceof OidcProviderStageError
         ? { providerStage: error.stage }
         : {}),
+      ...(context.purpose ? { purpose: context.purpose } : {}),
+      ...(oauthError ? { oauthError } : {}),
     });
     if (unavailable) {
       const response = accountAccessUnavailableResponse();

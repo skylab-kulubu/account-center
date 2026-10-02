@@ -8,6 +8,7 @@ import {
   OIDC_TRANSACTION_COOKIE,
 } from "@/server/auth/http";
 import { InvalidOidcTransactionError } from "@/server/auth/oidc-flow";
+import type { OidcCallbackContext } from "@/server/auth/oidc-flow";
 import {
   AccountAccessBlockedError,
   AccountAccessUnavailableError,
@@ -214,6 +215,90 @@ describe("authentication routes", () => {
     expect(JSON.stringify(vi.mocked(logAuthEvent).mock.calls)).not.toContain("secret-code");
   });
 
+  it("logs which flow a failed callback belonged to and Keycloak's allowlisted OAuth error, never its free text", async () => {
+    authMocks.callback.mockImplementation(async (...args: unknown[]) => {
+      (args[4] as OidcCallbackContext).purpose = "login";
+      throw new OidcProviderStageError("authorization_response");
+    });
+    const response = await callbackRoute(new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?error=access_denied&error_description=ada%40example.com+vazge%C3%A7ti&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    ));
+
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/login?error=unavailable");
+    expect(logAuthEvent).toHaveBeenCalledWith({
+      event: "oidc_login_failed",
+      requestId: "request-id",
+      outcome: "failure",
+      reason: "provider_unavailable",
+      providerStage: "authorization_response",
+      purpose: "login",
+      oauthError: "access_denied",
+    });
+    const logged = JSON.stringify(vi.mocked(logAuthEvent).mock.calls);
+    expect(logged).not.toContain("ada@example.com");
+    expect(logged).not.toContain("vazgeçti");
+  });
+
+  it.each([
+    ["login_required", "login_required"],
+    ["temporarily_unavailable", "temporarily_unavailable"],
+    ["invalid_scope", "invalid_scope"],
+    ["<script>alert(1)</script>", "other"],
+    ["", "other"],
+  ])("logs the OAuth error %j as %s", async (error, logged) => {
+    authMocks.callback.mockRejectedValue(new OidcProviderStageError("authorization_response"));
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("error", error);
+    callback.searchParams.set("state", "s".repeat(43));
+    await callbackRoute(new NextRequest(callback, { headers: { cookie: `${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } }));
+    expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ event: "oidc_login_failed", oauthError: logged }));
+    if (error) expect(JSON.stringify(vi.mocked(logAuthEvent).mock.calls)).not.toContain("<script>");
+  });
+
+  it.each(["sudo", "ytu_link"] as const)("names the %s flow when its callback fails, and no purpose when no transaction was found", async (purpose) => {
+    authMocks.callback.mockImplementationOnce(async (...args: unknown[]) => {
+      (args[4] as OidcCallbackContext).purpose = purpose;
+      throw new InvalidOidcTransactionError();
+    });
+    const request = () => new NextRequest(
+      `https://my.yildizskylab.com/api/auth/callback?code=valid&state=${"s".repeat(43)}`,
+      { headers: { cookie: `${SESSION_COOKIE}=${"h".repeat(43)}; ${OIDC_TRANSACTION_COOKIE}=${"b".repeat(43)}` } },
+    );
+    await callbackRoute(request());
+    expect(logAuthEvent).toHaveBeenLastCalledWith({
+      event: "oidc_login_failed",
+      requestId: "request-id",
+      outcome: "failure",
+      reason: "invalid_transaction",
+      purpose,
+    });
+
+    // An expired, used or foreign transaction never reveals whose it was.
+    authMocks.callback.mockRejectedValueOnce(new InvalidOidcTransactionError());
+    await callbackRoute(request());
+    expect(logAuthEvent).toHaveBeenLastCalledWith({
+      event: "oidc_login_failed",
+      requestId: "request-id",
+      outcome: "failure",
+      reason: "invalid_transaction",
+    });
+  });
+
+  it("names the login flow when the login cannot even start", async () => {
+    authMocks.begin.mockRejectedValue(new OidcProviderStageError("discovery"));
+    const response = await loginRoute(new NextRequest("https://my.yildizskylab.com/api/auth/login"));
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/login?error=unavailable");
+    expect(logAuthEvent).toHaveBeenCalledWith({
+      event: "oidc_login_failed",
+      requestId: "request-id",
+      outcome: "failure",
+      reason: "provider_unavailable",
+      providerStage: "discovery",
+      purpose: "login",
+    });
+  });
+
   it("names an expired upstream session instead of blaming the provider", async () => {
     authMocks.callback.mockRejectedValue(new UpstreamSessionExpiredError());
     const request = new NextRequest(
@@ -255,7 +340,7 @@ describe("authentication routes", () => {
     const response = await callbackRoute(request);
 
     // The flow logs a dropped session claim under this login's request id.
-    expect(authMocks.callback.mock.calls[0]?.slice(1)).toEqual(["b".repeat(43), oldHandle, "request-id"]);
+    expect(authMocks.callback.mock.calls[0]?.slice(1, 4)).toEqual(["b".repeat(43), oldHandle, "request-id"]);
     expect(authMocks.revokeHandle).toHaveBeenCalledWith(oldHandle);
     expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));

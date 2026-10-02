@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       ...(error instanceof OidcProviderStageError
         ? { providerStage: error.stage }
         : {}),
+      purpose: "login",
     });
     const destination = new URL("/login", request.url);
     destination.searchParams.set("error", "unavailable");
