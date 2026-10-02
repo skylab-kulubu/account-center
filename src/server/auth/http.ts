@@ -38,6 +38,14 @@ export function setEmbeddedAppCookie(response: NextResponse, absoluteExpiresAt: 
   });
 }
 
+/**
+ * Drops the SkyApp view mark. Login without `sky_embed` and logout call this,
+ * so the mark never outlives the session that earned it.
+ */
+export function clearEmbeddedAppCookie(response: NextResponse) {
+  response.cookies.set(EMBEDDED_APP_COOKIE, "", { ...baseCookie, expires: new Date(0), maxAge: 0 });
+}
+
 export function clearSessionCookie(response: NextResponse) {
   response.cookies.set(SESSION_COOKIE, "", { ...baseCookie, expires: new Date(0), maxAge: 0 });
 }

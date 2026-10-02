@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/auth/logout/route";
-import { SESSION_COOKIE } from "@/server/auth/http";
+import { EMBEDDED_APP_COOKIE, SESSION_COOKIE } from "@/server/auth/http";
 import { DeletedSessionTokenDecryptError } from "@/server/auth/sessions";
 
 const logoutMocks = vi.hoisted(() => ({
@@ -73,6 +73,17 @@ describe("local logout route", () => {
       "https://my.yildizskylab.com/login?loggedOut=1",
     );
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("");
+  });
+
+  it("drops the SkyApp view mark with the session, so a later plain login shows the full page", async () => {
+    const response = await POST(request());
+    expect(response.cookies.get(EMBEDDED_APP_COOKIE)).toMatchObject({ value: "", maxAge: 0, path: "/" });
+
+    logoutMocks.authenticateMutation.mockResolvedValue({ status: "missing" });
+    const sessionless = await POST(request());
+    expect(sessionless.status).toBe(303);
+    expect(sessionless.cookies.get(SESSION_COOKIE)?.value).toBe("");
+    expect(sessionless.cookies.get(EMBEDDED_APP_COOKIE)).toMatchObject({ value: "", maxAge: 0, path: "/" });
   });
 
   it("still clears the local cookie when upstream revocation is unavailable", async () => {

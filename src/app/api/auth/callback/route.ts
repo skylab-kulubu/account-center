@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
+  clearEmbeddedAppCookie,
   clearOidcTransactionCookie,
   clearSessionCookie,
   noStore,
@@ -78,6 +79,7 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(new URL(result.returnTo, services.config.appUrl), 303);
     setSessionCookie(response, result.handle, result.absoluteExpiresAt);
     if ("embeddedApp" in result) setEmbeddedAppCookie(response, result.absoluteExpiresAt);
+    else clearEmbeddedAppCookie(response);
     clearOidcTransactionCookie(response);
     response.headers.set("x-request-id", requestId);
     response.headers.set("Referrer-Policy", "no-referrer");

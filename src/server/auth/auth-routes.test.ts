@@ -260,7 +260,14 @@ describe("authentication routes", () => {
     expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/security");
     expect(response.cookies.get(SESSION_COOKIE)?.value).toBe("n".repeat(43));
     expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
-    expect(response.cookies.get(EMBEDDED_APP_COOKIE)).toBeUndefined();
+    // A login without `sky_embed` is not SkyApp's: a mark left by an earlier SkyApp session goes.
+    expect(response.cookies.get(EMBEDDED_APP_COOKIE)).toMatchObject({
+      value: "",
+      maxAge: 0,
+      httpOnly: true,
+      secure: true,
+      path: "/",
+    });
   });
 
   it("marks a session the flow says opened inside SkyApp as embedded for exactly the session's lifetime", async () => {
@@ -301,6 +308,8 @@ describe("authentication routes", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)?.value).toBe("");
     expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
+    // Sudo mode keeps the session, so it keeps the session's SkyApp view too.
+    expect(response.cookies.get(EMBEDDED_APP_COOKIE)).toBeUndefined();
     expect(authMocks.accessToken).toHaveBeenCalledWith(sudoSession);
     expect(authMocks.sudoAuthentication).toHaveBeenCalledWith(
       { accessToken: "fresh-server-token" },
