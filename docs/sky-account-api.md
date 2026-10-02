@@ -1,4 +1,4 @@
-<!-- Sürüm sabiti: Account Center sky-account istemcisi (`src/server/sky-account/client.ts`) bu belgenin v1 sözleşmesine yazılmıştır. Kanonik kopya sky-account SPI ile birlikte e-skylab-keycloak deposundadır; buradaki kopya istemcinin ve `tests/fixtures/sky-account-v1-*.json` fixture'larının bağlı olduğu sürümü sabitler. -->
+<!-- Sürüm sabiti: Account Center sky-account istemcisi (`src/server/sky-account/client.ts`) bu belgenin v1 sözleşmesine yazılmıştır. Kanonik kopya sky-account SPI ile birlikte e-skylab-keycloak deposundadır; buradaki kopya istemcinin ve `tests/fixtures/sky-account-v1-*.json` fixture'larının bağlı olduğu sürümü sabitler. Kanonik kopyadaki "core için introspection sözleşmesi" bölümü core'u ilgilendirir ve burada yoktur; Account Center'ın kendi davranışına ilişkin düzeltmeler (BFF notları) yalnız bu kopyadadır. -->
 
 # sky-account API v1 — Account Center BFF sözleşmesi
 
@@ -239,8 +239,8 @@ WebAuthn ceremony'si `my.` origin'inde tarayıcıda çalışır; SPI hiçbir zam
    `navigator.credentials.create({publicKey})` ya da `.get({publicKey})` çalıştırır.
 3. Tarayıcı sonucu (`PublicKeyCredential`) base64url alanlarla JSON'a çevirip
    (örn. `PublicKeyCredential.toJSON()` ya da alanları elle) BFF'ye verir; BFF
-   olduğu gibi `POST credentials/webauthn/register` (etiket ekleyerek) ya da
-   `POST sudo/webauthn/verify`'e iletir.
+   yalnız bu sözleşmenin üyelerini `POST credentials/webauthn/register` (etiket ekleyerek) ya da
+   `POST sudo/webauthn/verify`'e iletir: `authenticatorAttachment` yalnız kayıt gövdesinde gider, `clientExtensionResults` (SPI kabul etse de) hiçbir gövdede gönderilmez.
 
 Tüm ikili alanlar **base64url** (RFC 4648 §5, padding'siz üretilir, padding'li de
 kabul edilir). `id` ile `rawId` eşit olmalıdır. SPI'nin CORS'u yoktur; seçenekleri
@@ -291,7 +291,7 @@ tarayıcıya ve sonucu SPI'ye taşıyan BFF'dir.
   saklı kimlik bilgileri (tek credential akışından süzülür; etiket kullanıcı
   etiketi, `createdAt` Keycloak oluşturma zamanı). Her passkey ayrıca, kayıt
   sırasında tarayıcının bildirdiği taşıyıcıları (`transports`, sıralı;
-  bilinmiyorsa boş dizi) taşır. Eski iki-faktör `webauthn` kimlik bilgileri
+  bilinmiyorsa boş dizi; BFF alanın yokluğunu da boş dizi sayar) taşır. Eski iki-faktör `webauthn` kimlik bilgileri
   passkey değildir: listelenmez, sudo'da ve `excludeCredentials`/`allowCredentials`
   listelerinde kullanılmaz; yalnız `DELETE credentials/{id}` ile silinebilir.
 
@@ -422,12 +422,13 @@ Keycloak girişi en az onlar kadar güçlü bir kanıttır; "yalnız hiçbiri ol
 Microsoft ile yeniden doğrular" kuralı ürün kararıdır ve BFF'de uygulanır.
 
 Hesap Merkezi akışı: `GET identity` üç kimlik bilgisini de boş gösterir → BFF
-`prompt=login&max_age=0` ile Keycloak'a yönlendirir (oturum `sid` korunur,
-`auth_time` yenilenir) → callback `auth_time`, `sid`, `sub` bağını doğrular ve
-yeni token'ları saklar → BFF `POST sudo/authentication {idToken}` çağırır →
+`prompt=login&max_age=0` ile Keycloak'a yönlendirir (Keycloak oturumu
+genellikle korunur, `auth_time` yenilenir) → callback `auth_time`'ın işlemi
+başlatma anından eski olmadığını, `sub` eşleşmesini ve `sid` varlığını doğrular
+(BFF yeni bir `sid`'i de kabul eder) ve yeni token'ları saklar → BFF `POST sudo/authentication {idToken}` çağırır →
 dönen sudo token oturum kaydına `method=reauth` ile yazılır ve sonraki
 `credentials/*`, `identity/username`, `email/*` isteklerinde ve hesap silmede
-core'un self-delete intake'ine `X-Sky-Sudo` ile gönderilir. Token'sız `reauth` kanıtı yalnız geçiş dönemi için bir yedektir.
+core'un self-delete intake'ine `X-Sky-Sudo` ile gönderilir. `POST sudo/authentication` başarısız olursa BFF token'sız bir `reauth` kanıtı yazar (`auth_time + 300`); o yalnız `my.` içindeki yerel kapıları karşılar, `X-Sky-Sudo` isteyen uçlar onu `428 spi_token_required` ile reddeder ve siler.
 
 ### `POST credentials/password` — sudo gerekir
 

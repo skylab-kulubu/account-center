@@ -26,6 +26,7 @@ of those fields survive normalization into Account Center view models, while
 the pinned `schoolEmail`/`personalEmail`/`skyNumber`/`department`/`university`
 attributes and the evaluated profile metadata do.
 
-These fixtures do not replace the production-clone gate. Before release, the
-same responses must be captured from the SKY LAB Keycloak 26.7.4 clone with
-the exact `account-center` user-token contract and compared here.
+These fixtures are derived from the tagged upstream source, not recorded from
+a live realm. The adapter refuses any member outside the pinned key sets, so a
+Keycloak upgrade changes the version in the file names together with these
+documents (see `docs/keycloak-26.7.4-contract.md`).
