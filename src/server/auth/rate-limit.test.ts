@@ -204,6 +204,7 @@ describe("anonymous auth rate limiting", () => {
 
   it.each([
     ["sudo" as const, 10],
+    ["sudo_passkey" as const, 10],
     ["sudo_options" as const, 30],
     ["security_mutation" as const, 30],
     ["totp_confirm" as const, 10],
@@ -232,5 +233,16 @@ describe("anonymous auth rate limiting", () => {
     expect(repository.inputs[0]?.keyHash.toString("utf8")).not.toContain(sessionId);
     await limiter.consumeKey(scope, "22222222-2222-4222-8222-222222222222");
     expect(repository.inputs.at(-1)?.keyHash.equals(repository.inputs[0]!.keyHash)).toBe(false);
+  });
+
+  it("keeps passkey sudo proofs in a bucket of their own, apart from password and TOTP", async () => {
+    const repository = new CapturingRateLimits();
+    const limiter = new AnonymousAuthRateLimiter(repository, Buffer.alloc(32, 3), "cloudflare");
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+
+    await limiter.consumeKey("sudo", sessionId);
+    await limiter.consumeKey("sudo_passkey", sessionId);
+
+    expect(repository.inputs[0]?.keyHash.equals(repository.inputs[1]!.keyHash)).toBe(false);
   });
 });
