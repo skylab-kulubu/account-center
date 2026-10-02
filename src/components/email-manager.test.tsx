@@ -160,7 +160,7 @@ describe("EmailManager", () => {
     expect(within(primary).getByRole("radio", { name: /Okul e-postası/ })).toBeChecked();
     expect(within(primary).getByRole("radio", { name: /Kişisel e-posta/ })).not.toBeChecked();
     expect(within(primary).getByRole("radio", { name: /Kişisel e-posta/ })).toBeEnabled();
-    expect(screen.getByText("Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da birincil adresin kullanılır.")).toBeInTheDocument();
+    expect(screen.getByText("Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da doğrulanmış adreslerin kullanılır; iki adresle de giriş yapabilirsin.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Birincil adresi kaydet" })).toBeDisabled();
 
     expect(api.spy).toHaveBeenCalledWith("/api/account/email", { cache: "no-store", credentials: "same-origin" });
