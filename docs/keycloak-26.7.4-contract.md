@@ -17,27 +17,27 @@ Production’a açılmadan önce 00A Keycloak foundation işi şu kanıtları sa
 
 Bu maddeler tamamlanana kadar yalnız fixture/unit testleri güvenilir kabul edilir; canlı `e.yildizskylab.com` smoke testi veya production deploy yapılmaz.
 
-## Kullanıcı token sözleşmesi (K2 geçişi ve sonrası)
+## Kullanıcı token sözleşmesi (K2 sonrası)
 
 Account Center, service account veya Admin REST kullanmaz. Sunucu oturumundaki kullanıcı access token’ı aşağıdaki sözleşmeyi karşılamadan Account REST, sky-account veya core çağrısı yapılmaz (`src/server/keycloak-account/access-token.ts`):
 
-- `aud` tam olarak `ACCEPTED_AUDIENCE_SETS` içindeki iki kümeden birine eşittir (sıra önemsiz; tekrar, eksik veya fazla audience reddedilir): K2 öncesi eski küme `{"account"}` (Keycloak tek audience’ı düz string `"account"` olarak yazar; bu biçim aynı kümedir) veya K2 sonrası güncel küme `{"account", "core"}`. `core` audience kişinin kendi core `/v1/users/me` uçları içindir; token core rolü taşımaz. Eski küme kabul edildiğinde her doğrulamada bir `token_audience_legacy` bilgi olayı loglanır; olay yalnız `requestId` ve `outcome` taşır, claim veya token içermez. `{"core"}` tek başına, `{"account", "core", "x"}` ve `{"account", "account"}` reddedilir.
+- `aud` tam olarak `ACCEPTED_AUDIENCE_SET` kümesi `{"account", "core"}`'dur (sıra önemsiz; tekrar, eksik veya fazla audience reddedilir). `core` audience kişinin kendi core `/v1/users/me` uçları içindir; token core rolü taşımaz. K2 öncesi eski `{"account"}` kümesi (Keycloak tek audience’ı düz string `"account"` olarak yazar; liste biçimi de aynı kümedir) artık reddedilir; geçiş boyunca loglanan `token_audience_legacy` olayı kaldırıldı. `{"account"}`, `{"core"}` tek başına, `{"account", "core", "x"}` ve `{"account", "account"}` reddedilir.
 - `azp=account-center`, `scope=openid`, eşleşen `iss/sub`, `RS256`, `typ=JWT`.
 - `resource_access.account.roles` `manage-account` ve `view-profile` içerir; `resource_access.core` hangi değerle olursa olsun reddedilir.
 - İsteğe bağlı `sky_authorization` claim’i (K2 client-role mapper, `sky_authorization.${client_id}.roles`) `{ [clientId]: string[] }` okuma modeline ayrıştırılır: en fazla 64 client, client başına 256 rol, adlar 255 karakter, boşluksuz client id, kontrol karakteri yok, tekrar yok, `__proto__`/`constructor`/`prototype` anahtarları yok. Biçim sapması token’ı bütünüyle reddeder. Okuma modeli yalnız Yetkilerim görünümü içindir; Account Center içinde hiçbir yetki vermez.
 
-### Geçiş sırası (cutover)
+### Geçiş sırası (cutover, tamamlandı)
 
-`aud` değişikliği Keycloak tarafında **K2 reconcile** ile gelir (`account-center-account-api` scope’una `core` audience mapper’ı, `account.manage-account-links` hardcoded rolü ve `sky_authorization` client-role mapper’ı; audience-resolve mapper yok). Bu sürüm her iki audience kümesini de kabul ettiği için oturumlar geçiş boyunca kilitlenmez. Sıra kesin olarak şudur:
+`aud` değişikliği Keycloak tarafında **K2 reconcile** ile geldi (`account-center-account-api` scope’una `core` audience mapper’ı, `account.manage-account-links` hardcoded rolü ve `sky_authorization` client-role mapper’ı; audience-resolve mapper yok). Oturumlar geçiş boyunca kilitlenmesin diye A0b sürümü iki audience kümesini de kabul etti. Sıra şuydu:
 
-1. Bu Account Center imajı dağıtılır. Eski `aud=account` token’ları çalışmaya devam eder; her kabulde `token_audience_legacy` olayı loglanır.
-2. K2 reconcile production realm’e uygulanır; yeni verilen ve yenilenen token’lar `["account","core"]` taşır.
-3. En geç 8 saat içinde (bütün oturumlar yenilendikten sonra) loglarda sıfır `token_audience_legacy` olayı olduğu doğrulanır. Olay sürüyorsa K2 tamamlanmamış veya bir istemci hâlâ eski scope ile token alıyor demektir; sıkılaştırmaya geçilmez.
-4. Takip bileti A0c ile `ACCEPTED_AUDIENCE_SETS` yalnız `{"account", "core"}` kümesine daraltılır; bundan sonra eski token’lar `AccountAccessTokenContractError` ile reddedilir.
+1. A0b imajı dağıtıldı. Eski `aud=account` token’ları çalışmaya devam etti; her kabulde `token_audience_legacy` olayı loglandı.
+2. K2 reconcile production realm’e uygulandı; yeni verilen ve yenilenen token’lar `["account","core"]` taşır.
+3. Production loglarında en az 8 saat boyunca (bütün oturumlar yenilendikten sonra) sıfır `token_audience_legacy` olayı doğrulandı. Olay sürseydi K2 tamamlanmamış veya bir istemci hâlâ eski scope ile token alıyor demek olurdu ve sıkılaştırmaya geçilmezdi.
+4. A0c ile kabul edilen küme yalnız `{"account", "core"}` oldu; olay ve eski küme koddan kaldırıldı. Bundan sonra eski biçimli token’lar `AccountAccessTokenContractError` ile reddedilir (girişte `OidcContractError`).
 
-Geri alma: bu sürüm her iki kümeyi de kabul ettiği için K2 geri alınmadan bu imajda kalınabilir. K2’den sonra yalnız `aud=account` kabul eden A0 öncesi imaja dönmek bütün oturumları kilitler.
+Geri alma: bu sürümden A0b imajına dönmek güvenlidir (A0b iki kümeyi de kabul eder). K2 reconcile’ı bu sürüm çalışırken geri almak bütün oturumları kilitler (`core` audience’ı olmayan token reddedilir); önce imajı A0b’ye döndür. K2’den sonra yalnız `aud=account` kabul eden A0 öncesi imaja dönmek de bütün oturumları kilitler.
 
-Kontrat testleri `access-token.test.ts` ve `service.test.ts` içinde her iki kümenin kabulünü, eski küme için doğrulama başına tek `token_audience_legacy` olayını ve yalnız `core`, fazla veya tekrarlı audience ile core rollü token’ların reddini kanıtlar.
+Kontrat testleri `access-token.test.ts`, `service.test.ts` ve `oidc-protocol.test.ts` içinde eski `{"account"}` kümesinin (liste ve düz string) ve yalnız `core`, fazla veya tekrarlı audience’ın ve core rollü token’ların reddini, yenilemeden gelen eski kümeli token’ın saklanmamasını kanıtlar.
 
 ## Account REST okuma sözleşmesi
 

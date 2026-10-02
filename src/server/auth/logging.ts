@@ -41,8 +41,7 @@ type AuthLog = {
     | "sudo_authentication_failed"
     | "ytu_link_started"
     | "ytu_link_completed"
-    | "email_action"
-    | "token_audience_legacy";
+    | "email_action";
   requestId: string;
   outcome: "success" | "failure";
   providerStage?: OidcProviderStage;

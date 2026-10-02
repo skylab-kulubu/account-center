@@ -200,13 +200,12 @@ kaydında şifrelenir. `ANDROID_ASSET_LINKS_*` ve `APPLE_APP_SITE_ASSOCIATION_*`
 dosyalarını üretir, tanımsızsa bu yollar `404` döner; `/internal/*` ise her
 zaman `404`'tür. Biçimler [kenar güveni belgesinde](docs/auth-edge-trust.md#public-yol-sınırı-internal-ve-well-known).
 
-Sürüm geçişi: bu sürüm Keycloak kullanıcı token'ında K2 geçişi boyunca
-eski `aud=account` ve güncel `aud=["account","core"]` kümelerinden tam olarak
-birini kabul eder; eski küme her doğrulamada `token_audience_legacy` log
-olayı üretir. Sıra: önce bu imaj dağıtılır, sonra Keycloak reconcile (K2)
-uygulanır, en geç 8 saat içinde loglarda sıfır `token_audience_legacy` olayı
-doğrulanır, ardından takip bileti A0c ile sözleşme tek kümeye daraltılır;
-ayrıntı [Keycloak sözleşmesinde](docs/keycloak-26.7.4-contract.md).
+Sürüm geçişi: K2 geçişi tamamlandı; bu sürüm Keycloak kullanıcı token'ında
+tam olarak tek `aud=["account","core"]` kümesini kabul eder. Geçiş boyunca
+kabul edilen eski `aud=account` kümesi (ve `token_audience_legacy` log olayı)
+kaldırıldı: eski biçimli token `AccountAccessTokenContractError` ile reddedilir.
+Geçişin sırası ve geri alma notu
+[Keycloak sözleşmesinde](docs/keycloak-26.7.4-contract.md).
 
 ## Ayrıntılı belgeler
 

@@ -1,38 +1,19 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
 import { decodeJwt, decodeProtectedHeader } from "jose";
-import { logAuthEvent } from "@/server/auth/logging";
 import { isReservedObjectKey } from "@/server/contract-shapes";
 
 const requiredAccountRoles = ["manage-account", "view-profile"] as const;
 
-type AcceptedAudienceSet = {
-  readonly name: "legacy" | "current";
-  readonly audiences: readonly string[];
-};
-
 /**
- * Audience sets an Account Center user token may carry, each matched with
- * exact set semantics (order-free; a duplicate, missing or extra audience
- * rejects the token).
- *
- * `current` is the shape after the K2 realm reconcile: the
- * `account-center-account-api` scope adds the `core` audience (the person's
- * own core `/v1/users/me` endpoints) without any core roles. `legacy` is the
- * pre-K2 shape with only `account`.
- *
- * Both are accepted during the K2 cutover so this image and the K2 reconcile
- * can reach production in either order without invalidating live sessions.
- * A legacy match emits the `token_audience_legacy` log event; once production
- * shows none of them after every session has refreshed, the follow-up
- * tightening ticket (A0c) drops the `legacy` entry so `current` is the single
- * accepted set again. Order: docs/keycloak-26.7.4-contract.md, "Geçiş sırası".
+ * Exact audience set of an Account Center user token: the
+ * `account-center-account-api` scope (K2 realm reconcile) adds the `core`
+ * audience (for the person's own core `/v1/users/me` endpoints) without any
+ * core roles. Matched with set semantics (order-free; a duplicate, missing or
+ * extra audience rejects the token). The pre-K2 `account`-only token is
+ * rejected on purpose: the cutover that accepted it (A0b) is over.
  */
-export const ACCEPTED_AUDIENCE_SETS: readonly AcceptedAudienceSet[] = [
-  { name: "legacy", audiences: ["account"] },
-  { name: "current", audiences: ["account", "core"] },
-];
+export const ACCEPTED_AUDIENCE_SET = ["account", "core"] as const;
 
 const MAX_AUTHORIZATION_CLIENTS = 64;
 const MAX_AUTHORIZATION_ROLES_PER_CLIENT = 256;
@@ -69,18 +50,12 @@ function carriesCoreResourceAccess(resourceAccess: unknown) {
   return isRecord(resourceAccess) && Object.hasOwn(resourceAccess, "core");
 }
 
-/**
- * The accepted audience set the `aud` claim matches exactly, or `null`.
- * A one-element audience may arrive as a bare string (RFC 7519 §4.1.3);
- * Keycloak serializes single audiences that way, so the legacy set does.
- */
-function matchAcceptedAudienceSet(audience: unknown) {
+function hasExactAudienceSet(audience: unknown) {
   const values = typeof audience === "string" ? [audience] : audience;
-  if (!Array.isArray(values)) return null;
+  if (!Array.isArray(values) || values.length !== ACCEPTED_AUDIENCE_SET.length) return false;
   const unique = new Set(values);
-  if (unique.size !== values.length) return null;
-  return ACCEPTED_AUDIENCE_SETS.find(({ audiences }) =>
-    audiences.length === unique.size && audiences.every((required) => unique.has(required))) ?? null;
+  return unique.size === ACCEPTED_AUDIENCE_SET.length &&
+    ACCEPTED_AUDIENCE_SET.every((required) => unique.has(required));
 }
 
 function validAuthorizationName(value: unknown, shape: RegExp): value is string {
@@ -126,16 +101,10 @@ export class AccountAccessTokenExpiredError extends Error {
   }
 }
 
-/**
- * Validates the server-held user access token against the pinned contract.
- * `options.requestId` only correlates the `token_audience_legacy` event with
- * the request that triggered the validation; a fresh id is used without it.
- */
 export function validateAccountAccessToken(
   accessToken: string,
   expected: { issuer: URL; clientId: string; subject: string },
   now = new Date(),
-  options: { requestId?: string } = {},
 ): ValidatedAccountAccessToken {
   let claims;
   let header;
@@ -146,7 +115,6 @@ export function validateAccountAccessToken(
     throw new AccountAccessTokenContractError();
   }
   const authorization = parseSkyAuthorization(claims.sky_authorization);
-  const audienceSet = matchAcceptedAudienceSet(claims.aud);
   if (
     header.alg !== "RS256" ||
     header.typ !== "JWT" ||
@@ -154,7 +122,7 @@ export function validateAccountAccessToken(
     claims.sub !== expected.subject ||
     claims.azp !== expected.clientId ||
     claims.scope !== "openid" ||
-    audienceSet === null ||
+    !hasExactAudienceSet(claims.aud) ||
     !hasRequiredAccountRoles(claims.resource_access) ||
     carriesCoreResourceAccess(claims.resource_access) ||
     authorization === null ||
@@ -167,15 +135,6 @@ export function validateAccountAccessToken(
   if (!Number.isFinite(expiresAt.getTime())) throw new AccountAccessTokenContractError();
   if (claims.exp <= Math.floor(now.getTime() / 1_000)) {
     throw new AccountAccessTokenExpiredError();
-  }
-  if (audienceSet.name === "legacy") {
-    // Counted after the K2 reconcile to decide when the legacy set can go;
-    // deliberately carries no claim or token material.
-    logAuthEvent({
-      event: "token_audience_legacy",
-      requestId: options.requestId ?? randomUUID(),
-      outcome: "success",
-    });
   }
   return { expiresAt, authorization };
 }
