@@ -132,7 +132,7 @@ export const emailCopy = {
   },
   primary: {
     title: "Birincil e-posta",
-    description: "Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da birincil adresin kullanılır.",
+    description: "Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da doğrulanmış adreslerin kullanılır; iki adresle de giriş yapabilirsin.",
     none: (email: string | null) => email
       ? `Şu anki birincil adresin ${email}; okul ya da kişisel adreslerinden biri değil. Aşağıdan birini seçebilirsin.`
       : "Birincil adresin yok. Aşağıdan birini seçebilirsin.",
