@@ -56,7 +56,12 @@ export type EmailRouteProblem = {
     | "email_not_verified"
     | "no_fallback_email"
     | "email_not_sent"
-    /** The SPI's code budget (three an hour per person) refused another code. */
+    /**
+     * The SPI refused another code with `429`: its code budget (three an hour
+     * per person) or the `mutation` budget it shares with the other account
+     * changes (30 per 15 minutes, claimed first). The answer does not say
+     * which, so neither does the `detail`.
+     */
     | "code_limit"
     | "rate_limited";
   detail: string;
@@ -68,7 +73,7 @@ export type EmailRouteProblem = {
 
 export const emailRouteCopy = {
   refusedAddress: "Bu adres kullanılamıyor: geçerli bir e-posta adresi değil ya da zaten hesabında kayıtlı.",
-  codeLimit: "Bir saatte en fazla üç doğrulama kodu isteyebilirsin.",
+  codeLimit: "Şu anda yeni doğrulama kodu istenemiyor: bir saatte en fazla üç kod gönderilir, kısa sürede yapılan hesap değişikliklerinin de bir sınırı var.",
   invalidChoice: "Birincil adres için okul ya da kişisel e-postanı seç.",
 } as const;
 const copy = emailRouteCopy;
@@ -84,7 +89,7 @@ class EmailFieldError extends Error {
   }
 }
 
-/** `429 rate_limited` of `email/change-request`: another code was refused. */
+/** `429 rate_limited` of `email/change-request`: another code was refused, by whichever SPI budget ran out. */
 class CodeLimitError extends Error {
   constructor(readonly retryAfter: number | null) {
     super("The SPI refused another e-mail code.");
@@ -354,7 +359,8 @@ export function pendingEmailChangeRoute(request: NextRequest) {
  * sky-account `POST email/change-request`. `202 { expiresAt }`: the code is
  * in the mail and the page asks for it; nothing about the person changed yet.
  * A second request replaces the first (its code dies); the SPI mails at most
- * three codes an hour.
+ * three codes an hour, and its `429` does not say whether that budget or the
+ * shared `mutation` budget refused the request.
  */
 export function requestEmailChangeRoute(request: NextRequest) {
   return emailMutation(request, "change_request", async (services, auth) => {
@@ -364,7 +370,7 @@ export function requestEmailChangeRoute(request: NextRequest) {
     try {
       change = await services.skyAccount.requestEmailChange(auth, { address });
     } catch (error) {
-      // After Sudo mode the SPI's narrowest budget is the code budget (three an hour), so its refusal says so.
+      // The SPI's 429 is the same for its code budget (three an hour) and the shared `mutation` budget.
       if (error instanceof SkyAccountProblem && error.code === "rate_limited") throw new CodeLimitError(error.retryAfter);
       throw error;
     }
