@@ -1,6 +1,6 @@
 # Password, passkey and TOTP changes
 
-Account Center changes a person's password, verification app (TOTP) and passkeys **inside `my.`**: the security page (`/security`) runs every step in the browser and the BFF forwards it to the sky-account Keycloak extension (`${OIDC_ISSUER}/sky-account/v1`, contract in [sky-account-api.md](sky-account-api.md)). Nothing on this page redirects to Keycloak, embeds the Account Console or requests a Keycloak application-initiated action. The single application-initiated action left in the code base is the YTÜ account link (`kc_action=idp_link`, [below](#ytü-hesabı-bağlama-kc_actionidp_link)), because linking needs a login at Microsoft that no extension can perform on the person's behalf. Every change requires a fresh Sudo mode proof ([architecture, "Sudo modu"](architecture.md#sudo-modu)) and is verified by re-reading the credential inventory, never by trusting the answer of a single call.
+Account Center changes a person's password, verification app (TOTP) and passkeys **inside `my.`**: the security page (`/security`) runs every step in the browser and the BFF forwards it to the sky-account Keycloak extension (`${OIDC_ISSUER}/sky-account/v1`, contract in [sky-account-api.md](sky-account-api.md)). Nothing on this page redirects to Keycloak, embeds the Account Console or requests a Keycloak application-initiated action. The single application-initiated action left in the code base is the YTÜ account link (`kc_action=idp_link`, [below](#ytü-hesabı-bağlama-kc_actionidp_link)), because linking needs a login at Microsoft that no extension can perform on the person's behalf. Every credential change requires a fresh Sudo mode proof ([architecture, "Sudo modu"](architecture.md#sudo-modu)) and is verified by re-reading the credential inventory, never by trusting the answer of a single call. The same page-level rules cover the name, username and e-mail changes described further down; each section says whether it needs Sudo mode.
 
 ## Browser contract
 
@@ -16,7 +16,7 @@ All routes live under `/api/account/security`. The page reads the inventory with
 | `POST /api/account/security/passkeys/register` | `{ attestation, label }` (≤ 64 KB; label normalised as above) | `201 { credential }` | `POST credentials/webauthn/register` |
 | `DELETE /api/account/security/credentials/{reference}` | — | `204` | `DELETE credentials/{id}` |
 
-Rows (`totp[]`, `passkeys[]`, `credential`) carry `reference`, `label`, `createdAt` and, for passkeys, `transports` and `legacy` (a two-factor `webauthn` credential that is not a passkey and can only be removed). `reference` is a session-bound HMAC of the Keycloak credential id (`SessionManager.credentialReference`): the browser never sees a credential id, and a reference can only be resolved by the same local session, which re-reads `GET identity` before deleting anything. A reference that names nothing of the person's answers `404 credential_not_found` without touching the SPI.
+Rows (`totp[]`, `passkeys[]`, `credential`) carry `reference`, `label`, `createdAt` and, for passkeys, `transports` when the SPI reports them. The SPI lists only passwordless passkeys and never a legacy two-factor `webauthn` credential; should a `type: "webauthn"` entry ever arrive, the BFF marks the row `legacy: true` (removal only, never a Sudo mode method). `reference` is a session-bound HMAC of the Keycloak credential id (`SessionManager.credentialReference`): the browser never sees a credential id, and a reference can only be resolved by the same local session, which re-reads `GET identity` before deleting anything. A reference that names nothing of the person's answers `404 credential_not_found` without touching the SPI.
 
 Order inside every mutation route: exact `Origin` → CSRF → access gate and session → Sudo mode gate → local per-session budget (`security_mutation` 30 / 15 min, `totp_confirm` 10 / 15 min, mirroring the SPI's own budgets) → body → SPI with `X-Sky-Sudo`. A rotated opaque session handle is written to every answer, including `428` and error answers; only an answer that ended the session (bearer rejected upstream) clears the cookie instead.
 
@@ -102,19 +102,9 @@ The identity page starts the link from a confirmation dialog that states the con
 
 Keycloak preconditions (config-as-code in the Keycloak repository, see the [Keycloak contract](keycloak-26.7.4-contract.md)): the `account-center` client must hold a client scope mapping on `account.manage-account-links` (K2), and the person must hold `account.manage-account` or `account.manage-account-links` (`IdpLinkAction` checks both the client scope and the user's roles; `default-roles-e-skylab` must include `account.manage-account`, which the K2 runbook prints). The harness's Microsoft stub proves the whole round trip; the browser tests stand in for the authorization endpoint only.
 
-## Rollback
+## How this is tested
 
-The previous image (`main` before this change) still contains the application-initiated-action path (`POST /api/auth/action`, the `account-action` transaction kind, `kc_action` in PAR and the one-time `account_action_results` feedback). Rolling back is a deployment of that image; no configuration flag switches between the two models. The `account_action_results` table and migration `0004` stay in place so that image keeps working and the readiness probe keeps passing; the hourly prune job still empties the table. A later release drops the table once the previous image is no longer a rollback target.
-
-## Release gates
-
-Fixture and unit tests cannot prove the platform ceremonies. Production stays blocked until the integration harness of the Keycloak repository proves, with the reconciled realm and the source-controlled theme:
-
-1. A password changed on `my.` signs in on `e.` and the realm password policy (`length(8) and notUsername and notEmail`) is reported through `password_policy`.
-2. A verification app enrolled from the `my.` QR proves Sudo mode and passes the login OTP step.
-3. A passkey registered on `my.` (RP ID `yildizskylab.com`, extra origin `https://my.yildizskylab.com`) signs in on `e.` and proves Sudo mode; `excludeCredentials` refuses a second registration of the same authenticator.
-4. `DELETE credentials/{id}` refuses ids that are not the person's own and the page reflects the fresh inventory.
-5. Desktop and mobile WebView runs cover the ceremonies, Turkish copy, keyboard and focus behaviour, reduced motion and contrast; no request leaves for `e.yildizskylab.com` during any flow.
+The route handlers are unit-tested against the fixtures in `tests/fixtures/sky-account-v1-*.json` (shapes only, never real tokens). The Playwright suite (`pnpm test:e2e`) drives the pages in a browser over real HTTPS with a seeded PostgreSQL session record (there is no test-only login path); core is a loopback mock (`scripts/e2e-mock-core.mjs`), the security, Sudo mode, identity and e-mail routes are answered with `page.route` in the shapes the handlers produce, and no request may leave for `e.yildizskylab.com`. Nothing in this repository's CI talks to a live realm: the ceremonies themselves (password policy, TOTP enrolment, a passkey registered on `my.` signing in on `e.`, Sudo mode with a passkey, the YTÜ link round trip) are proven by the integration harness of the Keycloak repository, and every Keycloak release carries physical Touch ID evidence (issue #1 of `skylab-kulubu/e-skylab-keycloak`).
 
 ## Upstream contract references
 
