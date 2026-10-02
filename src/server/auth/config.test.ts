@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getAuthConfig } from "@/server/auth/config";
+import { getAuthConfig, OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { trustedClientAddress } from "@/server/auth/rate-limit";
 import appUrlContract from "../../../tests/fixtures/app-url-contract.json";
 import issuerContract from "../../../tests/fixtures/oidc-issuer-contract.json";
@@ -30,6 +30,14 @@ describe("authentication configuration", () => {
     expect(getAuthConfig().sessionAbsoluteTtlSeconds).toBe(3600);
     environment("86400");
     expect(getAuthConfig().sessionAbsoluteTtlSeconds).toBe(8 * 60 * 60);
+  });
+
+  it("gives a login round trip 15 minutes, within the realm's 30-minute login timeout", () => {
+    environment("3600");
+    expect(OIDC_TRANSACTION_TTL_SECONDS).toBe(15 * 60);
+    expect(getAuthConfig().oidcTransactionTtlSeconds).toBe(OIDC_TRANSACTION_TTL_SECONDS);
+    // e-skylab-keycloak config/account-center-realm.json: accessCodeLifespanLogin.
+    expect(OIDC_TRANSACTION_TTL_SECONDS).toBeLessThanOrEqual(1_800);
   });
 
   it("enforces the canonical credential-free application origin contract", () => {

@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it, vi } from "vitest";
+import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { InvalidOidcTransactionError, OidcFlowService } from "@/server/auth/oidc-flow";
 import type {
@@ -64,7 +65,7 @@ class FakeProtocol implements OidcProtocol {
     this.proof = input;
     return {
       authorizationUrl: new URL("https://e.yildizskylab.com/realms/e-skylab/protocol/openid-connect/auth?client_id=account-center&request_uri=urn%3Apar%3Aytu-link"),
-      expiresIn: 90,
+      expiresIn: 60,
     };
   }
 
@@ -78,7 +79,7 @@ class FakeProtocol implements OidcProtocol {
   async revokeRefreshToken() {}
 }
 
-function fixture(decision: "active" | "blocked" = "active") {
+function fixture(decision: "active" | "blocked" = "active", clock: () => Date = () => now) {
   const protocol = new FakeProtocol();
   const sessions = {
     candidate: vi.fn(async (candidate: string | undefined) => candidate === handle ? activeSession : null),
@@ -102,12 +103,12 @@ function fixture(decision: "active" | "blocked" = "active") {
     new OidcTransactionStore(
       new MemoryTransactions(),
       new AesGcmSecretCipher(Buffer.alloc(32, 7)),
-      300,
-      () => now,
+      OIDC_TRANSACTION_TTL_SECONDS,
+      clock,
     ),
     sessions,
     accountAccess,
-    { ytuIdpAlias: "OBS", clock: () => now },
+    { ytuIdpAlias: "OBS", clock },
   );
   return { flow, protocol, sessions, accountAccess };
 }
@@ -130,6 +131,15 @@ describe("YTÜ account link (kc_action=idp_link)", () => {
     expect(started.authorizationUrl.href).not.toContain(activeSession.subject);
     expect(started.authorizationUrl.href).not.toContain("kc_action");
     expect(started.browserBinding).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it("keeps the link round trip (Microsoft with MFA) past the PAR request_uri lifetime", async () => {
+    let current = now;
+    const { flow, protocol } = fixture("active", () => current);
+    const started = await flow.beginYtuLink(activeSession);
+    current = new Date(now.getTime() + 10 * 60_000);
+    await expect(flow.callback(callbackFor(protocol.proof!.state, linked), started.browserBinding, handle))
+      .resolves.toMatchObject({ ytuLink: "success" });
   });
 
   it("uses the deployment's own alias", async () => {

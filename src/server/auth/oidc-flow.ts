@@ -86,7 +86,6 @@ export class OidcFlowService {
     await this.transactions.create(
       { ...proof, purpose: "login", returnTo: normalizeReturnTo(returnTo) },
       browserBinding,
-      authorization.expiresIn,
     );
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
@@ -120,7 +119,6 @@ export class OidcFlowService {
         initiatedAt: initiatedAt.toISOString(),
       },
       browserBinding,
-      authorization.expiresIn,
     );
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
@@ -154,7 +152,6 @@ export class OidcFlowService {
         initiatedAt: initiatedAt.toISOString(),
       },
       browserBinding,
-      authorization.expiresIn,
     );
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }

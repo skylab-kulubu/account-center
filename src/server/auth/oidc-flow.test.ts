@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { accountRoutes } from "@/config/account-routes";
+import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { InvalidOidcTransactionError, normalizeReturnTo, OidcFlowService } from "@/server/auth/oidc-flow";
 import type {
   AuthorizationResult,
@@ -62,9 +63,12 @@ class FakeProtocol implements OidcProtocol {
     tokens: { accessToken: "access", idToken: "id", tokenType: "bearer" },
   };
 
+  /** Keycloak's default PAR `request_uri` lifetime. */
+  parExpiresIn = 60;
+
   async begin(input: BeginAuthorizationInput) {
     this.proof = input;
-    return { authorizationUrl: new URL("https://e.yildizskylab.com/authorize?request_uri=urn%3Apar%3A1"), expiresIn: 90 };
+    return { authorizationUrl: new URL("https://e.yildizskylab.com/authorize?request_uri=urn%3Apar%3A1"), expiresIn: this.parExpiresIn };
   }
 
   async exchange(input: ExchangeAuthorizationInput): Promise<AuthorizationResult> {
@@ -86,11 +90,17 @@ class FakeProtocol implements OidcProtocol {
 function fixture(
   decision: "active" | "blocked" | "unavailable" = "active",
   lifetimes = { absoluteTtlSeconds: 3600, upstreamSessionMaxSeconds: 3600 },
+  transactionClock: () => Date = () => new Date(),
 ) {
   const repository = new CapturingSessions();
   const protocol = new FakeProtocol();
   const cipher = new AesGcmSecretCipher(Buffer.alloc(32, 5));
-  const transactions = new OidcTransactionStore(new MemoryTransactions(), cipher, 300);
+  const transactions = new OidcTransactionStore(
+    new MemoryTransactions(),
+    cipher,
+    OIDC_TRANSACTION_TTL_SECONDS,
+    transactionClock,
+  );
   const sessions = new SessionManager(
     repository,
     cipher,
@@ -139,6 +149,27 @@ describe("OidcFlowService", () => {
     expect(repository.inserted?.subject).toBe("user-id");
     expect(result.returnTo).toBe("/security");
     await expect(flow.callback(callback, started.browserBinding)).rejects.toBeInstanceOf(InvalidOidcTransactionError);
+  });
+
+  it("keeps the login transaction past the PAR request_uri lifetime, for its own lifetime only", async () => {
+    // A login spends minutes at Keycloak (password then TOTP, a passkey, Microsoft with MFA);
+    // the request_uri only has to reach the authorization endpoint, which the redirect does at once.
+    const startedAt = Date.now();
+    let current = new Date(startedAt);
+    const { flow, protocol, repository } = fixture("active", undefined, () => current);
+    const started = await flow.begin("/security");
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    callback.searchParams.set("state", protocol.proof!.state);
+
+    current = new Date(startedAt + (OIDC_TRANSACTION_TTL_SECONDS - 1) * 1_000);
+    await expect(flow.callback(callback, started.browserBinding)).resolves.toMatchObject({ returnTo: "/security" });
+    expect(repository.inserted?.subject).toBe("user-id");
+
+    const late = await flow.begin("/");
+    const lateCallback = new URL("https://my.yildizskylab.com/api/auth/callback?code=x");
+    lateCallback.searchParams.set("state", protocol.proof!.state);
+    current = new Date(current.getTime() + OIDC_TRANSACTION_TTL_SECONDS * 1_000);
+    await expect(flow.callback(lateCallback, late.browserBinding)).rejects.toBeInstanceOf(InvalidOidcTransactionError);
   });
 
   it("rejects unknown state before code exchange", async () => {

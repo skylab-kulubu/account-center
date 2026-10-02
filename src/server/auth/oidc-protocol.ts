@@ -50,6 +50,11 @@ export type AuthorizationResult = {
 };
 
 export interface OidcProtocol {
+  /**
+   * Pushes the authorization request (PAR). `expiresIn` is the `request_uri`
+   * lifetime: it bounds only the redirect to the authorization endpoint, not
+   * the login, so the local transaction does not follow it.
+   */
   begin(input: BeginAuthorizationInput): Promise<{ authorizationUrl: URL; expiresIn: number }>;
   exchange(input: ExchangeAuthorizationInput): Promise<AuthorizationResult>;
   refresh(tokens: OidcTokenSet): Promise<OidcTokenSet>;
