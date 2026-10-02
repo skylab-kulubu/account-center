@@ -20,8 +20,8 @@ Komut PostgreSQL transaction-scoped advisory lock alır. Önceki job hâlâ çal
 - Revoke olmuş, absolute expiry'yi veya idle expiry'yi geçmiş session kayıtları 24 saatlik operasyonel grace süresinden sonra şifreli access/refresh token materyaliyle birlikte hard-delete edilir.
 - Aktif kayıtlar ve grace aralığındaki kayıtlar korunur.
 - Süresi dolmuş backchannel logout JTI replay kayıtları ve anonymous auth rate-limit bucket’ları silinir.
-- Emekli native handoff tabloları (`account_native_*`, migration `0003`) job'ın kapsamında değildir. Native handoff Web handoff'a bırakıldığından (ADR-0048) bu tablolara yazılmaz; içlerinde kalan kodlar geçici altyapı verisidir ve tablolarla birlikte `0008_drop_native_handoff.sql` ile hard-delete edilir (aşağıda).
-- `account_action_results` tablosu bu sürümde yazılmaz (parola/TOTP/passkey değişiklikleri artık `my.` içinde sky-account SPI ile yapılır); tablo ve migration `0004`, önceki imaja geri dönüş için yerinde durur. Job süresi dolmuş ya da bir saatten eski tüketilmiş kayıtları yine hard-delete eder; session silindiğinde bağlı kayıtlar cascade ile kalkar. Tablo, önceki imaj geri dönüş hedefi olmaktan çıkınca ayrı bir migration ile kaldırılır.
+- Emekli native handoff tabloları (`account_native_*`, migration `0003`) job'ın kapsamında hiç değildi: native handoff Web handoff'a bırakıldığında (ADR-0048) bu tablolara yazılması durdu ve içlerinde kalan kodlar (geçici altyapı verisi) tablolarla birlikte `0008_drop_native_handoff.sql` ile hard-delete edildi. Production'da `0008` 2026-09-25'te uygulandı.
+- `account_action_results` tablosu hiçbir kod yolunda yazılmaz (parola/TOTP/passkey değişiklikleri `my.` içinde sky-account SPI ile yapılır) ama `/api/ready` varlığını hâlâ arar ve `0004` migration kaydı yerinde durur. Job süresi dolmuş ya da bir saatten eski tüketilmiş kayıtları yine hard-delete eder; session silindiğinde bağlı kayıtlar cascade ile kalkar. Tabloyu kaldırmak ayrı bir migration ile readiness sorgusunun değişmesini birlikte ister.
 - Süresi dolmuş sudo proof’ları (`sudo_token_ciphertext`/`sudo_expires_at`) aktif oturum kayıtlarından hemen scrub edilir; iptal edilmiş veya süresi dolmuş oturumlardaki materyal kaydın kendisiyle birlikte hard-delete edilir.
 - Onaylanmamış hesap silme niyetleri beş dakikalık fresh-auth penceresi biter bitmez şifreli kimlik tokenlarıyla birlikte hard-delete edilir. Core tarafından kabul edilmiş niyetlerde yerel kurtarma receipt'i ve şifreli Core receipt aynı pencerede scrub edilir; yalnız hashlenmiş Core receipt durum yetkisi kendi expiry tarihine kadar kalır, sonra kayıt hard-delete edilir.
 
@@ -39,19 +39,13 @@ Loglarda token, cookie, state, subject veya PII bulunmaz. `auth_prune_failed` i�
 
 ## Doğrulama ve geri dönüş
 
-Deployment öncesi migration uygulanmış olmalıdır (`0008_drop_native_handoff.sql` ile gelen sürüm hariç, aşağıda):
+Migration'lar normalde yeni sürüm trafiğe alınmadan önce, üretim imajının içinden, uygulamanın kullandığı aynı `DATABASE_URL` ile uygulanır; ardından bakım işi bir kez elle çalıştırılıp çıktısı denetlenir:
 
 ```bash
 node scripts/migrate.mjs
 node scripts/prune-auth.mjs
 ```
 
-**`0008_drop_native_handoff.sql` ile gelen sürümde sıra terstir: önce deploy, sonra migration.** `0008` `account_native_*` tablolarını kaldırır. `migrate.mjs` bekleyen her dosyayı uygular ve `0008`'i atlayamaz; bu yüzden bu sürüm için `node scripts/migrate.mjs` deploy'dan önce çalıştırılmaz. Sıra şudur:
+`migrate.mjs` bekleyen her dosyayı sırayla uygular (`account_center_schema_migrations`, advisory lock, her dosya kendi transaction'ında) ve ikinci koşuda hiçbir şey yapmaz; CI aynı migration'ları PostgreSQL 17 ve 18'de iki kez çalıştırır. Şemayı daraltan bir migration (`0008` gibi) bir önceki imajın readiness'ini ya da bakım işini bozabilir; böyle bir sürümde sıra, sürüm yayındayken yedek alınıp geri yüklemesi denendikten sonra migration'ı elle çalıştırmaktır. Production'da `0006` (Sudo sütunları, ek) 22 Eylül'de yeni imaj yayınlanmadan önce, `0008` (native tabloların kaldırılması, daraltan) 25 Eylül'de sürüm yayındayken uygulandı; ikisi de önce yedek ve geri yükleme provasıyla. Ayrıntı [rollout-v2.md](rollout-v2.md).
 
-1. Sürüm deploy edilir: uygulama ve saatlik job imajı. Tablolar yerinde durur; yeni sürüm onları okumaz ve `/api/ready` 200 kalır.
-2. Sürüm her yerde yayındayken veritabanı yedeği alınır ve geri yüklemesi denenir.
-3. `node scripts/migrate.mjs` çalışan sürümün içinden elle çalıştırılır; yalnız `0008` uygulanır. Production'da bunu ops sihirbazı `account-center-drop-native-tables-wizard.sh` yapar; sihirbaz önce çalışan container'ın `0008`'i içerdiğini doğrular.
-
-`0008` erken çalışırsa eski sürümün `/api/ready` yanıtı 503'e, eski job ise `auth_prune_failed`'e düşer. Yeni sürüm bu migration'ı readiness için şart koşmaz; hiç çalıştırılmasa da doğru çalışır. Migration çalıştıktan sonra daha eski bir imaja dönülecekse önce `migrations/0003_native_handoff.sql` elle yeniden uygulanır; boş tabloları geri kurar.
-
-Job idempotent'tir; başarısız koşudan sonra aynı komut yeniden çalıştırılabilir. Hard-delete edilen auth materyali geri yüklenmez ve geri yüklenmesine ihtiyaç yoktur: silinen session zaten kullanılamaz durumdadır, kullanıcı gerektiğinde yeniden giriş yapar. Beklenmeyen silme sayısı görülürse scheduler durdurulur, job image/config sürümü kaydedilir ve SQL koşulları incelenir; tabloya auth materyali elle geri yazılmaz.
+Job idempotent'tir; başarısız koşudan sonra aynı komut yeniden çalıştırılabilir. Hard-delete edilen auth materyali geri yüklenmez ve geri yüklenmesine ihtiyaç yoktur: silinen session zaten kullanılamaz durumdadır, kullanıcı gerektiğinde yeniden giriş yapar. Beklenmeyen silme sayısı görülürse scheduler durdurulur, job image/config sürümü kaydedilir ve SQL koşulları incelenir; tabloya auth materyali elle geri yazılmaz. Geri dönüş hedefi bir önceki Account Center v2 imajıdır; migration'lar geri alınmaz.
