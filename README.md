@@ -87,7 +87,7 @@ docker build -t account-center:local .
 
 ## Ortam değişkenleri
 
-Güvenli örnek değerler [`.env.example`](.env.example) dosyasındadır; gerçek gizli bilgiler repoya eklenmez. `pnpm start` (konteyner girişi) açılışta bütün değişkenleri doğrular (`scripts/validate-env.mjs`); geçersiz ya da yer tutucu içeren bir değer süreci başlatmaz.
+Güvenli örnek değerler [`.env.example`](.env.example) dosyasındadır; gerçek gizli bilgiler repoya eklenmez. Konteyner girişi `node scripts/start.mjs`'tir (üretim imajında pnpm yoktur); açılışta bütün değişkenleri doğrular (`scripts/validate-env.mjs`) ve geçersiz ya da yer tutucu içeren bir değer süreci başlatmaz.
 
 | Değişken | Zorunlu | Anlamı |
 | --- | --- | --- |
@@ -105,12 +105,12 @@ Güvenli örnek değerler [`.env.example`](.env.example) dosyasındadır; gerçe
 | `ACCOUNT_ERASURE_MODE` | hayır | `off` (varsayılan) ya da `enforce`; `enforce` erişim engeli `enforce` ve `CORE_API_URL` ister ([hesap silme](docs/account-deletion.md)). |
 | `CORE_API_URL` | hayır | Core'un canonical HTTPS origin'i. Tanımsızsa kulüp profili özellikleri kapalı kalır. |
 | `PROFILE_PICTURE_ORIGIN` | hayır | Core'un profil fotoğraflarını yayımladığı origin; CSP `img-src` yalnız bunu ek olarak tanır (varsayılan `https://cdn.yildizskylab.com`). |
-| `YTU_IDP_ALIAS` | hayır | YTÜ Microsoft identity provider'ının Keycloak alias'ı (1-64 karakter `[A-Za-z0-9_-]`; varsayılan `OBS`). "YTÜ hesabımı bağla" yalnız bu alias için `kc_action=idp_link` ister; Keycloak tarafında `account-center` istemcisinin `account.manage-account-links` scope mapping'ine, kişinin de `account.manage-account` rolüne ihtiyaç vardır (K2 reconcile). |
+| `YTU_IDP_ALIAS` | hayır | YTÜ Microsoft identity provider'ının Keycloak alias'ı (1-64 karakter `[A-Za-z0-9_-]`; varsayılan `OBS`). "YTÜ hesabımı bağla" yalnız bu alias için `kc_action=idp_link` ister; Keycloak tarafında `account-center` istemcisinin `account.manage-account-links` scope mapping'ine, kişinin de `account.manage-account` ya da `account.manage-account-links` rolüne ihtiyaç vardır (K2 reconcile). |
 | `ANDROID_ASSET_LINKS_PACKAGE_NAME`, `ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS` | hayır | İkisi birlikte ya hiç: `/.well-known/assetlinks.json`'u üretir; tanımsızsa `404`. |
 | `APPLE_APP_SITE_ASSOCIATION_TEAM_ID`, `APPLE_APP_SITE_ASSOCIATION_BUNDLE_ID` | hayır | İkisi birlikte ya hiç: `/.well-known/apple-app-site-association`'ı üretir; tanımsızsa `404`. Biçimler [kenar güveni belgesinde](docs/auth-edge-trust.md#public-yol-sınırı-internal-ve-well-known). |
 | `PORT`, `HOSTNAME` | hayır | Sunucu bağlama adresi (konteynerde `3000` ve `0.0.0.0`). |
 
-Okunmayan ya da emekli değişkenler: `NATIVE_BRIDGE_HMAC_SECRET` ve `NATIVE_BRIDGE_MTLS_CLIENT_SHA256` kaldırıldı ([web-handoff.md](docs/web-handoff.md)); `NEXT_PUBLIC_` önekli gizli değişkenler başlatmayı reddettirir. Yalnız geliştirme ve test için okunanlar: `TEST_DATABASE_URL`, `TEST_ACCOUNT_ACCESS_REDIS_URL`, `E2E_PORT`, `E2E_MOCK_CORE_PORT`, `E2E_ERASURE_PORT`, `E2E_ERASURE_MOCK_CORE_PORT`, `RETIRED_HANDOFF_TEST_ORIGIN`, `EDGE_PATHS_TEST_ORIGIN`, `NEXT_DIST_DIR` ve `CI`.
+Okunmayan ya da emekli değişkenler: `NATIVE_BRIDGE_HMAC_SECRET` ve `NATIVE_BRIDGE_MTLS_CLIENT_SHA256` kaldırıldı ([web-handoff.md](docs/web-handoff.md)); `validate-env.mjs` yedi adlı değişkenin `NEXT_PUBLIC_` önekli hâlini (`DATABASE_URL`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `OIDC_CLIENT_SECRET`, `ACCOUNT_ACCESS_REDIS_PASSWORD`, `ACCOUNT_ACCESS_REDIS_TLS_KEY_FILE`, `CORE_API_URL`) tanımlı bulursa başlatmayı reddeder; başka `NEXT_PUBLIC_` değişkenleri denetlenmez. Yalnız geliştirme ve test için okunanlar: `TEST_DATABASE_URL`, `TEST_ACCOUNT_ACCESS_REDIS_URL`, `E2E_PORT`, `E2E_MOCK_CORE_PORT`, `E2E_ERASURE_PORT`, `E2E_ERASURE_MOCK_CORE_PORT`, `RETIRED_HANDOFF_TEST_ORIGIN`, `EDGE_PATHS_TEST_ORIGIN`, `NEXT_DIST_DIR` ve `CI`.
 
 ## Üretim işletimi
 
@@ -119,13 +119,13 @@ Sürüm akışı, migration sırası, doğrulama ve geri dönüş [rollout-v2.md
 - Migration'lar üretim imajının içinden, yeni sürüm trafiğe alınmadan önce uygulanır (şemayı daraltan bir migration hariç; yedek ve geri yükleme provası gerekir):
 
   ```bash
-  pnpm db:migrate
+  node scripts/migrate.mjs
   ```
 
 - Süresi dolmuş veya iptal edilmiş kimlik materyalini temizleyen iş dağıtım zamanlayıcısında saatte bir, tekil görev olarak çalıştırılır ([saklama kılavuzu](docs/auth-retention-runbook.md)):
 
   ```bash
-  pnpm db:prune-auth
+  node scripts/prune-auth.mjs
   ```
 
 - `/api/health` yalnız proses canlılığını; `/api/ready` ortam yapılandırmasının ayrıştırılabildiğini, PostgreSQL tablolarını ve migration kayıtlarını ve gerekli erişim engeli sınırını doğrular. Trafik yalnız readiness başarılı olduğunda yönlendirilmelidir.

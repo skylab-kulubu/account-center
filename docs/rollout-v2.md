@@ -12,10 +12,10 @@ v2 tek bir "anahtar çevirme" ile açılmadı: planlanan `ACCOUNT_ACTIONS_MODE=s
 | 22 Eylül | Keycloak v2 kimlik katmanı: sky-account SPI (K3a/K3b/K3d) + v2 uzlaştırıcısı (K2), production `dc6fa30` | Sonra sunucuda `keycloak-v2-identity-release-wizard.sh`: Keycloak veritabanı yedeği + geri yükleme provası, salt-okunur ön kontrol SQL'i (yalnız passkey'i olan kişiler), `default-roles` ön kontrolü (A6), v2 reconcile, `keycloak-mailer` istemcisi, doğrulama. Touch ID kanıtı: `e-skylab-keycloak` issue #1. |
 | 22 Eylül | **Hesap Merkezi v2**, production `2ced4b8` (#31) | `account-center-v2-release-wizard.sh` (aşağıda). |
 | 23 Eylül | K3c (kişisel e-posta, `46c75b5`) ve e-posta sayfası A1b (`0b63fb1`) | |
-| 24 Eylül | Web handoff (`sky-handoff`, `e383db6`), native köprünün sökümü (Keycloak `d3e6514`, Hesap Merkezi `183ded5`), Sudo kanıtının core'a sunulması (A7b/K3e), silme korumaları A7c/A7d (`e45ba0e`, migration `0007`), `account_native_*` tablolarının kaldırılması (`e4738ce`, migration `0008`) | [web-handoff.md](web-handoff.md) |
+| 24 Eylül | Web handoff (`sky-handoff`, `e383db6`), native köprünün sökümü (Keycloak `d3e6514`, Hesap Merkezi `183ded5`), Sudo kanıtının core'a sunulması (A7b/K3e), silme korumaları A7c/A7d (`e45ba0e`, migration `0007`), `account_native_*` kullanımının sökülmesi (`e4738ce`, #52); tabloları kaldıran migration `0008` ertesi gün (25 Eylül) elle uygulandı | [web-handoff.md](web-handoff.md) |
 | 25 Eylül | YTÜ'den gelen alanlar (C2), eski birincil adresi kodla doğrulama (A1c) | |
 | 28-29 Eylül | Silme durumu düzeltmesi ve yedek notu (#57, #58, #60); `/internal` `404` ve `/.well-known` dosyaları (#62 → `3a84e3f`) | |
-| 29 Eylül - 2 Ekim | **K4**, okul ya da kişisel e-postayla parolalı giriş: Keycloak imajı `f71eecb` (#54, 29 Eylül), realm geçişi uzlaştırıcıyla 2 Ekim ~20:50Z; Touch ID ve Microsoft girişi doğrulandı. `/email` metni `account-center#64` (`9f4f971`) | Production'a #67 ile çıkıyor. Parola sıfırlama K4b devam ediyor. |
+| 29 Eylül - 2 Ekim | **K4**, okul ya da kişisel e-postayla parolalı giriş: Keycloak imajı `f71eecb` (#54, 29 Eylül), realm geçişi uzlaştırıcıyla 2 Ekim ~20:50Z; Touch ID ve Microsoft girişi doğrulandı. `/email` metni `account-center#64` (`9f4f971`) | Production'a #67 ile çıktı (2 Ekim, `849d009`, dağıtım başarılı). Parola sıfırlama K4b devam ediyor (e-skylab-keycloak, PR açılacak). |
 
 ### v2'nin açılışı (22 Eylül), adım adım
 
@@ -44,7 +44,7 @@ Ortam değişkenleri Dokploy uygulamasındadır (gizli değerler OpenBao referan
 
 ### Bakım işi
 
-`pnpm db:prune-auth` (`node scripts/prune-auth.mjs`) saatte bir, tekil bir iş olarak çalıştırılır (Dokploy Schedules, `0 * * * *`; 25 Eylül'de ilk elle koşu yapıldı ve zamanlayıcı kurulumu başlatıldı). Zamanlayıcının varlığı ve son koşusu (`auth_prune_completed`) Dokploy günlüğünden doğrulanır; çalışmıyorsa süresi dolmuş transaction'lar, oturumlar ve Sudo kanıtları ile onaylanmamış silme niyetleri birikir. Ayrıntı: [saklama kılavuzu](auth-retention-runbook.md).
+`node scripts/prune-auth.mjs` saatte bir, tekil bir iş olarak çalıştırılır (Dokploy Schedules, `0 * * * *`; 25 Eylül'de ilk elle koşu yapıldı ve zamanlayıcı kurulumu başlatıldı). Zamanlayıcının varlığı ve son koşusu (`auth_prune_completed`) Dokploy günlüğünden doğrulanır; çalışmıyorsa süresi dolmuş transaction'lar, oturumlar ve Sudo kanıtları ile onaylanmamış silme niyetleri birikir. Ayrıntı: [saklama kılavuzu](auth-retention-runbook.md).
 
 ## Geri dönüş
 
@@ -56,7 +56,7 @@ Ortam değişkenleri Dokploy uygulamasındadır (gizli değerler OpenBao referan
 ## Bekleyen işler
 
 - **A0c, audience sıkılaştırma.** `ACCEPTED_AUDIENCE_SETS`'ten eski `{account}` kümesi ve `token_audience_legacy` olayı kaldırılacak; önce production loglarında en az 8 saattir sıfır olay görüldüğü kanıtlanır ([Keycloak sözleşmesi](keycloak-26.7.4-contract.md#geçiş-sırası)).
-- **K4b, parola sıfırlama.** Keycloak'ın parola sıfırlama akışının da okul ya da kişisel adresi tanıması (ve "e-posta gönderildi" deyip göndermemesinin düzeltilmesi) devam ediyor; Account Center tarafında kod değişikliği gerekmez.
+- **K4b, parola sıfırlama.** Keycloak'ın parola sıfırlama akışının da okul ya da kişisel adresi tanıması (ve "e-posta gönderildi" deyip göndermemesinin düzeltilmesi) devam ediyor (e-skylab-keycloak, PR açılacak); Account Center tarafında kod değişikliği gerekmez.
 - **Hesap silme açılışı** (`ACCOUNT_ERASURE_MODE=enforce`): kod production'dadır ama kapalıdır; açılış platform kapılarına bağlıdır ([account-deletion.md](account-deletion.md#account_erasure_mode-ve-açılış-kapıları)).
 - **Mobil `/.well-known` değerleri ve kök alan adı proxy'si** (OPS1b): Mobile Lab'in paket adı, parmak izi, Team ID ve bundle ID'sini vermesi bekleniyor ([kenar güveni](auth-edge-trust.md#public-yol-sınırı-internal-ve-well-known)).
 - **Temizlik adayları** (acil değil): kullanılmayan `account_action_results` tablosu ve `0004` (readiness sorgusuyla birlikte), Account REST adaptöründeki hiçbir yerde çağrılmayan `linked-accounts` okumaları.

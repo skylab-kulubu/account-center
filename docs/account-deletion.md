@@ -65,7 +65,7 @@ Core remote-but-owned bağımlılıktır. Route ve UI HTTP ayrıntılarını bil
 
 ### Sudo kanıtı (A7b)
 
-Core self-delete intake'i `X-Sky-Sudo` başlığını core-backend PR #92 ile kabul eder (`docs/account-self-delete.md`). Token Keycloak'ın iç HMAC anahtarıyla imzalandığı için Core onu JWKS ile doğrulayamaz; realm'in introspection ucuna kendi `core` istemcisiyle sorar. Keycloak yalnız token'ın `aud` değerinde adı geçen istemciye `active:true` döndüğü için sky-account sudo token'ını `aud: ["sky-account","core"]` ile verir (K3e, e-skylab-keycloak PR #32). Introspection yanıtına `account-center` mapper'ları `account`'u da ekler; Core `aud` için eşitlik değil içerme arar. Bearer'ın `aud` kuralı da küme olarak okunur (`["account","core"]` kabul edilir; core-backend PR #88).
+Core self-delete intake'i `X-Sky-Sudo` başlığını core-backend PR #92 ile kabul eder (core-backend `docs/account-self-delete.md`). Token Keycloak'ın iç HMAC anahtarıyla imzalandığı için Core onu JWKS ile doğrulayamaz; realm'in introspection ucuna kendi `core` istemcisiyle sorar. Keycloak yalnız token'ın `aud` değerinde adı geçen istemciye `active:true` döndüğü için sky-account sudo token'ını `aud: ["sky-account","core"]` ile verir (K3e, e-skylab-keycloak PR #32). Introspection yanıtına `account-center` mapper'ları `account`'u da ekler; Core `aud` için eşitlik değil içerme arar. Bearer'ın `aud` kuralı da küme olarak okunur (`["account","core"]` kabul edilir; core-backend PR #88).
 
 ## Saklama ve temizlik
 
