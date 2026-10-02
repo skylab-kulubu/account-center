@@ -23,6 +23,7 @@ Hangi veri nereden gelir: ad, kullanıcı adı, e-postalar ve kimlik bilgileri e
 
 - Tarayıcı OIDC Authorization Code + S256 PKCE + PAR kullanır; authorization scope tam olarak `openid`'dır. Keycloak token'ları tarayıcıya hiç verilmez; PostgreSQL'de AES-256-GCM ile (kayıt kimliğine bağlı AAD) şifreli tutulur.
 - Mutation uçları exact `Origin` ve oturuma bağlı CSRF kanıtı (`x-csrf-token`) ister; `Origin` serileştirmesi birebir eşleşmek zorundadır (path, credentials, sondaki `/`, büyük harf ya da başka port kabul edilmez).
+- Parolayla giriş Keycloak'ın giriş formundadır (`sky-username-password-form`, K4): kullanıcı adı, birincil e-posta, YTÜ bağlantısı olan hesabın okul e-postası ve kodla doğrulanmış kişisel e-posta kabul edilir. Account Center'ın kodu bunu ayırt etmez; OIDC akışı aynıdır ([Keycloak sözleşmesi](keycloak-26.7.4-contract.md#giriş-formu-k4)).
 - Hassas işlemler Sudo modu ister ([aşağıda](#sudo-modu)); oturumun `auth_time` değeri ya da girişin tazeliği Sudo yerine geçmez.
 - Keycloak'a yalnız iki özel istek türü gider: Sudo yedeği için zorunlu yeniden doğrulama (`prompt=login&max_age=0`) ve YTÜ hesabı bağlama (`kc_action=idp_link`, tek ve dar bir allowlist; başka hiçbir `kc_action` PAR gövdesine giremez). Ayrıntı: [Keycloak sözleşmesi](keycloak-26.7.4-contract.md#zorunlu-yeniden-doğrulama-ve-tek-application-initiated-action-idp_link).
 - Kaldırılabilir kimlik bilgileri ve başka oturumlar tarayıcıya yalnız oturuma bağlı HMAC referansıyla görünür; referans her seferinde taze bir okumaya karşı sabit-zamanlı karşılaştırmayla çözülür. Credential kimlikleri ve Keycloak oturum kimlikleri tarayıcıya çıkmaz.
@@ -125,6 +126,6 @@ Migration'lar `scripts/migrate.mjs` ile sırayla uygulanır (`account_center_sch
 ## Açık işler
 
 - **A0c**: `aud` sözleşmesini tek kümeye daraltmak (`token_audience_legacy` sıfır olduğu kanıtlanınca; [Keycloak sözleşmesi](keycloak-26.7.4-contract.md#geçiş-sırası)).
-- **K4 realm geçişi**: Keycloak'ın okul/kişisel e-postayla parolalı giriş akışı imajda yayında, realm akışı henüz değişmedi; `/email` metni (`account-center#64`) onunla birlikte güncellenir ([rollout-v2.md](rollout-v2.md#bekleyen-işler)).
+- **K4b**: parola sıfırlamanın (reset credentials) de okul ya da kişisel adresi tanıması devam ediyor ([rollout-v2.md](rollout-v2.md#bekleyen-işler)).
 - **Hesap silme açılışı** (`ACCOUNT_ERASURE_MODE=enforce`): core'un diğer servislere silme komutları ve kapılar tamamlanınca ([account-deletion.md](account-deletion.md#account_erasure_mode-ve-açılış-kapıları)).
 - Mobil `/.well-known` değerleri (Mobile Lab) ve kök alan adı proxy'si (OPS1b).

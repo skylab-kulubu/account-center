@@ -13,6 +13,10 @@ Realm ve SPI config-as-code olarak `skylab-kulubu/e-skylab-keycloak` deposundad�
 - `OIDC_ISSUER` credentials/query/fragment içermeyen canonical `https://<host>/realms/<realm>` olmalıdır. `ACCOUNT_ACCESS_GATE_MODE=enforce` iken ayrıca tam olarak `https://e.yildizskylab.com/realms/e-skylab` olmalıdır (erişim engeli sözleşmesi, [mimari](architecture.md#hesap-erişim-engeli-redis)).
 - İmzalı ID token (RS256) `sub` ve özgün `auth_time` taşımak zorundadır; `nonce` doğrulanır. `sid` olmadan oturum yine açılır ama Keycloak `sid` eşleşmeli backchannel logout onu bulamaz; Sudo modunun Microsoft yedeği ve YTÜ bağlama `sid` ister. `sky_session_expires`, `sky_session_started` ve `sky_embed` isteğe bağlıdır ([aşağıda](#oturum-ömrü-claimleri), [web-handoff.md](web-handoff.md)).
 
+## Giriş formu (K4)
+
+Parolayla giriş realm'in `browser plus passkey` akışındaki `sky-username-password-form` ile yapılır (K4, SPI `1.14.0`, e-skylab-keycloak#50 ve #54; realm geçişi 2 Ekim 2026'da uzlaştırıcıyla yapıldı). Kabul edilen tanımlayıcılar: kullanıcı adı, birincil e-posta (`email`), **YTÜ bağlantısı olan** hesabın okul e-postası (`schoolEmail`) ve kodla **doğrulanmış** kişisel e-posta (`personalEmail`); karşılaştırma harf duyarsızdır. Kanıtsız ya da belirsiz bir adres bilinmeyen kullanıcı gibi, yanlış parolayla aynı cevabı alır. Brute-force koruması, devre dışı hesap mesajları ve passkey ile YTÜ girişi Keycloak'ın kendisidir ve bu formdan etkilenmez. Account Center'ın kodu bu formu bilmez: OIDC akışı, token sözleşmesi ve Sudo modu (parola kanıtı SPI `POST sudo/password` ile verilir) değişmedi. Geri dönüş sırası [rollout-v2.md](rollout-v2.md#geri-dönüş)'dedir.
+
 ## Kullanıcı access token sözleşmesi
 
 Sunucu oturumundaki access token aşağıdaki sözleşmeyi karşılamadan Account REST, sky-account ya da core çağrısı yapılmaz (`src/server/keycloak-account/access-token.ts`, `validateAccountAccessToken`); girişte, her yenilemede ve her kullanımda yeniden doğrulanır:

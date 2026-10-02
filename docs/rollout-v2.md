@@ -15,6 +15,7 @@ v2 tek bir "anahtar çevirme" ile açılmadı: planlanan `ACCOUNT_ACTIONS_MODE=s
 | 24 Eylül | Web handoff (`sky-handoff`, `e383db6`), native köprünün sökümü (Keycloak `d3e6514`, Hesap Merkezi `183ded5`), Sudo kanıtının core'a sunulması (A7b/K3e), silme korumaları A7c/A7d (`e45ba0e`, migration `0007`), `account_native_*` tablolarının kaldırılması (`e4738ce`, migration `0008`) | [web-handoff.md](web-handoff.md) |
 | 25 Eylül | YTÜ'den gelen alanlar (C2), eski birincil adresi kodla doğrulama (A1c) | |
 | 28-29 Eylül | Silme durumu düzeltmesi ve yedek notu (#57, #58, #60); `/internal` `404` ve `/.well-known` dosyaları (#62 → `3a84e3f`) | |
+| 29 Eylül - 2 Ekim | **K4**, okul ya da kişisel e-postayla parolalı giriş: Keycloak imajı `f71eecb` (#54, 29 Eylül), realm geçişi uzlaştırıcıyla 2 Ekim ~20:50Z; Touch ID ve Microsoft girişi doğrulandı. `/email` metni `account-center#64` (`9f4f971`) | Production'a #67 ile çıkıyor. Parola sıfırlama K4b devam ediyor. |
 
 ### v2'nin açılışı (22 Eylül), adım adım
 
@@ -50,12 +51,12 @@ Ortam değişkenleri Dokploy uygulamasındadır (gizli değerler OpenBao referan
 - **Hesap Merkezi:** bir önceki imajı yeniden dağıtmak. Migration'lar geri alınmaz. `0008`'den (#51, `e4738ce`) önceki imajlar `/api/ready`'de `account_native_*` tablolarını aradığı için `0003` elle yeniden uygulanmadan hazır olmaz; bu yüzden geri dönüş hedefi #51 ve sonrasıdır.
 - **Audience:** `core` audience mapper'ını kaldırmak (K2'yi geri almak) bugün oturumları kilitlemez (eski küme kabul edilir) ama core çağrıları (kulüp profili, ad eşitleme) çalışmaz; A0c sonrasında bütün oturumları kilitler.
 - **Passkey RP ID** `yildizskylab.com`'dan geri dönmez: dönmek bütün passkey'leri yeniden geçersiz kılar.
-- **K4 (e-postayla giriş):** Keycloak SPI'ı `1.14.0`'dan eski bir sürüme dönmeden önce `KEYCLOAK_PASSWORD_FORM=auth-username-password-form` ile parola formu eski hâline getirilmelidir (aksi hâlde parolalı giriş durur); ayrıntı Keycloak runbook'unda.
+- **K4 (e-postayla giriş, canlı):** Keycloak SPI'ı `1.14.0`'dan eski bir sürüme dönmeden önce `KEYCLOAK_PASSWORD_FORM=auth-username-password-form` ile parola formu eski hâline getirilmelidir (aksi hâlde parolalı giriş durur); ayrıntı Keycloak runbook'unda.
 
 ## Bekleyen işler
 
 - **A0c, audience sıkılaştırma.** `ACCEPTED_AUDIENCE_SETS`'ten eski `{account}` kümesi ve `token_audience_legacy` olayı kaldırılacak; önce production loglarında en az 8 saattir sıfır olay görüldüğü kanıtlanır ([Keycloak sözleşmesi](keycloak-26.7.4-contract.md#geçiş-sırası)).
-- **K4 realm geçişi.** Keycloak'ın okul ya da kişisel e-postayla parolalı giriş formu (`sky-username-password-form`, SPI `1.14.0`) imajda yayında, ancak realm akışı uzlaştırıcıyla henüz değiştirilmedi. Realm geçişi ve Touch ID testinden sonra `/email`'deki "iki adresle de giriş yapabilirsin" metni `account-center#64` ile döner; o zamana kadar belgeler ve arayüz yalnız kullanıcı adı ile birincil adresi söyler. Parola sıfırlama (K4b) ayrı bir iştir.
+- **K4b, parola sıfırlama.** Keycloak'ın parola sıfırlama akışının da okul ya da kişisel adresi tanıması (ve "e-posta gönderildi" deyip göndermemesinin düzeltilmesi) devam ediyor; Account Center tarafında kod değişikliği gerekmez.
 - **Hesap silme açılışı** (`ACCOUNT_ERASURE_MODE=enforce`): kod production'dadır ama kapalıdır; açılış platform kapılarına bağlıdır ([account-deletion.md](account-deletion.md#account_erasure_mode-ve-açılış-kapıları)).
 - **Mobil `/.well-known` değerleri ve kök alan adı proxy'si** (OPS1b): Mobile Lab'in paket adı, parmak izi, Team ID ve bundle ID'sini vermesi bekleniyor ([kenar güveni](auth-edge-trust.md#public-yol-sınırı-internal-ve-well-known)).
 - **Temizlik adayları** (acil değil): kullanılmayan `account_action_results` tablosu ve `0004` (readiness sorgusuyla birlikte), Account REST adaptöründeki hiçbir yerde çağrılmayan `linked-accounts` okumaları.
