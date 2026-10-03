@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
+  clearEmbeddedAppCookie,
   clearSessionCookie,
   mutationHasExactOrigin,
   noStore,
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
   if (authorization.status === "missing") {
     const response = NextResponse.redirect(new URL("/login?loggedOut=1", services.config.appUrl), 303);
     clearSessionCookie(response);
+    clearEmbeddedAppCookie(response);
     return noStore(response);
   }
 
@@ -68,6 +70,7 @@ export async function POST(request: NextRequest) {
   }
   const response = NextResponse.redirect(new URL("/login?loggedOut=1", services.config.appUrl), 303);
   clearSessionCookie(response);
+  clearEmbeddedAppCookie(response);
   response.headers.set("x-request-id", requestId);
   logAuthEvent({ event: "local_logout", requestId, outcome: "success" });
   return noStore(response);

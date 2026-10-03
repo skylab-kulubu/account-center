@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { decodeJwt } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import identityFixture from "../../../tests/fixtures/sky-account-v1-identity.json";
 import emailChangeFixture from "../../../tests/fixtures/sky-account-v1-email-change-request.json";
@@ -156,6 +157,16 @@ describe("SkyAccountHttpClient", () => {
       label: "Telefon",
       createdAt: "2026-09-21T13:10:41.130Z",
     });
+  });
+
+  it.each([
+    ["sky-account-v1-sudo-grant.json", sudoGrantFixture],
+    ["sky-account-v1-sudo-authentication.json", authenticationGrantFixture],
+  ])("pins a grant in %s whose expiresAt is its token's own exp, as the SPI answers it", (_name, fixture) => {
+    // The client never reads the token; the fixture still has to be one the SPI could have sent.
+    const { exp } = decodeJwt(fixture.sudoToken);
+    expect(exp).toBeTypeOf("number");
+    expect(new Date(exp! * 1_000).toISOString()).toBe(new Date(fixture.expiresAt).toISOString());
   });
 
   it("proves sudo with a password or a code and returns the opaque grant", async () => {

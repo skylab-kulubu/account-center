@@ -14,6 +14,20 @@ describe("authentication log redaction", () => {
     });
   });
 
+  it("keeps the failed login's flow and allowlisted OAuth error", () => {
+    expect(redactAuthMaterial({
+      event: "oidc_login_failed",
+      providerStage: "authorization_response",
+      purpose: "ytu_link",
+      oauthError: "access_denied",
+    })).toEqual({
+      event: "oidc_login_failed",
+      providerStage: "authorization_response",
+      purpose: "ytu_link",
+      oauthError: "access_denied",
+    });
+  });
+
   it("keeps the e-mail page's action kind while any e-mail-named key is blanked", () => {
     expect(redactAuthMaterial({
       event: "email_action",

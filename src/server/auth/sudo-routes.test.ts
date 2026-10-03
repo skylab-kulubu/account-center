@@ -352,6 +352,44 @@ describe("sudo BFF routes", () => {
       expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "rate_limited", sudoMethod: "password" }));
     });
 
+    it("counts passkey proofs in their own budget, so spent password and code tries do not block a passkey", async () => {
+      // The SPI keeps `sudo-passkey` apart from `sudo` (an assertion cannot be guessed); the local budgets mirror that.
+      routeMocks.consumeKey.mockImplementation(async (scope: string) => (
+        scope === "sudo"
+          ? { allowed: false, count: 11, retryAfterSeconds: 321 }
+          : { allowed: true, count: 1, retryAfterSeconds: 321 }
+      ));
+
+      const byPassword = await password(jsonRequest("/api/account/sudo/password", { password: secretPassword }));
+      const byCode = await totp(jsonRequest("/api/account/sudo/totp", { code: "123456" }));
+      const byPasskey = await webauthnVerify(jsonRequest("/api/account/sudo/webauthn/verify", { assertion: assertionJson }));
+
+      expect(byPassword.status).toBe(429);
+      expect(byCode.status).toBe(429);
+      expect(routeMocks.sudoPassword).not.toHaveBeenCalled();
+      expect(routeMocks.sudoTotp).not.toHaveBeenCalled();
+      expect(byPasskey.status).toBe(200);
+      expect(routeMocks.consumeKey.mock.calls).toEqual([
+        ["sudo", activeSession.id],
+        ["sudo", activeSession.id],
+        ["sudo_passkey", activeSession.id],
+      ]);
+      expect(routeMocks.storeSudo).toHaveBeenCalledWith(activeSession.id, sudoGrantFixture.sudoToken, expect.any(Date), "passkey");
+    });
+
+    it("stops passkey proofs at their own spent budget before contacting the extension", async () => {
+      routeMocks.consumeKey.mockImplementation(async (scope: string) => (
+        scope === "sudo_passkey"
+          ? { allowed: false, count: 11, retryAfterSeconds: 222 }
+          : { allowed: true, count: 1, retryAfterSeconds: 222 }
+      ));
+      const response = await webauthnVerify(jsonRequest("/api/account/sudo/webauthn/verify", { assertion: assertionJson }));
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("222");
+      expect(routeMocks.sudoWebauthnVerify).not.toHaveBeenCalled();
+      expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "rate_limited", sudoMethod: "passkey" }));
+    });
+
     it("ends the local session when Keycloak or the extension reject the bearer", async () => {
       routeMocks.sudoPassword.mockRejectedValue(problem("unauthorized"));
       const rejected = await password(jsonRequest("/api/account/sudo/password", { password: secretPassword }));

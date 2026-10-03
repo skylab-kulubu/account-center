@@ -1,8 +1,10 @@
 // @vitest-environment node
 
 import { describe, expect, it, vi } from "vitest";
+import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { InvalidOidcTransactionError, OidcFlowService } from "@/server/auth/oidc-flow";
+import type { OidcCallbackContext } from "@/server/auth/oidc-flow";
 import type {
   AuthorizationResult,
   BeginAuthorizationInput,
@@ -61,7 +63,7 @@ class FakeProtocol implements OidcProtocol {
     this.proof = input;
     return {
       authorizationUrl: new URL("https://e.yildizskylab.com/realms/e-skylab/protocol/openid-connect/auth?client_id=account-center&request_uri=urn%3Apar%3Aaction"),
-      expiresIn: 90,
+      expiresIn: 60,
     };
   }
 
@@ -74,7 +76,7 @@ class FakeProtocol implements OidcProtocol {
   async revokeRefreshToken() {}
 }
 
-function fixture() {
+function fixture(clock: () => Date = () => now) {
   const protocol = new FakeProtocol();
   const sessions = {
     candidate: vi.fn(async (candidate: string | undefined) => candidate === handle ? activeSession : null),
@@ -94,12 +96,12 @@ function fixture() {
     new OidcTransactionStore(
       new MemoryTransactions(),
       new AesGcmSecretCipher(Buffer.alloc(32, 9)),
-      300,
-      () => now,
+      OIDC_TRANSACTION_TTL_SECONDS,
+      clock,
     ),
     sessions,
     accountAccess,
-    { ytuIdpAlias: "OBS", clock: () => now },
+    { ytuIdpAlias: "OBS", clock },
   );
   return { flow, protocol, sessions, accountAccess };
 }
@@ -140,6 +142,33 @@ describe("Account Center forced re-authentication", () => {
       protocol.authorization.tokens,
       protocol.authorization.keycloakSid,
     );
+  });
+
+  it("tells the caller a failed callback was the Sudo mode fallback's", async () => {
+    const { flow, protocol } = fixture();
+    const started = await flow.beginSudoReauthentication(activeSession, "/security");
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("code", "authorization-code");
+    callback.searchParams.set("state", protocol.proof!.state);
+    const context: OidcCallbackContext = {};
+    await expect(flow.callback(callback, started.browserBinding, "o".repeat(43), "request-id", context))
+      .rejects.toBeInstanceOf(InvalidOidcTransactionError);
+    expect(context).toEqual({ purpose: "sudo" });
+  });
+
+  it("keeps the Microsoft re-authentication past the PAR request_uri lifetime", async () => {
+    let current = now;
+    const { flow, protocol } = fixture(() => current);
+    const started = await flow.beginSudoReauthentication(activeSession, "/security");
+    current = new Date(now.getTime() + 10 * 60_000);
+    protocol.authorization = { ...protocol.authorization, authenticatedAt: current };
+    const callback = new URL("https://my.yildizskylab.com/api/auth/callback");
+    callback.searchParams.set("code", "authorization-code");
+    callback.searchParams.set("state", protocol.proof!.state);
+    await expect(flow.callback(callback, started.browserBinding, handle)).resolves.toMatchObject({
+      sudoReauthentication: "success",
+      authenticatedAt: current,
+    });
   });
 
   it.each(["/", "/identity", "/security", "/sessions", "/permissions", "/club-profile", "/delete-account"])(

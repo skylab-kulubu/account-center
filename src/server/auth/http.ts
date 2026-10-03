@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { NextRequest, NextResponse } from "next/server";
+import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import type { AuthConfig } from "@/server/auth/config";
 
 export const SESSION_COOKIE = "__Host-sky-account";
@@ -38,14 +39,23 @@ export function setEmbeddedAppCookie(response: NextResponse, absoluteExpiresAt: 
   });
 }
 
+/**
+ * Drops the SkyApp view mark. Login without `sky_embed` and logout call this,
+ * so the mark never outlives the session that earned it.
+ */
+export function clearEmbeddedAppCookie(response: NextResponse) {
+  response.cookies.set(EMBEDDED_APP_COOKIE, "", { ...baseCookie, expires: new Date(0), maxAge: 0 });
+}
+
 export function clearSessionCookie(response: NextResponse) {
   response.cookies.set(SESSION_COOKIE, "", { ...baseCookie, expires: new Date(0), maxAge: 0 });
 }
 
+/** Lives as long as the server-side transaction it binds (`OIDC_TRANSACTION_TTL_SECONDS`). */
 export function setOidcTransactionCookie(response: NextResponse, browserBinding: string) {
   response.cookies.set(OIDC_TRANSACTION_COOKIE, browserBinding, {
     ...baseCookie,
-    maxAge: 5 * 60,
+    maxAge: OIDC_TRANSACTION_TTL_SECONDS,
   });
 }
 

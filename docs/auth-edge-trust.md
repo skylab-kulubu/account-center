@@ -14,7 +14,7 @@ Account Center'ın hiçbir internal ucu kalmadı; sonuncusu olan `POST /internal
 
 Core'daki gibi `X-Forwarded-*`, `Forwarded` veya `X-Real-Ip` başlığına bakıp "public edge'den geldi" ayrımı **yapılmaz**: ayırt edilecek bir iç çağıran yoktur ve başlığa dayalı bir ayrım, başlıksız doğrudan erişime (container ağı) kapı bırakmaktan başka bir şey kazandırmaz. İleride `app/internal` altına bir uç eklenirse bu koruma bilinçli olarak değiştirilmeden erişilemez; o gün ağ sınırıyla (ayrı entrypoint, mTLS) birlikte tasarlanır.
 
-Traefik'te `my.yildizskylab.com` router'ına `/internal` önekini reddeden middleware (OPS1) yine önerilir; uygulama katmanı ikinci savunma hattıdır. Uygulama gelen hiçbir `X-Sky-*` başlığını okumaz (`X-Sky-Sudo` yalnız Keycloak'a giden çağrılarda kullanılır).
+Traefik'te `my.yildizskylab.com` router'ına `/internal` önekini reddeden bir middleware eklemek isteğe bağlı bir ikinci savunma hattı olurdu; OPS1'de kenarda değişiklik gerekmedi ve koruma uygulama katmanındadır. Uygulama gelen hiçbir `X-Sky-*` başlığını okumaz: `X-Sky-Sudo` yalnız giden çağrılarda (sky-account SPI'ye ve hesap silmede core'a) kullanılır, `X-Sky-Handoff-Proof` hiç görülmez. Kenarda `X-Sky-*` başlıklarını silmek bu yüzden yanlıştır: onlar istemcinin taşıdığı, kriptografik olarak doğrulanan değerlerdir.
 
 ### `/.well-known/*` uygulamanındır
 
@@ -38,7 +38,7 @@ Yanıtlar: yapılandırılmış dosya `200`, `Content-Type: application/json`, `
 
 Yalnız kimlik bilgisi ilişkisi yayımlanır. App Links / Universal Links (`handle_all_urls`, `applinks`) bilinçli olarak yoktur: SkyApp'in `my.` bağlantılarını tarayıcıdan devralması ayrı bir karardır ve kod değişikliği ister.
 
-**RP ID notu.** Keycloak'taki passkey RP ID'si `yildizskylab.com`'dur (`KEYCLOAK_PASSKEY_RP_ID`). Android Credential Manager ve iOS `webcredentials` bu dosyaları RP ID alan adında, yani `https://yildizskylab.com/.well-known/…` adresinde arar; `my.` altındaki kopya yalnız `my.yildizskylab.com` için geçerlidir. Kök alan adında da gerekirse ya kökü sunan uygulama aynı içeriği yayımlar ya da Traefik'te ``Host(`yildizskylab.com`) && (Path(`/.well-known/assetlinks.json`) || Path(`/.well-known/apple-app-site-association`))`` router'ı Account Center servisine **redirect değil proxy** olarak bağlanır (route handler `Host` başlığına bakmaz). Bu bir operasyon kararıdır (OPS1).
+**RP ID notu.** Keycloak'taki passkey RP ID'si `yildizskylab.com`'dur (`KEYCLOAK_PASSKEY_RP_ID`). Android Credential Manager ve iOS `webcredentials` bu dosyaları RP ID alan adında, yani `https://yildizskylab.com/.well-known/…` adresinde arar; `my.` altındaki kopya yalnız `my.yildizskylab.com` için geçerlidir. Kök alan adında da gerekirse ya kökü sunan uygulama aynı içeriği yayımlar ya da Traefik'te ``Host(`yildizskylab.com`) && (Path(`/.well-known/assetlinks.json`) || Path(`/.well-known/apple-app-site-association`))`` router'ı Account Center servisine **redirect değil proxy** olarak bağlanır (route handler `Host` başlığına bakmaz). Bu bir operasyon kararıdır (OPS1b: Mobile Lab'in değerlerini ve kök alan adı proxy'sini bekliyor); değişkenler girilmedikçe dosyalar `my.` altında da `404` döner.
 
 ## `AUTH_TRUSTED_PROXY` modları
 
@@ -91,7 +91,7 @@ Dönen değer yalnız bir bucket adıdır. Adres IPv4/IPv6 olarak normalize edil
 
 Login için 60 saniyede 10, callback için 60 saniyede 30 istek sınırı atomik fixed-window sorgusuyla uygulanır. Aşım `429` ve tam pencere sonunu gösteren `Retry-After` döndürür. Süresi biten bucket'lar scheduled auth prune job'ında silinir.
 
-Bu bütçeler istemci başınadır. Mod kenar topolojisiyle uyuşmazsa istemci adresi okunamaz, bütün anonim ziyaretçiler tek `unavailable` bucket'ını paylaşır ve platform geneli bir availability sınırı ortaya çıkar; bu yüzden mod dağıtımla birlikte doğrulanır.
+Oturuma bağlı bütçeler (Sudo, kimlik, e-posta ve güvenlik işlemleri) ayrıdır ve oturum kimliğiyle anahtarlanır ([mimari](architecture.md#sudo-modu)). Bu anonim bütçeler istemci başınadır. Mod kenar topolojisiyle uyuşmazsa istemci adresi okunamaz, bütün anonim ziyaretçiler tek `unavailable` bucket'ını paylaşır ve platform geneli bir availability sınırı ortaya çıkar; bu yüzden mod dağıtımla birlikte doğrulanır.
 
 ## İstek gövdesi sınırı
 
