@@ -135,6 +135,8 @@ export class AccountDeletionOrchestrator {
     private readonly cipher: SecretCipher,
     private readonly hmacSecret: Buffer,
     private readonly clock: () => Date = () => new Date(),
+    /** Account Center's own per-person data beside the sessions: the dismissed e-mail nudges (K4c). */
+    private readonly localSubjectData: { forget(subject: string): Promise<void> } | null = null,
   ) {}
 
   /**
@@ -319,6 +321,12 @@ export class AccountDeletionOrchestrator {
       throw new AccountDeletionUnavailableError();
     }
     if (!confirmed) throw new AccountDeletionProofError();
+
+    // The person's own preferences go as soon as the deletion is confirmed:
+    // this is the last request that still carries their subject (a recovery
+    // replay only has the receipt). Best effort; a refusal by core below
+    // only means a dismissed nudge shows again.
+    await this.localSubjectData?.forget(input.session.subject).catch(() => undefined);
 
     let status: CoreAccountDeletionStatus;
     try {

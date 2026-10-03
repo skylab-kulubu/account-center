@@ -9,6 +9,8 @@ import { POST as confirm } from "@/app/api/account/email/confirm/route";
 import { GET as pendingChange } from "@/app/api/account/email/pending/route";
 import { DELETE as removePersonal } from "@/app/api/account/email/personal/route";
 import { POST as selectPrimary } from "@/app/api/account/email/primary/route";
+import { POST as dismissNudge } from "@/app/api/account/email/nudge/dismiss/route";
+import { GET as nudgeRead } from "@/app/api/account/email/nudge/route";
 import { GET as email } from "@/app/api/account/email/route";
 import { SESSION_COOKIE } from "@/server/auth/http";
 import { logAuthEvent } from "@/server/auth/logging";
@@ -35,6 +37,8 @@ const routeMocks = vi.hoisted(() => ({
   requireFreshSudo: vi.fn(),
   clearSudo: vi.fn(),
   consumeKey: vi.fn(),
+  listDismissals: vi.fn(),
+  dismiss: vi.fn(),
   config: { appUrl: new URL("https://my.yildizskylab.com") },
 }));
 
@@ -62,6 +66,7 @@ vi.mock("@/server/auth/services", () => ({
     },
     sudo: { requireFreshSudo: routeMocks.requireFreshSudo, clearSudo: routeMocks.clearSudo },
     anonymousRateLimit: { consumeKey: routeMocks.consumeKey },
+    noticeDismissals: { list: routeMocks.listDismissals, dismiss: routeMocks.dismiss },
   }),
 }));
 
@@ -158,6 +163,8 @@ describe("e-mail BFF routes", () => {
     routeMocks.requireFreshSudo.mockResolvedValue(proof);
     routeMocks.clearSudo.mockResolvedValue(undefined);
     routeMocks.consumeKey.mockResolvedValue({ allowed: true, count: 1, retryAfterSeconds: 900 });
+    routeMocks.listDismissals.mockResolvedValue(new Set());
+    routeMocks.dismiss.mockResolvedValue(undefined);
     vi.useFakeTimers({ now: serverNow, toFake: ["Date"] });
   });
 
@@ -180,6 +187,7 @@ describe("e-mail BFF routes", () => {
         personalEmail: "ada-personal@example.invalid",
         personalEmailVerified: true,
         csrfToken: "session-bound-csrf",
+        primaryEmailNudge: "make-personal-primary",
       });
       expect(JSON.stringify(body)).not.toMatch(/2f0c5b4a|server-held|11111111-1111|credentials|Telefon|MacBook|Lovelace|account-fixture/);
       expect(routeMocks.identity).toHaveBeenCalledWith(bearer);
@@ -213,6 +221,127 @@ describe("e-mail BFF routes", () => {
       const drift = await read();
       expect(drift.status).toBe(502);
       await expect(drift.json()).resolves.toMatchObject({ error: "upstream_error" });
+    });
+  });
+
+  describe("K4c primary e-mail nudge", () => {
+    it("names the nudge for a school-primary person and asks the store by the session's subject", async () => {
+      routeMocks.identity.mockResolvedValue({ ...identityFixture, personalEmail: null, personalEmailVerified: false });
+      const body = await (await read()).json();
+      expect(body.primaryEmailNudge).toBe("add-personal");
+      expect(routeMocks.listDismissals).toHaveBeenCalledWith("authenticated-subject");
+    });
+
+    it("drops a nudge the person dismissed, and every nudge once the primary is personal", async () => {
+      routeMocks.listDismissals.mockResolvedValue(new Set(["make-personal-primary"]));
+      expect((await (await read()).json()).primaryEmailNudge).toBeNull();
+      routeMocks.listDismissals.mockResolvedValue(new Set());
+      routeMocks.identity.mockResolvedValue({ ...identityFixture, primary: "personal", email: identityFixture.personalEmail });
+      expect((await (await read()).json()).primaryEmailNudge).toBeNull();
+    });
+
+    it("still answers the addresses, without a nudge, when the dismissal store cannot be read", async () => {
+      routeMocks.listDismissals.mockRejectedValue(new Error("relation does not exist"));
+      const response = await read();
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.primaryEmailNudge).toBeNull();
+      expect(body.schoolEmail).toBe("ada@std.yildiz.edu.tr");
+    });
+
+    function readNudge() {
+      return nudgeRead(request("/api/account/email/nudge", undefined, { method: "GET", origin: null, csrf: null }));
+    }
+
+    it("answers the overview only the nudge, the address it names and the CSRF proof", async () => {
+      const response = await readNudge();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({
+        primaryEmailNudge: "make-personal-primary",
+        personalEmail: "ada-personal@example.invalid",
+        csrfToken: "session-bound-csrf",
+      });
+      routeMocks.identity.mockResolvedValue({ ...identityFixture, personalEmail: null, personalEmailVerified: false });
+      expect(await (await readNudge()).json()).toEqual({
+        primaryEmailNudge: "add-personal",
+        personalEmail: null,
+        csrfToken: "session-bound-csrf",
+      });
+    });
+
+    it("answers no nudge, and nothing else, when there is none to show", async () => {
+      routeMocks.listDismissals.mockResolvedValue(new Set(["make-personal-primary"]));
+      expect(await (await readNudge()).json()).toEqual({ primaryEmailNudge: null });
+    });
+
+    it.each([
+      ["the SPI is down", () => routeMocks.identity.mockRejectedValue(new SkyAccountUnavailableError())],
+      ["the SPI drifted", () => routeMocks.identity.mockRejectedValue(new SkyAccountContractError())],
+      ["the bearer is refused", () => routeMocks.identity.mockRejectedValue(problem("unauthorized"))],
+      ["the bearer cannot be refreshed", () => routeMocks.accessToken.mockRejectedValue(new AccountReauthenticationRequiredError())],
+      ["the store is down", () => routeMocks.listDismissals.mockRejectedValue(new Error("connection refused"))],
+    ])("stays quiet with 200 and leaves the session alone when %s", async (_label, arrange) => {
+      arrange();
+      const response = await readNudge();
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ primaryEmailNudge: null });
+      expect(routeMocks.revokeSession).not.toHaveBeenCalled();
+      expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
+    });
+
+    it.each([
+      ["missing", 401],
+      ["blocked", 401],
+      ["unavailable", 503],
+    ] as const)("answers the %s session outcome like the other reads", async (status, expected) => {
+      routeMocks.authenticate.mockResolvedValue({ status });
+      expect((await readNudge()).status).toBe(expected);
+      expect(routeMocks.identity).not.toHaveBeenCalled();
+    });
+
+    function dismiss(body: unknown, options: RequestOptions = {}) {
+      return dismissNudge(request("/api/account/email/nudge/dismiss", body, options));
+    }
+
+    it("stores the dismissal for the session's subject without Sudo mode, a budget or an SPI call", async () => {
+      const response = await dismiss({ nudge: "add-personal" });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(routeMocks.dismiss).toHaveBeenCalledWith("authenticated-subject", "add-personal");
+      expect(routeMocks.requireFreshSudo).not.toHaveBeenCalled();
+      expect(routeMocks.consumeKey).not.toHaveBeenCalled();
+      expect(routeMocks.accessToken).not.toHaveBeenCalled();
+      expect(routeMocks.identity).not.toHaveBeenCalled();
+    });
+
+    it("refuses a foreign origin, a missing CSRF proof and an ended session before storing anything", async () => {
+      expect((await dismiss({ nudge: "add-personal" }, { origin: "https://evil.invalid" })).status).toBe(403);
+      routeMocks.authenticateMutation.mockResolvedValueOnce({ status: "forbidden" });
+      expect((await dismiss({ nudge: "add-personal" }, { csrf: null })).status).toBe(403);
+      routeMocks.authenticateMutation.mockResolvedValueOnce({ status: "missing" });
+      expect((await dismiss({ nudge: "add-personal" })).status).toBe(401);
+      expect(routeMocks.dismiss).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [{ nudge: "remove-personal" }],
+      [{ nudge: "ADD-PERSONAL" }],
+      [{}],
+      [["add-personal"]],
+      ["not json"],
+    ])("answers 400 invalid_request for %j", async (body) => {
+      const response = await dismiss(body);
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toBe("invalid_request");
+      expect(routeMocks.dismiss).not.toHaveBeenCalled();
+    });
+
+    it("answers an outage of the store without claiming the dismissal was kept", async () => {
+      routeMocks.dismiss.mockRejectedValue(new Error("connection refused"));
+      const response = await dismiss({ nudge: "make-personal-primary" });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "unexpected", detail: "Beklenmeyen bir sorun oluştu. Değişiklik yapılmadı." });
     });
   });
 

@@ -30,6 +30,8 @@ const pages = [
   "/api/account/identity",
   "/api/account/email",
   "/api/account/email/pending",
+  "/api/account/email/nudge",
+  "/api/account/email/nudge/dismiss",
   "/api/account/sessions",
   "/api/account/security",
   "/api/account/club-profile",
