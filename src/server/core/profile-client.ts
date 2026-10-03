@@ -19,7 +19,7 @@ const UPLOAD_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 16 * 1_024;
 const MAX_PICTURE_BYTES = 5 * 1_024 * 1_024;
 
-/** Multipart field name core reads the picture from; verify against core before A2 ships. */
+/** Multipart field name core reads the picture from (`c.FormFile("file")` in core's `internal/handlers/me.go`). */
 export const CORE_PROFILE_PICTURE_FIELD = "file";
 
 const pictureContentTypes: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/webp"]);

@@ -11,7 +11,6 @@ export type SecurityCredentialRow = {
   label: string | null;
   createdAt: string | null;
   transports?: string[];
-  legacy?: true;
 };
 
 export type SecurityPayload = {
@@ -63,7 +62,7 @@ function validRow(value: unknown): value is SecurityCredentialRow {
   if (value.transports !== undefined &&
     (!Array.isArray(value.transports) || value.transports.length > 8 ||
       !value.transports.every((item) => typeof item === "string" && item.length <= 32))) return false;
-  return value.legacy === undefined || value.legacy === true;
+  return true;
 }
 
 function validRows(value: unknown): value is SecurityCredentialRow[] {

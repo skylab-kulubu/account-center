@@ -33,6 +33,13 @@ deleted_deletion_intents AS (
       OR (core_receipt_hash IS NOT NULL AND receipt_expires_at <= now())
   RETURNING 1
 ),
+-- K4c: a dismissed e-mail nudge is a preference, kept twelve months; after
+-- that the nudge may be asked again and the HMAC-keyed row is gone.
+deleted_notice_dismissals AS (
+  DELETE FROM account_notice_dismissals
+   WHERE dismissed_at < now() - interval '12 months'
+  RETURNING 1
+),
 scrubbed_sudo_proofs AS (
   UPDATE account_sessions
      SET sudo_token_ciphertext = NULL,
@@ -65,5 +72,6 @@ SELECT
   (SELECT count(*)::integer FROM deleted_rate_limits) AS deleted_rate_limits,
   (SELECT count(*)::integer FROM deleted_action_results) AS deleted_action_results,
   (SELECT count(*)::integer FROM deleted_deletion_intents) AS deleted_deletion_intents,
+  (SELECT count(*)::integer FROM deleted_notice_dismissals) AS deleted_notice_dismissals,
   (SELECT count(*)::integer FROM scrubbed_deletion_recovery) AS scrubbed_deletion_recovery,
   (SELECT count(*)::integer FROM scrubbed_sudo_proofs) AS scrubbed_sudo_proofs;

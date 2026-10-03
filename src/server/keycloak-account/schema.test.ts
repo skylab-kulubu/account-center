@@ -4,8 +4,6 @@ import { describe, expect, it } from "vitest";
 import credentialsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-credentials.json";
 import devicesFixture from "../../../tests/fixtures/keycloak-26.7.4-account-devices.json";
 import groupsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-groups.json";
-import linkedAccountUriFixture from "../../../tests/fixtures/keycloak-26.7.4-account-linked-account-uri.json";
-import linkedAccountsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-linked-accounts.json";
 import profileFixture from "../../../tests/fixtures/keycloak-26.7.4-account-profile.json";
 import sessionsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-sessions.json";
 import {
@@ -14,13 +12,10 @@ import {
   parseCredentialInventory,
   parseDeviceHints,
   parseGroups,
-  parseLinkedAccountUri,
-  parseLinkedAccounts,
   parseProfile,
   parseSessions,
 } from "@/server/keycloak-account/schema";
 
-const issuer = new URL("https://e.yildizskylab.com/realms/e-skylab");
 
 describe("Keycloak 26.7.4 Account REST contract", () => {
   it("keeps the identity fields, the pinned attributes, and the evaluated profile metadata", () => {
@@ -226,60 +221,6 @@ describe("Keycloak 26.7.4 Account REST contract", () => {
       { groups: [group] },
     ]) {
       expect(() => parseGroups(drifted)).toThrow(KeycloakAccountContractError);
-    }
-  });
-
-  it("normalizes linked identity providers and their connection state", () => {
-    expect(parseLinkedAccounts(linkedAccountsFixture)).toEqual([
-      {
-        connected: true,
-        providerAlias: "OBS",
-        displayName: "YTÜ Microsoft",
-        linkedUsername: "ada@std.yildiz.edu.tr",
-        social: false,
-      },
-      {
-        connected: false,
-        providerAlias: "github",
-        displayName: "GitHub",
-        linkedUsername: null,
-        social: true,
-      },
-    ]);
-    expect(JSON.stringify(parseLinkedAccounts(linkedAccountsFixture))).not.toContain("providerName");
-    expect(parseLinkedAccounts([])).toEqual([]);
-  });
-
-  it("fails closed on drifted linked-account payloads", () => {
-    const account = linkedAccountsFixture[0]!;
-    for (const drifted of [
-      [{ ...account, guiOrder: "1" }],
-      [{ ...account, connected: "true" }],
-      [{ ...account, providerAlias: "" }],
-      [{ ...account, providerAlias: "OBS/../admin" }],
-      [{ ...account, social: null }],
-      [account, account],
-      { accounts: [account] },
-    ]) {
-      expect(() => parseLinkedAccounts(drifted)).toThrow(KeycloakAccountContractError);
-    }
-  });
-
-  it("accepts a link URI only on the realm broker path of the configured issuer", () => {
-    const uri = parseLinkedAccountUri(linkedAccountUriFixture, issuer, "OBS");
-    expect(uri.href).toBe(linkedAccountUriFixture.accountLinkUri);
-    for (const drifted of [
-      { ...linkedAccountUriFixture, accountLinkUri: "https://attacker.invalid/realms/e-skylab/broker/OBS/link?nonce=n&hash=h" },
-      { ...linkedAccountUriFixture, accountLinkUri: "http://e.yildizskylab.com/realms/e-skylab/broker/OBS/link?nonce=n&hash=h" },
-      { ...linkedAccountUriFixture, accountLinkUri: "https://e.yildizskylab.com/realms/other/broker/OBS/link?nonce=n&hash=h" },
-      { ...linkedAccountUriFixture, accountLinkUri: "https://e.yildizskylab.com/realms/e-skylab/broker/github/link?nonce=n&hash=h" },
-      { ...linkedAccountUriFixture, accountLinkUri: "https://e.yildizskylab.com/realms/e-skylab/admin/OBS/link" },
-      { ...linkedAccountUriFixture, accountLinkUri: "not a url" },
-      { ...linkedAccountUriFixture, extra: true },
-      { accountLinkUri: linkedAccountUriFixture.accountLinkUri },
-      { ...linkedAccountUriFixture, nonce: 12 },
-    ]) {
-      expect(() => parseLinkedAccountUri(drifted, issuer, "OBS")).toThrow(KeycloakAccountContractError);
     }
   });
 

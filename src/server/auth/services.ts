@@ -31,6 +31,7 @@ import { CoreAccountDeletionHttpGateway } from "@/server/account-deletion/core-g
 import { PostgresAccountDeletionRepository } from "@/server/account-deletion/postgres-repository";
 import { CoreProfileHttpClient } from "@/server/core/profile-client";
 import { SkyAccountHttpClient } from "@/server/sky-account/client";
+import { NoticeDismissals, PostgresNoticeDismissalRepository } from "@/server/notice-dismissals/store";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
 const globalServices = globalThis as typeof globalThis & { accountCenterAuthServices?: AuthServices };
@@ -74,6 +75,7 @@ function createAuthServices() {
   });
   const sudo = new SudoVault(new PostgresSudoRepository(pool), cipher);
   const skyAccount = new SkyAccountHttpClient(config.issuer);
+  const noticeDismissals = new NoticeDismissals(new PostgresNoticeDismissalRepository(pool), config.sessionHmacKey);
   const coreProfile = config.coreApiUrl ? new CoreProfileHttpClient(config.coreApiUrl) : null;
   const accountDeletion = config.accountErasure.mode === "enforce"
     ? new AccountDeletionOrchestrator(
@@ -82,6 +84,8 @@ function createAuthServices() {
         sessions,
         cipher,
         config.sessionHmacKey,
+        undefined,
+        noticeDismissals,
       )
     : null;
   return {
@@ -95,6 +99,7 @@ function createAuthServices() {
     sudo,
     skyAccount,
     coreProfile,
+    noticeDismissals,
     backchannelLogout: new BackchannelLogoutService(
       new KeycloakBackchannelLogoutVerifier(config),
       new PostgresBackchannelLogoutRepository(pool),

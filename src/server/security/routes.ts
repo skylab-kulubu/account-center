@@ -364,7 +364,6 @@ function rowOf(services: Services, session: Session, credential: SkyAccountCrede
     label: credential.label,
     createdAt: credential.createdAt,
     ...(credential.transports ? { transports: [...credential.transports] } : {}),
-    ...(credential.type === "webauthn" ? { legacy: true as const } : {}),
   };
 }
 

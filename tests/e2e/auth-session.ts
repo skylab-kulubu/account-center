@@ -1,6 +1,7 @@
 import {
   createCipheriv,
   createHash,
+  createHmac,
   randomBytes,
   randomUUID,
 } from "node:crypto";
@@ -300,6 +301,37 @@ export async function sessionState(sessionId: string) {
       [sessionId],
     );
     return result.rows[0] ?? null;
+  } finally {
+    await client.end();
+  }
+}
+
+function sessionHmacKey() {
+  const value = process.env.SESSION_SECRET;
+  if (!value) throw new Error("SESSION_SECRET is required for authenticated E2E tests.");
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(`${normalized}${"=".repeat((4 - (normalized.length % 4)) % 4)}`, "base64");
+}
+
+/** The session-bound CSRF proof the BFF issues for `sessionId` (`src/server/auth/crypto.ts`). */
+export function csrfTokenFor(sessionId: string) {
+  return createHmac("sha256", sessionHmacKey()).update(`account-center:csrf:v1:${sessionId}`, "utf8").digest("base64url");
+}
+
+/** The K4c nudges stored as dismissed for `subject`, read by its HMAC like the BFF stores them. */
+export async function noticeDismissalsOf(subject: string) {
+  const digest = createHmac("sha256", sessionHmacKey())
+    .update("account-center:notice-dismissal-subject:v1:", "utf8")
+    .update(subject, "utf8")
+    .digest();
+  const client = new pg.Client({ connectionString: testDatabaseUrl() });
+  await client.connect();
+  try {
+    const result = await client.query<{ notice: string }>(
+      "SELECT notice FROM account_notice_dismissals WHERE subject_digest = $1 ORDER BY notice",
+      [digest],
+    );
+    return result.rows.map((row) => row.notice);
   } finally {
     await client.end();
   }

@@ -19,8 +19,9 @@ import {
   isPrimaryEmailChoice,
 } from "@/lib/email-fields";
 import type { PrimaryEmailChoice } from "@/lib/email-fields";
+import { isPrimaryEmailNudge, primaryEmailNudgeFor } from "@/lib/primary-email-nudge";
 import { emailChangeView, emailView, pendingEmailView } from "@/server/email/view";
-import type { EmailChangePayload, EmailPayload, PendingEmailPayload } from "@/server/email/view";
+import type { EmailChangePayload, EmailPayload, PendingEmailPayload, PrimaryEmailNudgePayload } from "@/server/email/view";
 import {
   authenticateMutation,
   failureResponse as accountFailureResponse,
@@ -327,16 +328,61 @@ async function emailRead(
   }
 }
 
-/** `GET /api/account/email`: both addresses, the primary and the CSRF proof. */
+/**
+ * `GET /api/account/email`: both addresses, the primary, the CSRF proof and
+ * the K4c nudge. The nudge is optional: when the person's dismissals cannot
+ * be read, the page shows none rather than one they may have dismissed.
+ */
 export function emailRoute(request: NextRequest) {
   return emailRead(request, async (services, session, auth) => {
-    const identity = await services.skyAccount.identity(auth);
+    const [identity, dismissed] = await Promise.all([
+      services.skyAccount.identity(auth),
+      services.noticeDismissals.list(session.subject).catch(() => null),
+    ]);
     const payload: EmailPayload = {
       ...emailView(identity),
       csrfToken: services.sessions.csrfToken(session.id),
+      primaryEmailNudge: dismissed === null ? null : primaryEmailNudgeFor(identity, dismissed),
     };
     return noStore(NextResponse.json(payload));
   });
+}
+
+/**
+ * `GET /api/account/email/nudge`: the overview's K4c nudge alone, read with
+ * the session cookie like the other reads. It is advice and never in the
+ * way: once the session is known, any failure (the bearer, the SPI, the
+ * dismissal store) is answered `200 { primaryEmailNudge: null }`, and unlike
+ * the e-mail page's own reads it never ends the session.
+ */
+export async function primaryEmailNudgeRoute(request: NextRequest) {
+  const services = getAuthServices();
+  const authorization = await services.sessionAccess.authenticate(
+    request.cookies.get(SESSION_COOKIE)?.value,
+    { requestId: requestCorrelationId(request) },
+  );
+  if (authorization.status === "unavailable") return accountAccessUnavailableResponse();
+  if (authorization.status === "blocked") return authenticationRequiredResponse(true);
+  if (authorization.status !== "active") return authenticationRequiredResponse();
+
+  const session = authorization.value.session;
+  const none: PrimaryEmailNudgePayload = { primaryEmailNudge: null };
+  try {
+    const accessToken = await services.account.accessToken(session);
+    const [identity, dismissed] = await Promise.all([
+      services.skyAccount.identity({ accessToken }),
+      services.noticeDismissals.list(session.subject),
+    ]);
+    const nudge = primaryEmailNudgeFor(identity, dismissed);
+    const payload: PrimaryEmailNudgePayload = nudge === null ? none : {
+      primaryEmailNudge: nudge,
+      personalEmail: nudge === "make-personal-primary" ? identity.personalEmail : null,
+      csrfToken: services.sessions.csrfToken(session.id),
+    };
+    return noStore(NextResponse.json(payload));
+  } catch {
+    return noStore(NextResponse.json(none));
+  }
 }
 
 /**
@@ -414,4 +460,28 @@ export function removePersonalEmailRoute(request: NextRequest) {
     await services.skyAccount.removePersonalEmail(auth);
     return noStore(new NextResponse(null, { status: 204 }));
   });
+}
+
+/**
+ * `POST /api/account/email/nudge/dismiss`: `{ nudge }` → the K4c nudge stays
+ * dismissed for this person on every device. Exact origin, session CSRF,
+ * access gate and session; no Sudo mode, no SPI call and no budget, because
+ * it changes nothing about the account and writes at most one row per nudge
+ * (idempotent). `204`, also when it was already dismissed.
+ */
+export async function dismissPrimaryEmailNudgeRoute(request: NextRequest) {
+  const services = getAuthServices();
+  const authorization = await authenticateMutation(request, services);
+  if (!authorization.ok) return authorization.response;
+  const session = authorization.value.session;
+  try {
+    const body = await readJsonBody(request);
+    if (!isPrimaryEmailNudge(body.nudge)) {
+      return finish(problemResponse(400, { error: "invalid_request", detail: identityRouteCopy.invalidRequest }), authorization.value);
+    }
+    await services.noticeDismissals.dismiss(session.subject, body.nudge);
+    return finish(noStore(new NextResponse(null, { status: 204 })), authorization.value);
+  } catch (error) {
+    return finish(await accountFailureResponse(request, services, session, error), authorization.value);
+  }
 }
