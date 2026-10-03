@@ -129,7 +129,7 @@ Sürüm akışı, migration sırası, doğrulama ve geri dönüş [rollout-v2.md
   ```
 
 - `/api/health` yalnız proses canlılığını; `/api/ready` ortam yapılandırmasının ayrıştırılabildiğini, PostgreSQL tablolarını ve migration kayıtlarını ve gerekli erişim engeli sınırını doğrular. Trafik yalnız readiness başarılı olduğunda yönlendirilmelidir.
-- Keycloak kullanıcı token'ı sözleşmesi bugün `aud` için iki küme kabul eder (`{account, core}` ve eski `{account}`); eski küme her kabulde `token_audience_legacy` olayı üretir ve sıfır olduğu kanıtlanınca kaldırılacaktır ([Keycloak sözleşmesi](docs/keycloak-26.7.4-contract.md#geçiş-sırası)).
+- Keycloak kullanıcı token'ı sözleşmesi `aud` için yalnız `{account, core}` kümesini kabul eder. K2 geçişinde kabul edilen eski `{account}` kümesi ve `token_audience_legacy` log olayı kaldırıldı (A0c): eski biçimli token reddedilir ([Keycloak sözleşmesi](docs/keycloak-26.7.4-contract.md#geçiş-sırası)).
 
 ## Ayrıntılı belgeler
 

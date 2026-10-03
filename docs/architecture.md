@@ -53,7 +53,7 @@ OIDC kimliği doğrulandıktan sonra ve her oturum kullanımında, issuer ve sub
 
 ## Keycloak ve token sözleşmesi
 
-Account Center service account ya da Admin REST kullanmaz. Oturumdaki kullanıcı access token'ı pinli sözleşmeyi (`azp=account-center`, `scope=openid`, `aud` kümesi, `manage-account` + `view-profile`, core rolü yok) karşılamadan hiçbir upstream çağrısı yapılmaz. Bugün `aud` için iki küme kabul edilir (`{account, core}` ve eski `{account}`; sıkılaştırma A0c bekliyor): bkz. [Keycloak sözleşmesi](keycloak-26.7.4-contract.md#kullanıcı-access-token-sözleşmesi). Account REST adaptörü yalnız `GET`/`DELETE` yapar, yanıtta bilinen alan/tür sözleşmesinden sapma fail-closed olur (API `application/problem+json`, sayfalar güvenli Türkçe durum kartı).
+Account Center service account ya da Admin REST kullanmaz. Oturumdaki kullanıcı access token'ı pinli sözleşmeyi (`azp=account-center`, `scope=openid`, `aud` kümesi, `manage-account` + `view-profile`, core rolü yok) karşılamadan hiçbir upstream çağrısı yapılmaz. `aud` tam olarak `{account, core}` olmalıdır; K2 geçişinde kabul edilen eski `{account}` kümesi A0c ile kaldırıldı ve reddedilir: bkz. [Keycloak sözleşmesi](keycloak-26.7.4-contract.md#kullanıcı-access-token-sözleşmesi). Account REST adaptörü yalnız `GET`/`DELETE` yapar, yanıtta bilinen alan/tür sözleşmesinden sapma fail-closed olur (API `application/problem+json`, sayfalar güvenli Türkçe durum kartı).
 
 ## sky-account SPI istemcisi
 
@@ -127,7 +127,6 @@ Migration'lar `scripts/migrate.mjs` ile sırayla uygulanır (`account_center_sch
 
 ## Açık işler
 
-- **A0c**: `aud` sözleşmesini tek kümeye daraltmak (`token_audience_legacy` sıfır olduğu kanıtlanınca; [Keycloak sözleşmesi](keycloak-26.7.4-contract.md#geçiş-sırası)).
 - **K4b**: parola sıfırlamanın (reset credentials) de okul ya da kişisel adresi tanıması devam ediyor (e-skylab-keycloak; [rollout-v2.md](rollout-v2.md#bekleyen-işler)).
 - **Hesap silme açılışı** (`ACCOUNT_ERASURE_MODE=enforce`): core'un diğer servislere silme komutları ve kapılar tamamlanınca ([account-deletion.md](account-deletion.md#account_erasure_mode-ve-açılış-kapıları)).
 - Mobil `/.well-known` değerleri (Mobile Lab) ve kök alan adı proxy'si (OPS1b).

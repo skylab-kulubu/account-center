@@ -31,7 +31,10 @@ const signingKeys = generateKeyPair("RS256", { modulusLength: 2048 });
  * JWKS publishes, so every claim reaches the protocol only through signature
  * validation.
  */
-async function signedExchange(idClaims: Record<string, unknown>) {
+async function signedExchange(
+  idClaims: Record<string, unknown>,
+  accessTokenAudience: string | string[] = ["account", "core"],
+) {
   const keys = await signingKeys;
   const publicKey = await exportJWK(keys.publicKey);
   publicKey.kid = "exchange-test-key";
@@ -59,7 +62,7 @@ async function signedExchange(idClaims: Record<string, unknown>) {
   })
     .setProtectedHeader({ alg: "RS256", kid: publicKey.kid, typ: "JWT" })
     .setIssuer(config.issuer.href)
-    .setAudience(["account", "core"])
+    .setAudience(accessTokenAudience)
     .setSubject("user-id")
     .setIssuedAt(issuedAt)
     .setExpirationTime(issuedAt + 300)
@@ -310,6 +313,18 @@ describe("OAuth4WebApiProtocol", () => {
       authenticatedAt: new Date((issuedAt - 60) * 1_000),
     });
     await expect(signedExchange({})).rejects.toBeInstanceOf(OidcContractError);
+  });
+
+  it.each([
+    ["the pre-K2 account-only audience as a list", ["account"]],
+    ["the pre-K2 account-only audience as a bare string", "account"],
+    ["the core audience alone", ["core"]],
+    ["an extra audience", ["account", "core", "skyforms"]],
+  ])("refuses a login whose access token carries %s", async (_label, audience) => {
+    const issuedAt = Math.floor(Date.now() / 1_000);
+
+    await expect(signedExchange({ auth_time: issuedAt - 60 }, audience))
+      .rejects.toBeInstanceOf(OidcContractError);
   });
 
   it("reads the Keycloak session start and the SkyApp marker from the signature-validated ID token", async () => {
