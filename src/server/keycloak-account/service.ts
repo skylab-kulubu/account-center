@@ -13,7 +13,6 @@ import { KeycloakAccountUnauthorizedError } from "@/server/keycloak-account/adap
 import { KeycloakAccountContractError } from "@/server/keycloak-account/schema";
 import type {
   AccountSession,
-  CredentialInventory,
   KeycloakAccountReadAdapter,
 } from "@/server/keycloak-account/types";
 
@@ -191,30 +190,8 @@ export class AccountReadService {
     return this.#read(session, (accessToken) => this.adapter.profile(accessToken));
   }
 
-  authentication(session: SessionIdentity) {
-    return this.#read(session, (accessToken) => this.adapter.authentication(accessToken));
-  }
-
-  credentialInventory(session: SessionIdentity): Promise<CredentialInventory> {
-    return this.#read(session, (accessToken) => this.adapter.credentialInventory(accessToken));
-  }
-
-  sessionsList(session: SessionIdentity) {
-    return this.#read(session, async (accessToken) =>
-      this.#validatedSessions(await this.adapter.sessions(accessToken)));
-  }
-
   groups(session: SessionIdentity) {
     return this.#read(session, (accessToken) => this.adapter.groups(accessToken));
-  }
-
-  linkedAccounts(session: SessionIdentity) {
-    return this.#read(session, (accessToken) => this.adapter.linkedAccounts(accessToken));
-  }
-
-  linkedAccountUri(session: SessionIdentity, providerAlias: string, redirectUri: URL) {
-    return this.#read(session, (accessToken) =>
-      this.adapter.linkedAccountUri(accessToken, providerAlias, redirectUri));
   }
 
   managedSessions(session: SessionIdentity) {
@@ -252,16 +229,6 @@ export class AccountReadService {
         this.adapter.authentication(accessToken),
       ]);
       return { profile, authentication };
-    });
-  }
-
-  snapshot(session: SessionIdentity) {
-    return this.#read(session, async (accessToken) => {
-      const snapshot = await this.adapter.snapshot(accessToken);
-      return {
-        ...snapshot,
-        sessions: this.#managedSessions(session, snapshot.sessions),
-      };
     });
   }
 }

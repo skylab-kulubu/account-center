@@ -27,7 +27,6 @@ const pages = [
   "/api/auth/login",
   "/api/auth/callback",
   "/api/auth/unavailable",
-  "/api/account",
   "/api/account/identity",
   "/api/account/email",
   "/api/account/email/pending",

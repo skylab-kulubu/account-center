@@ -49,13 +49,13 @@ Adaptör (`src/server/keycloak-account/adapter.ts`, taban `${OIDC_ISSUER}/accoun
 
 | Uç | Kullanan | Not |
 | --- | --- | --- |
-| `GET /account/?userProfileMetadata=true` | `/` özeti, kulüp profili (core kapalıyken kimlik özeti), `GET /api/account` | View model: kullanıcı adı, ad, soyad, birincil e-posta ve doğrulanma, yalnız `schoolEmail`/`personalEmail`/`skyNumber`/`department`/`university` öznitelikleri (ilk değer) ve `userProfileMetadata.attributes[]` içinden `name`/`displayName`/`required`/`readOnly`/`validators`/`annotations`. Diğer öznitelikler (`skyMail`, `usernameChangedAt`, `locale`…) düşer. |
-| `GET /account/credentials` | `/` özeti, `GET /api/account` | Yalnız parola/OTP/passkey özeti; credential kimlikleri ve verileri tarayıcıya çıkmaz. |
-| `GET /account/sessions`, `GET /account/sessions/devices` | Oturumlar sayfası, `GET /api/account` | `/sessions` kanonik listedir; `devices` isteğe bağlıdır (`404` kabul edilir) ve yalnız işletim sistemi/cihaz etiketi sağlar. IP adresleri, istemci listeleri ve Keycloak oturum kimlikleri tarayıcıya çıkmaz. |
+| `GET /account/?userProfileMetadata=true` | `/` özeti, kulüp profili (core kapalıyken kimlik özeti) | View model: kullanıcı adı, ad, soyad, birincil e-posta ve doğrulanma, yalnız `schoolEmail`/`personalEmail`/`skyNumber`/`department`/`university` öznitelikleri (ilk değer) ve `userProfileMetadata.attributes[]` içinden `name`/`displayName`/`required`/`readOnly`/`validators`/`annotations`. Diğer öznitelikler (`skyMail`, `usernameChangedAt`, `locale`…) düşer. |
+| `GET /account/credentials` | `/` özeti | Yalnız parola/OTP/passkey özeti; credential kimlikleri ve verileri tarayıcıya çıkmaz. |
+| `GET /account/sessions`, `GET /account/sessions/devices` | Oturumlar sayfası | `/sessions` kanonik listedir; `devices` isteğe bağlıdır (`404` kabul edilir) ve yalnız işletim sistemi/cihaz etiketi sağlar. IP adresleri, istemci listeleri ve Keycloak oturum kimlikleri tarayıcıya çıkmaz. |
 | `GET /account/groups?briefRepresentation=false` | Yetkilerim | Yalnız grup `id`/`name`/`path`/`attributes` (ör. `display_name_tr`); `realmRoles`/`clientRoles` düşer. |
 | `DELETE /account/sessions/{id}`, `DELETE /account/sessions` | Oturumlar sayfası | Aşağıda. |
 
-Adaptör `GET /account/linked-accounts` ve `GET /account/linked-accounts/{alias}` okumalarını da uygular, fakat hiçbir sayfa ya da uç onları çağırmaz (fixture'larla sabitlenmiş, kullanılmayan yüzey). Keycloak 26.7.4'te `linked-accounts/{alias}` **deprecated**'dir: `allow-client-initiated-account-linking` açık değilse `404` döner ve açıkken bile `client_id=account-console` ile URI üretir. YTÜ hesabı bağlama bu yüzden Account REST ile değil `kc_action=idp_link` ile yapılır ([aşağıda](#zorunlu-yeniden-doğrulama-ve-tek-application-initiated-action-idp_link)).
+Account Center `GET /account/linked-accounts` okumaz (kullanılmayan adaptör yüzeyi 2026-10'da kaldırıldı). Keycloak 26.7.4'te `linked-accounts/{alias}` **deprecated**'dir: `allow-client-initiated-account-linking` açık değilse `404` döner ve açıkken bile `client_id=account-console` ile URI üretir. YTÜ hesabı bağlama bu yüzden Account REST ile değil `kc_action=idp_link` ile yapılır ([aşağıda](#zorunlu-yeniden-doğrulama-ve-tek-application-initiated-action-idp_link)).
 
 ### Oturum silme
 
@@ -97,4 +97,4 @@ Taban `${OIDC_ISSUER}/sky-account/v1`; istemci aynı kullanıcı access token'ı
 
 ## Keycloak sürümü ve fixture'lar
 
-Account Center `26.7.4`'e sabitlenmiştir; Keycloak, SPI ve fixture'lar birlikte yükseltilir. Account REST fixture'ları: `keycloak-26.7.4-account-{profile,credentials,sessions,devices,groups,linked-accounts,linked-account-uri}.json`; keşif: `keycloak-26.7.4-discovery.json` (ağ çağrısı yapmaz). Fixture'lar kasıtlı olarak sözleşme dışı öznitelikler, IP adresleri, credential kimlikleri ve grup rol eşlemeleri içerir; testler bunların view model'lere sızmadığını kanıtlar.
+Account Center `26.7.4`'e sabitlenmiştir; Keycloak, SPI ve fixture'lar birlikte yükseltilir. Account REST fixture'ları: `keycloak-26.7.4-account-{profile,credentials,sessions,devices,groups}.json`; keşif: `keycloak-26.7.4-discovery.json` (ağ çağrısı yapmaz). Fixture'lar kasıtlı olarak sözleşme dışı öznitelikler, IP adresleri, credential kimlikleri ve grup rol eşlemeleri içerir; testler bunların view model'lere sızmadığını kanıtlar.

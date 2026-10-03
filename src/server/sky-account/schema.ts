@@ -48,7 +48,7 @@ const attachmentValues = new Set(["platform", "cross-platform"]);
 const attestationValues = new Set(["none", "indirect", "direct", "enterprise"]);
 const CREDENTIAL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 const MAX_CREDENTIALS = 64;
-const credentialTypes = new Set(["otp", "webauthn-passwordless", "webauthn"]);
+const credentialTypes = new Set(["otp", "webauthn-passwordless"]);
 const primaryValues = new Set(["school", "personal", "none"]);
 const otpAlgorithms = new Set(["SHA1", "SHA256", "SHA512"]);
 
@@ -103,7 +103,7 @@ function parseCredentialList(value: unknown, allowed: ReadonlySet<string>) {
 }
 
 const totpTypes = new Set(["otp"]);
-const passkeyTypes = new Set(["webauthn-passwordless", "webauthn"]);
+const passkeyTypes = new Set(["webauthn-passwordless"]);
 
 export function parseIdentity(value: unknown): SkyAccountIdentity {
   if (

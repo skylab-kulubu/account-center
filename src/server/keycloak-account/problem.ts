@@ -7,7 +7,6 @@ import {
 } from "@/server/keycloak-account/access-token";
 import {
   KeycloakAccountForbiddenError,
-  KeycloakAccountLinkingDisabledError,
   KeycloakAccountUnauthorizedError,
   KeycloakAccountUnavailableError,
 } from "@/server/keycloak-account/adapter";
@@ -46,14 +45,6 @@ export function toAccountProblem(error: unknown): AccountProblem {
       title: "Yeniden giriş yapman gerekiyor",
       status: 401,
       detail: "Kimlik oturumun yenilenemedi. Güvenli biçimde devam etmek için yeniden giriş yap.",
-    };
-  }
-  if (error instanceof KeycloakAccountLinkingDisabledError) {
-    return {
-      type: "https://my.yildizskylab.com/problems/account-linking-unavailable",
-      title: "Hesap bağlama şu anda kullanılamıyor",
-      status: 503,
-      detail: "Kimlik sağlayıcısı bağlantı akışı bu ortamda kapalı. Hesap bilgilerin değişmedi.",
     };
   }
   if (error instanceof KeycloakAccountUnavailableError) {

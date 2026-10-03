@@ -4,14 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import credentialsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-credentials.json";
 import devicesFixture from "../../../tests/fixtures/keycloak-26.7.4-account-devices.json";
 import groupsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-groups.json";
-import linkedAccountUriFixture from "../../../tests/fixtures/keycloak-26.7.4-account-linked-account-uri.json";
-import linkedAccountsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-linked-accounts.json";
 import profileFixture from "../../../tests/fixtures/keycloak-26.7.4-account-profile.json";
 import sessionsFixture from "../../../tests/fixtures/keycloak-26.7.4-account-sessions.json";
 import {
   Keycloak26AccountReadAdapter,
   KeycloakAccountForbiddenError,
-  KeycloakAccountLinkingDisabledError,
   KeycloakAccountUnavailableError,
   KeycloakAccountUnauthorizedError,
 } from "@/server/keycloak-account/adapter";
@@ -47,14 +44,6 @@ function accountRest(overrides: Partial<Record<string, () => Response>> = {}) {
       expect(url.searchParams.get("briefRepresentation")).toBe("false");
       return json(groupsFixture);
     }
-    if (route === "/linked-accounts") {
-      expect([...url.searchParams.keys()]).toEqual([]);
-      return json(linkedAccountsFixture);
-    }
-    if (route === "/linked-accounts/OBS") {
-      expect(url.searchParams.get("redirectUri")).toBe("https://my.yildizskylab.com/identity");
-      return json(linkedAccountUriFixture);
-    }
     return new Response(null, { status: 404 });
   });
 }
@@ -64,9 +53,13 @@ afterEach(() => vi.restoreAllMocks());
 describe("Keycloak26AccountReadAdapter", () => {
   it("calls only the user Account REST endpoints and returns normalized data", async () => {
     const request = accountRest();
-    const snapshot = await new Keycloak26AccountReadAdapter(issuer, request).snapshot(
-      "server-held-user-token",
-    );
+    const adapter = new Keycloak26AccountReadAdapter(issuer, request);
+    const [profile, authentication, sessions] = await Promise.all([
+      adapter.profile("server-held-user-token"),
+      adapter.authentication("server-held-user-token"),
+      adapter.sessions("server-held-user-token"),
+    ]);
+    const snapshot = { profile, authentication, sessions };
     expect(snapshot.profile).toMatchObject({
       username: "account-fixture",
       firstName: "Ada",
@@ -106,55 +99,6 @@ describe("Keycloak26AccountReadAdapter", () => {
     expect(requestUrl(request.mock.calls[0]![0]).href).toBe(
       "https://e.yildizskylab.com/realms/e-skylab/account/groups?briefRepresentation=false",
     );
-  });
-
-  it("reads linked identity providers in one request", async () => {
-    const request = accountRest();
-    const accounts = await new Keycloak26AccountReadAdapter(issuer, request).linkedAccounts(
-      "server-held-user-token",
-    );
-    expect(accounts).toEqual([
-      expect.objectContaining({ providerAlias: "OBS", connected: true, linkedUsername: "ada@std.yildiz.edu.tr" }),
-      expect.objectContaining({ providerAlias: "github", connected: false, linkedUsername: null }),
-    ]);
-    expect(request).toHaveBeenCalledTimes(1);
-    expect(requestUrl(request.mock.calls[0]![0]).href).toBe(
-      "https://e.yildizskylab.com/realms/e-skylab/account/linked-accounts",
-    );
-  });
-
-  it("builds a link URI only on demand and only for a realm broker link", async () => {
-    const request = accountRest();
-    const adapter = new Keycloak26AccountReadAdapter(issuer, request);
-    const uri = await adapter.linkedAccountUri(
-      "server-held-user-token",
-      "OBS",
-      new URL("https://my.yildizskylab.com/identity"),
-    );
-    expect(uri.href).toBe(linkedAccountUriFixture.accountLinkUri);
-    expect(request).toHaveBeenCalledTimes(1);
-    expect(requestUrl(request.mock.calls[0]![0]).href).toBe(
-      "https://e.yildizskylab.com/realms/e-skylab/account/linked-accounts/OBS?redirectUri=https%3A%2F%2Fmy.yildizskylab.com%2Fidentity",
-    );
-
-    await expect(adapter.linkedAccountUri("server-held-user-token", "../admin", new URL("https://my.yildizskylab.com/")))
-      .rejects.toBeInstanceOf(KeycloakAccountContractError);
-    await expect(adapter.linkedAccountUri("server-held-user-token", "OBS", new URL("http://my.yildizskylab.com/")))
-      .rejects.toBeInstanceOf(KeycloakAccountContractError);
-    expect(request).toHaveBeenCalledTimes(1);
-  });
-
-  it("reports the deprecated link endpoint as disabled when Keycloak answers 404", async () => {
-    const request = accountRest({
-      "/linked-accounts/OBS": () => json({ error: "Legacy client-initiated account linking is disabled." }, 404),
-    });
-    const rejection = new Keycloak26AccountReadAdapter(issuer, request).linkedAccountUri(
-      "server-held-user-token",
-      "OBS",
-      new URL("https://my.yildizskylab.com/identity"),
-    );
-    await expect(rejection).rejects.toBeInstanceOf(KeycloakAccountLinkingDisabledError);
-    await expect(rejection).rejects.not.toThrow(/Legacy/);
   });
 
   it("keeps canonical sessions when optional device activity is absent", async () => {
@@ -202,9 +146,6 @@ describe("Keycloak26AccountReadAdapter", () => {
       vi.fn().mockResolvedValue(new Response(null, { status: 404 })),
     );
     await expect(missingGroups.groups("token")).rejects.toBeInstanceOf(KeycloakAccountUnavailableError);
-    await expect(missingGroups.linkedAccounts("token")).rejects.toBeInstanceOf(
-      KeycloakAccountUnavailableError,
-    );
   });
 
   it("rejects oversized Account REST responses before parsing", async () => {
@@ -278,15 +219,11 @@ describe("Keycloak26AccountReadAdapter", () => {
     const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(adapter)).filter((name) => name !== "constructor");
     expect(methods.sort()).toEqual([
       "authentication",
-      "credentialInventory",
       "groups",
-      "linkedAccountUri",
-      "linkedAccounts",
       "profile",
       "revokeOtherSessions",
       "revokeSession",
       "sessions",
-      "snapshot",
     ]);
   });
 });

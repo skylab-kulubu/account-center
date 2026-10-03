@@ -8,16 +8,19 @@ import {
   PostgresRateLimitRepository,
   PostgresSessionRepository,
 } from "@/server/auth/postgres-repositories";
+import { isolatedSchema } from "@/test/isolated-schema";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const databaseDescribe = databaseUrl ? describe : describe.skip;
 
 databaseDescribe("PostgreSQL authentication repositories", () => {
-  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const database = isolatedSchema(databaseUrl, "account_auth_repositories_test");
+  const pool = database.pool;
 
   beforeAll(async () => {
-    // The shared public schema stops at 0007, the state between deploying this build and running
-    // 0008; sudo.integration re-applies 0003 here concurrently. The post-0008 schema is tested below.
+    // This schema stops at 0007, the state between deploying a build and running 0008;
+    // the post-0008 schema is tested below in a schema of its own.
+    await database.create();
     for (const migrationName of [
       "0001_bff_web_sessions.sql",
       "0002_auth_security_controls.sql",
@@ -39,7 +42,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
   });
 
   afterAll(async () => {
-    await pool.end();
+    await database.drop();
   });
 
   it("atomically consumes one matching browser-bound transaction", async () => {

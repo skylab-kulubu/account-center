@@ -18,15 +18,10 @@ const pageData = vi.hoisted(() => ({
       authentication: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
     },
   },
-  authentication: {
-    ok: true as const,
-    value: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
-  },
 }));
 
 vi.mock("@/server/keycloak-account/page-data", () => ({
   loadOverview: vi.fn(async () => pageData.overview),
-  loadAuthentication: vi.fn(async () => pageData.authentication),
 }));
 
 vi.mock("next/navigation", () => ({

@@ -3,11 +3,8 @@ import "server-only";
 import {
   KeycloakAccountContractError,
   parseAuthenticationSummary,
-  parseCredentialInventory,
   parseDeviceHints,
   parseGroups,
-  parseLinkedAccountUri,
-  parseLinkedAccounts,
   parseProfile,
   parseSessions,
 } from "@/server/keycloak-account/schema";
@@ -18,11 +15,9 @@ import type {
   AccountSession,
   AuthenticationSummary,
   KeycloakAccountReadAdapter,
-  LinkedAccount,
 } from "@/server/keycloak-account/types";
 
 const MAX_ACCOUNT_RESPONSE_BYTES = 512 * 1_024;
-const providerAliasShape = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 
 export class KeycloakAccountUnauthorizedError extends Error {
   constructor() {
@@ -45,26 +40,12 @@ export class KeycloakAccountUnavailableError extends Error {
   }
 }
 
-/**
- * Keycloak 26.7.4 answers 404 on `GET /account/linked-accounts/{alias}` unless
- * the deprecated `allow-client-initiated-account-linking` login protocol option
- * is enabled; the supported path is the `idp_link` application-initiated action.
- */
-export class KeycloakAccountLinkingDisabledError extends Error {
-  constructor() {
-    super("Keycloak client-initiated account linking is disabled.");
-    this.name = "KeycloakAccountLinkingDisabledError";
-  }
-}
-
 type AccountReadPath =
   | ""
   | "credentials"
   | "sessions"
   | "sessions/devices"
-  | "groups"
-  | "linked-accounts"
-  | `linked-accounts/${string}`;
+  | "groups";
 
 async function readBoundedJson(response: Response, resource: KeycloakAccountResource) {
   const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
@@ -180,10 +161,6 @@ export class Keycloak26AccountReadAdapter implements KeycloakAccountReadAdapter 
     return parseAuthenticationSummary(await this.#read("credentials", "credentials", accessToken));
   }
 
-  async credentialInventory(accessToken: string) {
-    return parseCredentialInventory(await this.#read("credentials", "credentials", accessToken));
-  }
-
   async sessions(accessToken: string): Promise<AccountSession[]> {
     const [sessions, devices] = await Promise.all([
       this.#read("sessions", "sessions", accessToken),
@@ -196,33 +173,6 @@ export class Keycloak26AccountReadAdapter implements KeycloakAccountReadAdapter 
     return parseGroups(await this.#read("groups", "groups", accessToken, {
       query: { briefRepresentation: "false" },
     }));
-  }
-
-  async linkedAccounts(accessToken: string): Promise<LinkedAccount[]> {
-    return parseLinkedAccounts(await this.#read("linked-accounts", "linked-accounts", accessToken));
-  }
-
-  async linkedAccountUri(accessToken: string, providerAlias: string, redirectUri: URL): Promise<URL> {
-    if (!providerAliasShape.test(providerAlias) || redirectUri.protocol !== "https:") {
-      throw new KeycloakAccountContractError("linked-account-uri");
-    }
-    const body = await this.#read(
-      "linked-account-uri",
-      `linked-accounts/${encodeURIComponent(providerAlias)}`,
-      accessToken,
-      { optional: true, query: { redirectUri: redirectUri.href } },
-    );
-    if (body === null) throw new KeycloakAccountLinkingDisabledError();
-    return parseLinkedAccountUri(body, this.issuer, providerAlias);
-  }
-
-  async snapshot(accessToken: string) {
-    const [profile, authentication, sessions] = await Promise.all([
-      this.profile(accessToken),
-      this.authentication(accessToken),
-      this.sessions(accessToken),
-    ]);
-    return { profile, authentication, sessions };
   }
 
   revokeSession(accessToken: string, sessionId: string) {
