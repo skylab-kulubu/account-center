@@ -23,7 +23,6 @@ export type AuthConfig = {
   databaseUrl: string;
   sessionHmacKey: Buffer;
   tokenEncryptionKey: Buffer;
-  oidcTransactionTtlSeconds: number;
   sessionAbsoluteTtlSeconds: number;
   sessionIdleTtlSeconds: number;
   sessionRotationSeconds: number;
@@ -40,6 +39,21 @@ export type AuthConfig = {
    */
   ytuIdpAlias: string;
 };
+
+/**
+ * How long a login, Sudo mode's Microsoft fallback or the YTÜ link may take
+ * between the redirect to Keycloak and the callback. The server-side OIDC
+ * transaction and its `__Host-sky-account-txn` cookie both live this long.
+ * 15 minutes is the lifetime Auth.js gives its state and PKCE cookies, and it
+ * stays within the realm's login timeout (`accessCodeLifespanLogin`, 30
+ * minutes in e-skylab-keycloak `config/account-center-realm.json`), after
+ * which Keycloak itself no longer completes the login. The PAR `request_uri`
+ * lifetime (`expires_in`, 60 s by default) bounds only the redirect to the
+ * authorization endpoint, never the login, so it does not shorten this.
+ * The one source of the lifetime: `services.ts` gives it to the transaction
+ * store and `setOidcTransactionCookie` to the cookie.
+ */
+export const OIDC_TRANSACTION_TTL_SECONDS = 15 * 60;
 
 /** A Keycloak identity provider alias as this deployment accepts it: one URL-safe path segment. */
 export const YTU_IDP_ALIAS_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -196,7 +210,6 @@ export function getAuthConfig(): AuthConfig {
     databaseUrl: required("DATABASE_URL"),
     sessionHmacKey,
     tokenEncryptionKey,
-    oidcTransactionTtlSeconds: 5 * 60,
     sessionAbsoluteTtlSeconds: Math.min(8 * 60 * 60, upstreamSessionMaxSeconds),
     sessionIdleTtlSeconds: 30 * 60,
     sessionRotationSeconds: 15 * 60,

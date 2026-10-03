@@ -90,7 +90,7 @@ const waiting = (address: string, attemptsLeft: number, secondsLeft = 360, expir
 });
 const codeLimit = {
   status: 429,
-  body: { error: "code_limit", detail: "Bir saatte en fazla üç doğrulama kodu isteyebilirsin.", retryAfter: 1_800 },
+  body: { error: "code_limit", detail: "Şu anda yeni doğrulama kodu istenemiyor: bir saatte en fazla üç kod gönderilir, kısa sürede yapılan hesap değişikliklerinin de bir sınırı var.", retryAfter: 1_800 },
 };
 
 async function findNotice(text: string | RegExp) {
@@ -370,7 +370,7 @@ describe("EmailManager", () => {
       expect(api.of("confirm")).toHaveLength(0);
     });
 
-    it("says three codes an hour and when to ask again, and keeps the generic wait for too many tries", async () => {
+    it("says why no code can be sent now and when to ask again, and keeps the generic wait for too many tries", async () => {
       mockApi({
         email: [{ body: payload() }],
         change: [codeSent, codeLimit],
@@ -387,17 +387,17 @@ describe("EmailManager", () => {
 
       fireEvent.click(within(form).getByRole("button", { name: "Yeni kod gönder" }));
       expect(await within(form).findByText(
-        "Bir saatte en fazla üç doğrulama kodu isteyebilirsin. Yeniden denemek için bekle: 30 dakika.",
+        "Şu anda yeni doğrulama kodu istenemiyor: bir saatte en fazla üç kod gönderilir, kısa sürede yapılan hesap değişikliklerinin de bir sınırı var. Yeniden denemek için bekle: 30 dakika.",
       )).toBeInTheDocument();
       expect(within(form).getByRole("button", { name: "Yeni kod gönder" })).toBeDisabled();
     });
 
-    it("says three codes an hour on the first request too", async () => {
+    it("says why no code can be sent on the first request too", async () => {
       mockApi({ email: [{ body: payload() }], change: [codeLimit] });
       render(<EmailManager />);
       const form = await sendCode("new@example.com");
       expect(await within(form).findByRole("alert")).toHaveTextContent(
-        "Bir saatte en fazla üç doğrulama kodu isteyebilirsin. Yeniden denemek için bekle: 30 dakika.",
+        "Şu anda yeni doğrulama kodu istenemiyor: bir saatte en fazla üç kod gönderilir, kısa sürede yapılan hesap değişikliklerinin de bir sınırı var. Yeniden denemek için bekle: 30 dakika.",
       );
       expect(within(form).getByRole("button", { name: "Kod gönder" })).toBeDisabled();
     });

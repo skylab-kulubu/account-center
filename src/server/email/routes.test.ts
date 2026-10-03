@@ -327,7 +327,7 @@ describe("e-mail BFF routes", () => {
       expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "invalid_address", addressAction: "change_request" }));
     });
 
-    it("maps a taken, refused or unsendable address and the SPI's hourly budget", async () => {
+    it("maps a taken, refused or unsendable address and the SPI's budgets", async () => {
       routeMocks.requestEmailChange.mockRejectedValueOnce(problem("email_taken"));
       const taken = await change({ address: "ada@example.com" });
       expect(taken.status).toBe(409);
@@ -357,13 +357,15 @@ describe("e-mail BFF routes", () => {
       });
       expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "email_not_sent" }));
 
+      // The SPI answers the same 429 for its hourly code budget and for the shared 30-wide
+      // `mutation` budget (claimed first), so the answer names both and blames neither.
       routeMocks.requestEmailChange.mockRejectedValueOnce(problem("rate_limited"));
       const limited = await change({ address: "ada@example.com" });
       expect(limited.status).toBe(429);
       expect(limited.headers.get("retry-after")).toBe("540");
       await expect(limited.json()).resolves.toEqual({
         error: "code_limit",
-        detail: "Bir saatte en fazla üç doğrulama kodu isteyebilirsin.",
+        detail: "Şu anda yeni doğrulama kodu istenemiyor: bir saatte en fazla üç kod gönderilir, kısa sürede yapılan hesap değişikliklerinin de bir sınırı var.",
         retryAfter: 540,
       });
       expect(logAuthEvent).toHaveBeenLastCalledWith(expect.objectContaining({ reason: "rate_limited", addressAction: "change_request" }));

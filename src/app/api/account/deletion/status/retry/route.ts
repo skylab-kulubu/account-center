@@ -7,7 +7,7 @@ import {
   setAccountDeletionReceiptCookie,
 } from "@/server/auth/http";
 import { getAuthServices } from "@/server/auth/services";
-import { AccountDeletionProofError } from "@/server/account-deletion/orchestrator";
+import { accountDeletionErrorKind } from "@/server/account-deletion/orchestrator";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     setAccountDeletionReceiptCookie(response, result.receipt, new Date(result.receiptExpiresAt));
     return noStore(response);
   } catch (error) {
-    if (error instanceof AccountDeletionProofError) {
+    if (accountDeletionErrorKind(error) === "proof") {
       return noStore(NextResponse.json({ error: "invalid_request" }, { status: 400 }));
     }
     return noStore(NextResponse.json({ error: "unavailable" }, {

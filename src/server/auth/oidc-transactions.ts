@@ -49,14 +49,15 @@ export class OidcTransactionStore {
     private readonly clock: () => Date = () => new Date(),
   ) {}
 
-  async create(
-    payload: OidcTransactionPayload,
-    browserBinding: string,
-    maximumTtlSeconds = this.ttlSeconds,
-  ) {
+  /**
+   * Stores the transaction for the store's own lifetime. Nothing shortens it:
+   * the PAR `request_uri` lifetime bounds only the redirect to Keycloak, while
+   * the person may spend minutes there before the callback.
+   */
+  async create(payload: OidcTransactionPayload, browserBinding: string) {
     const id = randomUUID();
     const now = this.clock();
-    const ttlSeconds = Math.max(1, Math.min(this.ttlSeconds, maximumTtlSeconds));
+    const ttlSeconds = Math.max(1, this.ttlSeconds);
     await this.repository.insert({
       id,
       stateHash: sha256(payload.state),

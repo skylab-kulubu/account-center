@@ -286,7 +286,7 @@ async function readJsonBody(request: NextRequest, maxBytes: number): Promise<Rec
 
 async function rateLimited(
   services: Services,
-  scope: "sudo" | "sudo_options",
+  scope: "sudo" | "sudo_passkey" | "sudo_options",
   sessionId: string,
 ): Promise<NextResponse | null> {
   const limit = await services.anonymousRateLimit.consumeKey(scope, sessionId);
@@ -369,16 +369,23 @@ function requireCode(body: Record<string, unknown>) {
   return code;
 }
 
-const provers: Record<SudoMethod, { maxBytes: number; prove: SudoProver }> = {
+/**
+ * `budget` mirrors the SPI: password and TOTP share `sudo`, a passkey
+ * assertion (which cannot be guessed) counts against its own `sudo_passkey`.
+ */
+const provers: Record<SudoMethod, { budget: "sudo" | "sudo_passkey"; maxBytes: number; prove: SudoProver }> = {
   password: {
+    budget: "sudo",
     maxBytes: MAX_PROOF_BODY_BYTES,
     prove: (client, auth, body) => client.sudoPassword(auth, { password: requirePassword(body) }),
   },
   totp: {
+    budget: "sudo",
     maxBytes: MAX_PROOF_BODY_BYTES,
     prove: (client, auth, body) => client.sudoTotp(auth, { code: requireCode(body) }),
   },
   passkey: {
+    budget: "sudo_passkey",
     maxBytes: MAX_ASSERTION_BODY_BYTES,
     prove: (client, auth, body) => {
       const assertion = parseWebauthnAssertion(body.assertion);
@@ -401,7 +408,7 @@ export async function sudoProofRoute(request: NextRequest, method: SudoMethod) {
   const session = authorization.value.session;
   const prover = provers[method];
   try {
-    const limited = await rateLimited(services, "sudo", session.id);
+    const limited = await rateLimited(services, prover.budget, session.id);
     if (limited) {
       logAuthEvent({ event: "sudo_attempt", requestId, outcome: "failure", reason: "rate_limited", sudoMethod: method });
       return finish(limited, authorization.value);
