@@ -6,7 +6,12 @@ import type { PendingEmailChange, PrimaryEmailChoice } from "@/lib/email-fields"
  * `tests/fixtures/sky-account-v1-*.json`.
  */
 
-export type SkyAccountCredentialType = "otp" | "webauthn-passwordless" | "webauthn";
+/**
+ * The SPI lists only authenticator-app codes and passwordless passkeys; a
+ * legacy two-factor `webauthn` credential is never listed (its `Credentials`
+ * rule), so a listed one is contract drift.
+ */
+export type SkyAccountCredentialType = "otp" | "webauthn-passwordless";
 
 export type SkyAccountCredential = {
   id: string;
@@ -30,8 +35,8 @@ export type SkyAccountIdentity = {
   personalEmail: string | null;
   /**
    * The Personal e-mail was proven with the mailed code (the SPI's
-   * `personalEmailVerifiedAt` stamp). `false` without an address, and also
-   * when an SPI release older than the e-mail endpoints omits the member:
+   * `personalEmailVerifiedAt` stamp); `false` without an address. The SPI
+   * always sends it; the parser still reads a missing member as `false`, so
    * an address nobody is known to have proven is never offered as primary.
    */
   personalEmailVerified: boolean;

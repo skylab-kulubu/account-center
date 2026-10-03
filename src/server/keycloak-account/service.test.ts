@@ -90,25 +90,10 @@ function fixture(initial = tokenSet()) {
     groups: vi.fn().mockResolvedValue([
       { id: "group-id", name: "WEBLAB", path: "/ARGE/WEBLAB", attributes: { display_name_tr: ["WebLab"] } },
     ]),
-    linkedAccounts: vi.fn().mockResolvedValue([
-      { connected: true, providerAlias: "OBS", displayName: "YTÜ Microsoft", linkedUsername: null, social: false },
-    ]),
-    linkedAccountUri: vi.fn().mockResolvedValue(
-      new URL("https://e.yildizskylab.com/realms/e-skylab/broker/OBS/link?nonce=n&hash=h"),
-    ),
     authentication: vi.fn().mockResolvedValue({ passwordConfigured: true, otpConfigured: false, passkeyCount: 1 }),
-    credentialInventory: vi.fn().mockResolvedValue({
-      summary: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
-      credentials: [],
-    }),
     sessions: vi.fn().mockResolvedValue([]),
     revokeSession: vi.fn().mockResolvedValue(undefined),
     revokeOtherSessions: vi.fn().mockResolvedValue(undefined),
-    snapshot: vi.fn().mockResolvedValue({
-      profile: profile(),
-      authentication: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
-      sessions: [],
-    }),
   } satisfies KeycloakAccountReadAdapter;
   const oidc = {
     refresh: vi.fn().mockResolvedValue(tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) + 600 }))),
@@ -186,29 +171,18 @@ describe("AccountReadService", () => {
     expect(shortRealm.oidc.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("reads groups and linked accounts through the same refreshing token path", async () => {
+  it("reads groups through the same refreshing token path", async () => {
     const { service, adapter } = fixture();
     await expect(service.groups(session)).resolves.toEqual([
       expect.objectContaining({ path: "/ARGE/WEBLAB" }),
     ]);
-    await expect(service.linkedAccounts(session)).resolves.toEqual([
-      expect.objectContaining({ providerAlias: "OBS", connected: true }),
-    ]);
-    await expect(service.linkedAccountUri(session, "OBS", new URL("https://my.yildizskylab.com/identity")))
-      .resolves.toBeInstanceOf(URL);
     expect(adapter.groups).toHaveBeenCalledWith(expect.stringContaining("."));
-    expect(adapter.linkedAccounts).toHaveBeenCalledWith(expect.stringContaining("."));
-    expect(adapter.linkedAccountUri).toHaveBeenCalledWith(
-      expect.stringContaining("."),
-      "OBS",
-      new URL("https://my.yildizskylab.com/identity"),
-    );
   });
 
   it("refreshes an expired user token and compare-and-swaps encrypted token material", async () => {
     const expired = tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) - 1 }));
     const { service, oidc, vault } = fixture(expired);
-    await expect(service.authentication(session)).resolves.toMatchObject({ passwordConfigured: true });
+    await expect(service.overview(session)).resolves.toMatchObject({ authentication: { passwordConfigured: true } });
     expect(oidc.refresh).toHaveBeenCalledWith(expired);
     expect(vault.replaceTokens).toHaveBeenCalledWith(
       session.id,
@@ -328,12 +302,9 @@ describe("AccountReadService", () => {
     expect(JSON.stringify(managed)).not.toContain("keycloak-other-secret");
   });
 
-  it("keeps Keycloak session ids out of the combined browser snapshot", async () => {
+  it("keeps Keycloak session ids out of the browser's session list", async () => {
     const { service, adapter } = fixture();
-    adapter.snapshot.mockResolvedValue({
-      profile: profile(),
-      authentication: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
-      sessions: [{
+    adapter.sessions.mockResolvedValue([{
         id: "keycloak-session-secret",
         startedAt: "2026-09-20T08:00:00.000Z",
         lastAccessAt: "2026-09-20T10:00:00.000Z",
@@ -341,13 +312,12 @@ describe("AccountReadService", () => {
         browser: null,
         current: true,
         device: null,
-      }],
-    });
+      }]);
 
-    const snapshot = await service.snapshot(session);
+    const sessions = await service.managedSessions(session);
 
-    expect(snapshot.sessions[0]).toMatchObject({ reference: null, current: true });
-    expect(JSON.stringify(snapshot)).not.toContain("keycloak-session-secret");
+    expect(sessions[0]).toMatchObject({ reference: null, current: true });
+    expect(JSON.stringify(sessions)).not.toContain("keycloak-session-secret");
   });
 
   it("revokes only a non-current session selected from the authenticated user's live list", async () => {

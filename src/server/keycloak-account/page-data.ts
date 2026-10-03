@@ -5,11 +5,7 @@ import { getAuthServices } from "@/server/auth/services";
 import { currentAccountSession } from "@/server/access-gate/current-session";
 import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
-import type {
-  AccountOverview,
-  AccountSession,
-  AuthenticationSummary,
-} from "@/server/keycloak-account/types";
+import type { AccountOverview } from "@/server/keycloak-account/types";
 
 export type AccountPageData<T> =
   | { ok: true; value: T }
@@ -35,12 +31,4 @@ async function load<T>(
 
 export function loadOverview(): Promise<AccountPageData<AccountOverview>> {
   return load((services, session) => services.account.overview(session));
-}
-
-export function loadAuthentication(): Promise<AccountPageData<AuthenticationSummary>> {
-  return load((services, session) => services.account.authentication(session));
-}
-
-export function loadSessions(): Promise<AccountPageData<AccountSession[]>> {
-  return load((services, session) => services.account.sessionsList(session));
 }

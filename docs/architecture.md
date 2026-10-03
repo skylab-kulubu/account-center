@@ -95,7 +95,7 @@ Yazma uçları sırayla exact `Origin`, CSRF, erişim kapısı ve oturum doğrul
 | `/permissions` Yetkilerim | `sky_authorization` + Account REST `groups` | yok (salt okunur) | [aşağıda](#yetkilerim) |
 | `/delete-account` Hesabı sil | core silme komutu | `deletion/prepare`, `deletion`, `deletion/status`, `deletion/status/retry` | [account-deletion.md](account-deletion.md) |
 
-`GET /api/account` oturumlu çağrıya profil, kimlik bilgisi özeti ve oturum listesinin Account REST anlık görüntüsünü döndürür; hiçbir sayfa onu kullanmaz. `/personal-information` kalıcı olarak (308) `/identity`'ye yönlenir (`next.config.ts`; proxy'den önce çalışır). `/login` ve `/account-deletion` oturumsuz erişilebilen tek sayfalardır. Sayfalar sunucuda yalnız kabuğu üretir; `/identity`, `/email` ve `/security` verisini tarayıcıda ilgili uçlardan okur ve her değişiklikten sonra yeniden okur (liste sunucunun envanteridir, mutation yanıtı değil).
+`/personal-information` kalıcı olarak (308) `/identity`'ye yönlenir (`next.config.ts`; proxy'den önce çalışır). `/login` ve `/account-deletion` oturumsuz erişilebilen tek sayfalardır. Sayfalar sunucuda yalnız kabuğu üretir; `/identity`, `/email` ve `/security` verisini tarayıcıda ilgili uçlardan okur ve her değişiklikten sonra yeniden okur (liste sunucunun envanteridir, mutation yanıtı değil).
 
 ### Kulüp profili
 

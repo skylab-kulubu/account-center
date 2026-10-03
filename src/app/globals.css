@@ -1905,10 +1905,6 @@ a.settings-row:hover .settings-row__chevron {
   margin: 0 0 4px;
 }
 
-.security-credential[data-legacy] .settings-row__icon {
-  color: var(--ink-faint);
-}
-
 .security-empty .settings-row__icon {
   color: var(--ink-faint);
 }

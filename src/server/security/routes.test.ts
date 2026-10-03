@@ -186,7 +186,6 @@ describe("security BFF routes", () => {
         totp: [{ reference: totpReference, label: "Telefon", createdAt: "2026-09-21T13:10:41.130Z" }],
         passkeys: [
           { reference: passkeyReference, label: "MacBook", createdAt: "2026-09-01T08:00:00.000Z" },
-          { reference: referenceOf(identityFixture.credentials.passkeys[1]!.id), label: null, createdAt: null, legacy: true },
         ],
         sudo: {
           methods: ["password", "passkey", "totp"],

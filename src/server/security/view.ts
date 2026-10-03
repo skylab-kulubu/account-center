@@ -16,8 +16,6 @@ export type SecurityCredentialView = {
   createdAt: string | null;
   /** Passkeys only: transports the browser reported at registration. */
   transports?: string[];
-  /** A legacy two-factor `webauthn` credential: not a passkey, cannot prove sudo, may only be removed. */
-  legacy?: true;
 };
 
 export type SecurityView = {
@@ -48,7 +46,6 @@ function row(
     label: credential.label,
     createdAt: credential.createdAt,
     ...(credential.transports ? { transports: [...credential.transports] } : {}),
-    ...(credential.type === "webauthn" ? { legacy: true as const } : {}),
   };
 }
 
