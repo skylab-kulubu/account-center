@@ -2,6 +2,7 @@ import "server-only";
 
 import { secondsLeftUntil } from "@/lib/email-fields";
 import type { PendingEmailChange } from "@/lib/email-fields";
+import type { PrimaryEmailNudge } from "@/lib/primary-email-nudge";
 import type {
   EmailChangeRequest,
   SkyAccountIdentity,
@@ -26,8 +27,22 @@ export type EmailView = {
   personalEmailVerified: boolean;
 };
 
-/** Public JSON of `GET /api/account/email`: the view plus the session CSRF proof. */
-export type EmailPayload = EmailView & { csrfToken: string };
+/**
+ * Public JSON of `GET /api/account/email`: the view plus the session CSRF
+ * proof and the K4c nudge to show (`null`: none, also when it was dismissed
+ * or the dismissals could not be read).
+ */
+export type EmailPayload = EmailView & { csrfToken: string; primaryEmailNudge: PrimaryEmailNudge | null };
+
+/**
+ * Public JSON of `GET /api/account/email/nudge`, the overview's K4c nudge:
+ * `{ primaryEmailNudge: null }` when there is none (or it cannot be told),
+ * otherwise the nudge, the proven Personal e-mail it names (`null` for
+ * `add-personal`) and the CSRF proof for "Bir daha gösterme".
+ */
+export type PrimaryEmailNudgePayload =
+  | { primaryEmailNudge: null }
+  | { primaryEmailNudge: PrimaryEmailNudge; personalEmail: string | null; csrfToken: string };
 
 /**
  * Public JSON of `GET /api/account/email/pending`: the person's own change

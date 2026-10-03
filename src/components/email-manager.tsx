@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { ModalDialog } from "@/components/modal-dialog";
+import { parsePrimaryEmailNudge, PrimaryEmailNudgeCard } from "@/components/primary-email-nudge";
 import { FeedbackAlert, feedbackFor, loginPath, sharedCopy, useWaitSeconds } from "@/components/security-shared";
 import type { Feedback } from "@/components/security-shared";
 import { SettingsGroup, StatusBadge } from "@/components/settings";
@@ -22,6 +23,8 @@ import {
   normalizeEmailAddress,
 } from "@/lib/email-fields";
 import type { PendingEmailChange, PrimaryEmailChoice } from "@/lib/email-fields";
+import { primaryEmailNudgeFor } from "@/lib/primary-email-nudge";
+import type { PrimaryEmailNudge } from "@/lib/primary-email-nudge";
 import { detailOf, errorOf, isObject, responseJson, runWithSudo, securityRequest } from "@/lib/security-client";
 import type { EnsureSudo, MutationOutcome } from "@/lib/security-client";
 
@@ -39,6 +42,8 @@ export type EmailPayload = {
   personalEmail: string | null;
   personalEmailVerified: boolean;
   csrfToken: string;
+  /** K4c: the nudge the BFF says to show, `null` for none (also for an older BFF without the member). */
+  primaryEmailNudge: PrimaryEmailNudge | null;
 };
 
 export const emailCopy = {
@@ -197,7 +202,22 @@ export function parseEmailPayload(value: unknown): EmailPayload | null {
     personalEmail: value.personalEmail,
     personalEmailVerified: value.personalEmailVerified,
     csrfToken: value.csrfToken,
+    primaryEmailNudge: parsePrimaryEmailNudge(value.primaryEmailNudge),
   };
+}
+
+/**
+ * The BFF's nudge, shown only while the addresses on the page agree with it:
+ * a nudge that names a flow the page cannot run is never shown.
+ */
+function shownNudge(payload: EmailPayload) {
+  const nudge = payload.primaryEmailNudge;
+  return nudge !== null && primaryEmailNudgeFor(payload, new Set()) === nudge && legacyPrimaryOf(payload) === null ? nudge : null;
+}
+
+/** Whether a nudge's flow can run with these addresses (an intent from the home page is checked again here). */
+function nudgeApplies(payload: EmailPayload, nudge: PrimaryEmailNudge) {
+  return primaryEmailNudgeFor(payload, new Set()) === nudge && legacyPrimaryOf(payload) === null;
 }
 
 /**
@@ -742,6 +762,7 @@ function primaryOptions(payload: EmailPayload): PrimaryOption[] {
 function PrimarySelector({
   payload,
   busy,
+  preselect,
   onDone,
   ensureSudo,
   onCsrfRenewed,
@@ -749,16 +770,33 @@ function PrimarySelector({
 }: FlowCallbacks & {
   payload: EmailPayload;
   busy: boolean;
+  /**
+   * K4c: the choice the nudge asked for, selected (when it can be chosen) with
+   * the focus on the save button; saving still runs Sudo mode as always.
+   */
+  preselect?: PrimaryEmailChoice;
   onDone: (address: string) => void;
 }) {
   const baseId = useId();
   const current = payload.primary === "none" ? null : payload.primary;
-  const [selected, setSelected] = useState<PrimaryEmailChoice | null>(current);
+  const options = primaryOptions(payload);
+  const preselected = preselect !== undefined && preselect !== current &&
+    options.some((option) => option.which === preselect && option.blocked === null)
+    ? preselect
+    : null;
+  const [selected, setSelected] = useState<PrimaryEmailChoice | null>(preselected ?? current);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [refusedSchool, setRefusedSchool] = useState(false);
   const waitSeconds = useWaitSeconds(feedback);
-  const options = primaryOptions(payload);
+  const saveButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (preselected === null || !saveButton.current) return;
+    saveButton.current.scrollIntoView?.({ block: "center" });
+    saveButton.current.focus();
+  }, [preselected]);
+
   const chosen = options.find((option) => option.which === selected) ?? null;
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
@@ -862,6 +900,7 @@ function PrimarySelector({
       <div className="security-panel__actions">
         <small className="email-primary__sudo">{emailCopy.primary.sudo}</small>
         <button
+          ref={saveButton}
           className="primary-button"
           type="submit"
           disabled={busy || pending || waitSeconds > 0 || !chosen || selected === current}
@@ -975,7 +1014,15 @@ function RemoveDialog({
  * person comes back to the page (from the mail app), never over a form they
  * are using.
  */
-export function EmailManager() {
+export function EmailManager({ intent = null }: {
+  /**
+   * K4c: the nudge the person followed from the home page
+   * (`/email?intent=…`). Applied once after the first read, when the addresses
+   * still allow it and no waiting code was restored; then dropped from the
+   * address bar so a reload does not repeat it.
+   */
+  intent?: PrimaryEmailNudge | null;
+} = {}) {
   const router = useRouter();
   const { ensureSudo, invalidateSudo } = useSudo();
   const [payload, setPayload] = useState<EmailPayload | null>(null);
@@ -998,6 +1045,9 @@ export function EmailManager() {
   const trigger = useRef<HTMLElement | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const focusNotice = useRef(false);
+  /** Bumped by the K4c nudge: rebuilds the primary choice with the personal address preselected. */
+  const [primaryRequest, setPrimaryRequest] = useState(0);
+  const intentRef = useRef(intent);
 
   const onAuthenticationRequired = useCallback(() => {
     router.replace(loginPath(RETURN_TO));
@@ -1075,10 +1125,18 @@ export function EmailManager() {
   useEffect(() => {
     if (firstLoadStarted.current) return;
     firstLoadStarted.current = true;
-    void load().then((loaded) => {
-      if (loaded) void restoreWaiting(loaded, true);
+    void load().then(async (loaded) => {
+      if (!loaded) return;
+      await restoreWaiting(loaded, true);
+      const followed = intentRef.current;
+      if (followed === null) return;
+      intentRef.current = null;
+      window.history.replaceState(null, "", RETURN_TO);
+      if (flowRef.current !== null || !nudgeApplies(loaded, followed)) return;
+      if (followed === "add-personal") changeFlow({ kind: "add" });
+      else setPrimaryRequest((count) => count + 1);
     });
-  }, [load, restoreWaiting]);
+  }, [changeFlow, load, restoreWaiting]);
 
   // Coming back from the mail app is the main case on a phone: the code panel may be closed or the page reloaded.
   useEffect(() => {
@@ -1115,6 +1173,7 @@ export function EmailManager() {
   const finish = useCallback(async (detail: string) => {
     changeFlow(null);
     dismiss(null);
+    setPrimaryRequest(0);
     trigger.current = null;
     focusNotice.current = true;
     setNotice({ tone: "positive", title: "İşlem tamamlandı", detail });
@@ -1152,6 +1211,7 @@ export function EmailManager() {
   // Only a school address proven by the YTÜ link can take over a removed primary personal address.
   const schoolFallback = payload.schoolEmail !== null && payload.verifiedYtu;
   const removeBlocked = payload.primary === "personal" && !schoolFallback;
+  const nudge = shownNudge(payload);
 
   return (
     <>
@@ -1160,6 +1220,20 @@ export function EmailManager() {
           <strong>{notice.title}</strong>
           <span>{notice.detail}</span>
         </div>
+      ) : null}
+
+      {nudge ? (
+        <PrimaryEmailNudgeCard
+          nudge={nudge}
+          personalEmail={personalEmail}
+          csrfToken={payload.csrfToken}
+          disabled={busy}
+          onAct={(which, element) => {
+            if (which === "add-personal") openFlow({ kind: "add" }, element);
+            else setPrimaryRequest((count) => count + 1);
+          }}
+          onAuthenticationRequired={onAuthenticationRequired}
+        />
       ) : null}
 
       <SettingsGroup title={emailCopy.school.title} description={emailCopy.school.description}>
@@ -1315,9 +1389,10 @@ export function EmailManager() {
 
       <SettingsGroup title={emailCopy.primary.title} description={emailCopy.primary.description}>
         <PrimarySelector
-          key={`${payload.primary}|${payload.schoolEmail ?? ""}|${personalEmail ?? ""}|${payload.verifiedYtu}|${payload.personalEmailVerified}`}
+          key={`${payload.primary}|${payload.schoolEmail ?? ""}|${personalEmail ?? ""}|${payload.verifiedYtu}|${payload.personalEmailVerified}|${primaryRequest}`}
           payload={payload}
           busy={busy}
+          {...(primaryRequest > 0 ? { preselect: "personal" as const } : {})}
           onDone={(address) => void finish(emailCopy.primary.saved(address))}
           {...callbacks}
         />

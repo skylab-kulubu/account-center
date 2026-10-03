@@ -588,6 +588,97 @@ a.settings-row:hover .settings-row__chevron {
   background: rgba(245, 158, 11, 0.06);
 }
 
+/* K4c: the graduation nudge on the overview and the e-mail page. */
+.email-nudge {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  margin: 0 0 26px;
+  padding: 16px 17px;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.identity-card + .email-nudge {
+  margin-top: 18px;
+}
+
+.email-nudge__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-radius: 10px;
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.email-nudge__body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.email-nudge__body h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 640;
+}
+
+.email-nudge__body p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.email-nudge__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+}
+
+.email-nudge__actions .primary-button {
+  min-height: 38px;
+  padding: 8px 13px;
+  text-decoration: none;
+}
+
+.email-nudge-dismissed {
+  margin: 0 0 26px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--ink-muted);
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.identity-card + .email-nudge-dismissed {
+  margin-top: 18px;
+}
+
+@media (max-width: 420px) {
+  .email-nudge {
+    flex-direction: column;
+  }
+
+  .email-nudge__actions > * {
+    width: 100%;
+  }
+}
+
 .security-note {
   display: flex;
   align-items: flex-start;
