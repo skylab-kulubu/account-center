@@ -2,9 +2,12 @@
 -- so a dismissal follows the person to every device. One row per person and
 -- nudge; the person is never stored by name or Keycloak subject, only by an
 -- HMAC of the subject (`hmacSha256(SESSION_SECRET, "notice-dismissal-subject",
--- sub)`), like account_deletion_intents. Rows have no expiry: a dismissal is
--- a standing choice. They are deleted when core accepts the person's account
--- deletion; rotating SESSION_SECRET orphans them and every nudge shows again.
+-- sub)`), like account_deletion_intents. maintenance/prune-auth.sql deletes a
+-- row twelve months after the dismissal. The person's rows are also deleted
+-- when they confirm an account deletion: best effort, before core is called,
+-- and only where the deletion flow runs (ACCOUNT_ERASURE_MODE=enforce).
+-- Rotating SESSION_SECRET orphans the rows until that prune; every nudge
+-- shows again.
 -- Additive: an older build never reads this table.
 CREATE TABLE IF NOT EXISTS account_notice_dismissals (
   subject_digest bytea NOT NULL CHECK (octet_length(subject_digest) = 32),

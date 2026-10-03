@@ -64,7 +64,12 @@ export class NoticeDismissals {
     return this.repository.dismiss(this.#digest(subject), notice, this.clock());
   }
 
-  /** Called when core accepts the person's account deletion. */
+  /**
+   * Called when the person confirms an account deletion, before core is
+   * called; best effort (a failure never stops the deletion) and only where
+   * the deletion flow runs (`ACCOUNT_ERASURE_MODE=enforce`). Rows the person
+   * never deletes go twelve months after the dismissal (prune-auth).
+   */
   forget(subject: string) {
     return this.repository.forget(this.#digest(subject));
   }
