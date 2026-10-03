@@ -24,11 +24,12 @@ Sunucu oturumundaki access token aşağıdaki sözleşmeyi karşılamadan Accoun
 - JOSE başlığı `alg=RS256`, `typ=JWT`; `iss` yapılandırılan issuer; `sub` oturumun subject'i; `azp=account-center`; `scope=openid`.
 - `aud` tam olarak `ACCEPTED_AUDIENCE_SET` kümesine, `{"account", "core"}`'a eşittir (sıra önemsiz; tekrar, eksik ya da fazla audience reddedilir):
   - `core`, kişinin kendi core `/v1/users/me` uçları içindir (kulüp profili, ad eşitleme) ve core rolü getirmez;
-  - K2 öncesi eski küme `{"account"}` (Keycloak tek audience'ı düz string yazar; liste biçimi de aynı kümedir) **artık reddedilir**: girişte `OidcContractError`, saklı ya da yenilenmiş token'da `AccountAccessTokenContractError`. Geçiş boyunca loglanan `token_audience_legacy` olayı koddan kaldırıldı;
+  - K2 öncesi eski küme `{"account"}` (Keycloak tek audience'ı düz string yazar; liste biçimi de aynı kümedir) **artık reddedilir**: girişte `OidcContractError`, yenilemeyle gelen token'da `AccountAccessTokenContractError`, oturumda saklı token'da yeniden giriş (aşağıda). Geçiş boyunca loglanan `token_audience_legacy` olayı koddan kaldırıldı;
   - `{"account"}`, `{"core"}` tek başına, `{"account","core","x"}` ve `{"account","account"}` reddedilir.
 - `resource_access.account.roles` hem `manage-account` hem `view-profile` içerir; `resource_access.core` hangi değerle olursa olsun reddedilir (token core'da yetki taşımaz).
 - İsteğe bağlı `sky_authorization` claim'i (K2'deki SPI mapper'ı, `sky_authorization.${client_id}.roles`) `{ [clientId]: string[] }` olarak ayrıştırılır: en fazla 64 istemci, istemci başına 256 rol, ad 255 karakter, boşluksuz istemci kimliği, kontrol karakteri ve tekrar yok, `__proto__`/`constructor`/`prototype` anahtarı yok. Biçim sapması token'ı bütünüyle reddeder. Claim yalnız salt okunur **Yetkilerim** görünümü içindir; Account Center içinde hiçbir yetki vermez.
-- `exp` geçmişteyse `AccountAccessTokenExpiredError`; token yenilenir (refresh token yalnız şifreli sunucu oturumundadır; yenilenen token aynı sözleşmeden geçer, aksi hâlde refresh token iptal edilir).
+- `exp` geçmişteyse `AccountAccessTokenExpiredError`; token yenilenir (refresh token yalnız şifreli sunucu oturumundadır; yenilenen token aynı sözleşmeden geçer, aksi hâlde refresh token iptal edilir ve sözleşme kartı gösterilir).
+- Oturumda **saklı** token sözleşmeyi karşılamıyorsa (örneğin K2 öncesi `{"account"}` kümesi; denetim süre denetiminden önce yapıldığı için süresi geçmiş olsa da) oturum bayat sayılır: `AccountReauthenticationRequiredError`, yerel oturum kapatılır ve kişi yeniden girişe yönlenir. Girişteki değişim Keycloak hâlâ sözleşmeye uymayan token veriyorsa `OidcContractError` ile kapalı başarısız olur (`contract_blocked`). Yenileme ile yeni alınan token'ın sapması ise yukarıdaki gibi sözleşme kartıdır: o bayat oturum değil, Keycloak'ın yanıtıdır.
 
 ### Geçiş sırası
 
@@ -38,9 +39,9 @@ Oturumlar geçiş boyunca kilitlenmesin diye A0b sürümü iki audience kümesin
 
 1. A0b imajı yayındaydı, K2 production'da uygulandı (22 Eylül 2026).
 2. Production loglarında, son oturum yenilemesinden sonra (en az 8 saat) `token_audience_legacy` olayı **sıfır** olmalıydı. Olay sürseydi K2 tamamlanmamıştır ya da bir istemci eski kapsamla token alıyordur diye sıkılaştırılmazdı. 2 Ekim 2026 ~21:10Z'de salt okunur kanıt aracı (`ops/wizards/account-center-audience-legacy-check.sh`, SKY LAB hub'ı) production'da PASS verdi: 84 saatlik log, son 24 saatte 0 olay, çalışan imajda olayı üreten kod doğrulandı.
-3. A0c (account-center#65): kabul edilen küme yalnız `{"account","core"}` oldu; `ACCEPTED_AUDIENCE_SETS`, `token_audience_legacy` olayı ve testleri kaldırıldı. Production'a bir sonraki release ile çıkar.
+3. A0c (account-center#65): kabul edilen küme yalnız `{"account","core"}` oldu; `ACCEPTED_AUDIENCE_SETS`, `token_audience_legacy` olayı ve testleri kaldırıldı.
 
-Geri alma: bu sürümden önceki (iki kümeyi kabul eden) imaja dönmek güvenlidir. K2'yi geri almak (`core` audience'ını kaldırmak) bu sürümle bütün oturumları kilitler: `core` audience'ı olmayan token reddedilir; önce imajı geri al.
+Geri alma: A0c'den önceki (iki kümeyi kabul eden) bir imaja dönmek güvenlidir. K2'yi geri almak (`core` audience'ını kaldırmak) A0c imajıyla bütün oturumları kilitler: `core` audience'ı olmayan token reddedilir; önce imajı geri al.
 
 ## Account REST (salt okuma)
 
