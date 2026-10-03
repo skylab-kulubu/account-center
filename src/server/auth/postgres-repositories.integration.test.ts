@@ -8,16 +8,19 @@ import {
   PostgresRateLimitRepository,
   PostgresSessionRepository,
 } from "@/server/auth/postgres-repositories";
+import { isolatedSchema } from "@/test/isolated-schema";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const databaseDescribe = databaseUrl ? describe : describe.skip;
 
 databaseDescribe("PostgreSQL authentication repositories", () => {
-  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const database = isolatedSchema(databaseUrl, "account_auth_repositories_test");
+  const pool = database.pool;
 
   beforeAll(async () => {
-    // The shared public schema stops at 0007, the state between deploying this build and running
-    // 0008; sudo.integration re-applies 0003 here concurrently. The post-0008 schema is tested below.
+    // This schema skips 0008, the state between deploying a build and running it (0009, additive,
+    // is applied: prune-auth reads its table); the post-0008 schema is tested below in a schema of its own.
+    await database.create();
     for (const migrationName of [
       "0001_bff_web_sessions.sql",
       "0002_auth_security_controls.sql",
@@ -26,6 +29,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "0005_account_deletion_intents.sql",
       "0006_account_sudo.sql",
       "0007_account_deletion_confirmations.sql",
+      "0009_account_notice_dismissals.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);
@@ -34,12 +38,12 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
 
   beforeEach(async () => {
     await pool.query(
-      "TRUNCATE account_deletion_confirmations, account_deletion_intents, account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits",
+      "TRUNCATE account_deletion_confirmations, account_deletion_intents, account_oidc_transactions, account_action_results, account_sessions, account_backchannel_logout_replays, account_auth_rate_limits, account_notice_dismissals",
     );
   });
 
   afterAll(async () => {
-    await pool.end();
+    await database.drop();
   });
 
   it("atomically consumes one matching browser-bound transaction", async () => {
@@ -341,8 +345,19 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
        VALUES ('a1111111-1111-4111-8111-111111111111', $1, now() - interval '5 minutes')`,
       [Buffer.alloc(32, 77)],
     );
+    // A dismissed nudge is kept for twelve months, then asked again.
+    await pool.query(
+      `INSERT INTO account_notice_dismissals (subject_digest, notice, dismissed_at)
+       VALUES ($1, 'add-personal', now() - interval '12 months' - interval '1 day'),
+              ($1, 'make-personal-primary', now() - interval '11 months'),
+              ($2, 'add-personal', now())`,
+      [Buffer.alloc(32, 90), Buffer.alloc(32, 91)],
+    );
     const maintenance = await readFile(resolve(process.cwd(), "maintenance/prune-auth.sql"), "utf8");
     const result = await pool.query(maintenance);
+    expect(result.rows[0]?.deleted_notice_dismissals).toBe(1);
+    await expect(pool.query("SELECT notice FROM account_notice_dismissals ORDER BY subject_digest, notice"))
+      .resolves.toMatchObject({ rows: [{ notice: "make-personal-primary" }, { notice: "add-personal" }] });
     expect(result.rows[0]?.deleted_transactions).toBe(1);
     expect(result.rows[0]?.deleted_sessions).toBe(2);
     expect(result.rows[0]?.deleted_logout_replays).toBe(1);
@@ -513,6 +528,7 @@ databaseDescribe("PostgreSQL schema after every migration", () => {
       deleted_rate_limits: 0,
       deleted_action_results: 0,
       deleted_deletion_intents: 0,
+      deleted_notice_dismissals: 0,
       scrubbed_deletion_recovery: 0,
       scrubbed_sudo_proofs: 0,
     }]);

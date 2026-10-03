@@ -88,14 +88,14 @@ Yazma uçları sırayla exact `Origin`, CSRF, erişim kapısı ve oturum doğrul
 | --- | --- | --- | --- |
 | `/` Özet | Account REST profil + kimlik bilgisi özeti (sunucuda okunur) | yok | — |
 | `/identity` Kimlik | sky-account `GET identity` | `identity`, `identity/name`, `identity/username`, `identity/ytu-link` | [account-actions.md](account-actions.md) |
-| `/email` E-posta ve giriş | sky-account `email/*` | `email`, `email/pending`, `email/change-request`, `email/confirm`, `email/primary`, `email/personal` | [account-actions.md](account-actions.md) |
+| `/email` E-posta ve giriş | sky-account `email/*` | `email`, `email/pending`, `email/change-request`, `email/confirm`, `email/primary`, `email/personal`, `email/nudge/dismiss` | [account-actions.md](account-actions.md) |
 | `/club-profile` Kulüp profili | core `/v1/users/me` | `club-profile`, `club-profile/picture` | [aşağıda](#kulüp-profili) |
 | `/security` Giriş ve güvenlik | sky-account `GET identity` + kimlik bilgisi uçları | `security`, `security/password`, `security/totp/*`, `security/passkeys/*`, `security/credentials/{reference}` | [account-actions.md](account-actions.md) |
 | `/sessions` Oturumlar ve cihazlar | Account REST `sessions` | `sessions`, `sessions/{reference}` | [aşağıda](#oturumlar-ve-cihazlar) |
 | `/permissions` Yetkilerim | `sky_authorization` + Account REST `groups` | yok (salt okunur) | [aşağıda](#yetkilerim) |
 | `/delete-account` Hesabı sil | core silme komutu | `deletion/prepare`, `deletion`, `deletion/status`, `deletion/status/retry` | [account-deletion.md](account-deletion.md) |
 
-`GET /api/account` oturumlu çağrıya profil, kimlik bilgisi özeti ve oturum listesinin Account REST anlık görüntüsünü döndürür; hiçbir sayfa onu kullanmaz. `/personal-information` kalıcı olarak (308) `/identity`'ye yönlenir (`next.config.ts`; proxy'den önce çalışır). `/login` ve `/account-deletion` oturumsuz erişilebilen tek sayfalardır. Sayfalar sunucuda yalnız kabuğu üretir; `/identity`, `/email` ve `/security` verisini tarayıcıda ilgili uçlardan okur ve her değişiklikten sonra yeniden okur (liste sunucunun envanteridir, mutation yanıtı değil).
+`/personal-information` kalıcı olarak (308) `/identity`'ye yönlenir (`next.config.ts`; proxy'den önce çalışır). `/login` ve `/account-deletion` oturumsuz erişilebilen tek sayfalardır. Sayfalar sunucuda yalnız kabuğu üretir; `/identity`, `/email` ve `/security` verisini tarayıcıda ilgili uçlardan okur ve her değişiklikten sonra yeniden okur (liste sunucunun envanteridir, mutation yanıtı değil).
 
 ### Kulüp profili
 
@@ -123,7 +123,7 @@ SkyApp'ten `my.`'ye oturum açık geçiş Keycloak'taki Web handoff'tur (`sky-ha
 
 ## Veritabanı ve bakım
 
-Migration'lar `scripts/migrate.mjs` ile sırayla uygulanır (`account_center_schema_migrations`, advisory lock): `0001` oturumlar ve OIDC transaction'ları, `0002` JTI replay ve hız sınırı, `0003` emekli native handoff tabloları, `0004` `account_action_results`, `0005` ve `0007` silme niyetleri ve onay kaydı, `0006` Sudo sütunları, `0008` native handoff tablolarını kaldırır. `0004` tablosu hiçbir kod yolunda yazılmaz (parola/TOTP/passkey artık SPI ile yapılır); readiness onu hâlâ aradığı için tablo yerinde durur. `scripts/prune-auth.mjs` (`pnpm db:prune-auth`) saatlik, tekil bir işle süresi dolmuş transaction, oturum, replay, hız sınırı, silme niyeti ve Sudo kanıtını temizler ([saklama kılavuzu](auth-retention-runbook.md)). `/api/health` yalnız proses canlılığını; `/api/ready` ortam yapılandırmasının ayrıştırılabildiğini, PostgreSQL tablolarını ve sudo sütunlarını, `0001`-`0007` migration kayıtlarını ve erişim engeli sentinel'ini doğrular (`0008` şart değildir).
+Migration'lar `scripts/migrate.mjs` ile sırayla uygulanır (`account_center_schema_migrations`, advisory lock): `0001` oturumlar ve OIDC transaction'ları, `0002` JTI replay ve hız sınırı, `0003` emekli native handoff tabloları, `0004` `account_action_results`, `0005` ve `0007` silme niyetleri ve onay kaydı, `0006` Sudo sütunları, `0008` native handoff tablolarını kaldırır, `0009` kişinin kapattığı e-posta önerilerini (K4c, `account_notice_dismissals`) tutar. `0004` tablosu hiçbir kod yolunda yazılmaz (parola/TOTP/passkey artık SPI ile yapılır); readiness onu hâlâ aradığı için tablo yerinde durur. `scripts/prune-auth.mjs` (`pnpm db:prune-auth`) saatlik, tekil bir işle süresi dolmuş transaction, oturum, replay, hız sınırı, silme niyeti ve Sudo kanıtını temizler ([saklama kılavuzu](auth-retention-runbook.md)). `/api/health` yalnız proses canlılığını; `/api/ready` ortam yapılandırmasının ayrıştırılabildiğini, PostgreSQL tablolarını ve sudo sütunlarını, `0001`-`0007` ve `0009` migration kayıtlarını ve erişim engeli sentinel'ini doğrular (`0008` şart değildir).
 
 ## Açık işler
 

@@ -18,15 +18,15 @@ const pageData = vi.hoisted(() => ({
       authentication: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
     },
   },
-  authentication: {
-    ok: true as const,
-    value: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
-  },
 }));
 
 vi.mock("@/server/keycloak-account/page-data", () => ({
   loadOverview: vi.fn(async () => pageData.overview),
-  loadAuthentication: vi.fn(async () => pageData.authentication),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+  usePathname: () => "/",
 }));
 
 vi.mock("@/server/permissions/page-data", () => ({
@@ -88,13 +88,28 @@ describe("Account REST-backed pages", () => {
   });
 
   it("renders the normalized overview", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
     render(await OverviewPage());
     expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
     expect(screen.getByText("ada@example.invalid")).toBeInTheDocument();
     expect(screen.getByText("E-posta doğrulandı")).toBeInTheDocument();
   });
 
+  it("shows the K4c nudge the e-mail answer names, linking into the e-mail page", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      primaryEmailNudge: "add-personal",
+      personalEmail: null,
+      csrfToken: "session-bound-csrf",
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    render(await OverviewPage());
+    const nudge = await screen.findByRole("region", { name: "Mezun olunca okul postan kapanabilir" });
+    expect(screen.getByRole("link", { name: "Kişisel adres ekle" })).toHaveAttribute("href", "/email?intent=add-personal");
+    expect(fetchSpy).toHaveBeenCalledWith("/api/account/email/nudge", { cache: "no-store", credentials: "same-origin" });
+    expect(nudge.compareDocumentPosition(screen.getByRole("heading", { name: "Hesap ayarları" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("links the overview to the identity page, the Permissions view, the club profile and the in-product security page", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
     render(await OverviewPage());
     const identity = screen.getByRole("link", { name: /Kimlik/ });
     expect(identity).toHaveAttribute("href", "/identity");

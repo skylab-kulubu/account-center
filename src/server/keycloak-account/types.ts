@@ -86,37 +86,16 @@ export type AccountGroup = {
   attributes: Record<string, string[]>;
 };
 
-/** An identity provider of the realm and whether the person is linked to it. */
-export type LinkedAccount = {
-  connected: boolean;
-  providerAlias: string;
-  displayName: string | null;
-  linkedUsername: string | null;
-  social: boolean;
-};
-
 export type AccountOverview = {
   profile: AccountProfile;
   authentication: AuthenticationSummary;
 };
 
-export type KeycloakAccountSnapshot = AccountOverview & {
-  sessions: AccountSession[];
-};
-
-export type AccountSnapshot = AccountOverview & {
-  sessions: ManagedAccountSession[];
-};
-
 export interface KeycloakAccountReadAdapter {
   profile(accessToken: string): Promise<AccountProfile>;
   authentication(accessToken: string): Promise<AuthenticationSummary>;
-  credentialInventory(accessToken: string): Promise<CredentialInventory>;
   sessions(accessToken: string): Promise<AccountSession[]>;
   groups(accessToken: string): Promise<AccountGroup[]>;
-  linkedAccounts(accessToken: string): Promise<LinkedAccount[]>;
-  linkedAccountUri(accessToken: string, providerAlias: string, redirectUri: URL): Promise<URL>;
-  snapshot(accessToken: string): Promise<KeycloakAccountSnapshot>;
   revokeSession(accessToken: string, sessionId: string): Promise<void>;
   revokeOtherSessions(accessToken: string): Promise<void>;
 }

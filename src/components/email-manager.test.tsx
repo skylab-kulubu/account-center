@@ -130,7 +130,10 @@ afterEach(() => {
 
 describe("parseEmailPayload", () => {
   it("accepts the BFF payload and refuses anything outside it", () => {
-    expect(parseEmailPayload(payload(withPersonal))).toEqual(payload(withPersonal));
+    expect(parseEmailPayload(payload(withPersonal))).toEqual({ ...payload(withPersonal), primaryEmailNudge: null });
+    expect(parseEmailPayload(payload({ primaryEmailNudge: "add-personal" }))).toEqual(payload({ primaryEmailNudge: "add-personal" }));
+    // A nudge this page does not know (a newer BFF) is no nudge, never a broken page.
+    expect(parseEmailPayload(payload({ primaryEmailNudge: "something-new" }))).toEqual({ ...payload(), primaryEmailNudge: null });
     expect(parseEmailPayload(payload({ primary: "work" }))).toBeNull();
     expect(parseEmailPayload(payload({ personalEmail: 42 }))).toBeNull();
     expect(parseEmailPayload(payload({ verifiedYtu: "yes" }))).toBeNull();
@@ -789,6 +792,100 @@ describe("EmailManager", () => {
       render(<EmailManager />);
       expect(await screen.findByRole("button", { name: "ada@example.com — Kaldır" })).toBeDisabled();
       expect(screen.queryByRole("link", { name: "YTÜ hesabını bağla" })).not.toBeInTheDocument();
+    });
+  });
+  describe("K4c primary e-mail nudge", () => {
+    const nudgeRegion = () => screen.findByRole("region", { name: "Mezun olunca okul postan kapanabilir" });
+
+    it("takes a school-primary person with a proven personal address to the primary choice, preselected, then through Sudo mode", async () => {
+      const api = mockApi({
+        email: [
+          { body: payload({ ...withPersonal, primaryEmailNudge: "make-personal-primary" }) },
+          { body: payload({ ...withPersonal, email: "ada@example.com", primary: "personal", primaryEmailNudge: null }) },
+        ],
+        primary: [challenge, done],
+      });
+      render(<EmailManager />);
+      const region = await nudgeRegion();
+      expect(region).toHaveTextContent("ada@example.com");
+      expect(within(region).queryByRole("link")).not.toBeInTheDocument();
+
+      fireEvent.click(within(region).getByRole("button", { name: "Kişisel adresi birincil yap" }));
+      const group = screen.getByRole("group", { name: "Birincil e-posta" });
+      expect(within(group).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
+      const save = screen.getByRole("button", { name: "Birincil adresi kaydet" });
+      await waitFor(() => expect(save).toHaveFocus());
+      expect(api.of("primary")).toHaveLength(0);
+
+      fireEvent.click(save);
+      const notice = await findNotice("Birincil adresin güncellendi. Kulüp postaları artık ada@example.com adresine gider.");
+      await waitFor(() => expect(notice).toHaveFocus());
+      expect(sudo.ensureSudo).toHaveBeenCalledWith({ challenged: true });
+      expect(api.of("primary").map((call) => call.body)).toEqual([{ which: "personal" }, { which: "personal" }]);
+      expect(screen.queryByRole("region", { name: "Mezun olunca okul postan kapanabilir" })).not.toBeInTheDocument();
+    });
+
+    it("opens the existing add form for a school-primary person without a personal address", async () => {
+      mockApi({ email: [{ body: payload({ primaryEmailNudge: "add-personal" }) }] });
+      render(<EmailManager />);
+      const region = await nudgeRegion();
+      fireEvent.click(within(region).getByRole("button", { name: "Kişisel adres ekle" }));
+
+      const form = await screen.findByRole("form", { name: "Kişisel e-posta ekle" });
+      expect(within(form).getByLabelText("E-posta adresi")).toHaveFocus();
+      expect(within(region).getByRole("button", { name: "Kişisel adres ekle" })).toBeDisabled();
+      fireEvent.click(within(form).getByRole("button", { name: "Vazgeç" }));
+      await waitFor(() => expect(within(region).getByRole("button", { name: "Kişisel adres ekle" })).toHaveFocus());
+    });
+
+    it("shows no nudge when the answer names none", async () => {
+      mockApi({ email: [{ body: payload() }] });
+      render(<EmailManager />);
+      await screen.findByRole("group", { name: "Birincil e-posta" });
+      expect(screen.queryByRole("region", { name: "Mezun olunca okul postan kapanabilir" })).not.toBeInTheDocument();
+    });
+
+    it("never shows a nudge the addresses contradict", async () => {
+      mockApi({ email: [{ body: payload({ primaryEmailNudge: "make-personal-primary" }) }] });
+      render(<EmailManager />);
+      await screen.findByRole("group", { name: "Birincil e-posta" });
+      expect(screen.queryByRole("region", { name: "Mezun olunca okul postan kapanabilir" })).not.toBeInTheDocument();
+    });
+
+    it("arrives from the home page on the preselected primary choice and drops the intent from the address", async () => {
+      const replaceState = vi.spyOn(window.history, "replaceState");
+      mockApi({ email: [{ body: payload({ ...withPersonal, primaryEmailNudge: "make-personal-primary" }) }] });
+      render(<EmailManager intent="make-personal-primary" />);
+      const group = await screen.findByRole("group", { name: "Birincil e-posta" });
+      expect(within(group).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Birincil adresi kaydet" })).toHaveFocus());
+      expect(replaceState).toHaveBeenCalledWith(null, "", "/email");
+    });
+
+    it("arrives from the home page on the add form, unless a code is already waiting", async () => {
+      mockApi({ email: [{ body: payload({ primaryEmailNudge: "add-personal" }) }] });
+      render(<EmailManager intent="add-personal" />);
+      const form = await screen.findByRole("form", { name: "Kişisel e-posta ekle" });
+      await waitFor(() => expect(within(form).getByLabelText("E-posta adresi")).toHaveFocus());
+      cleanup();
+      vi.restoreAllMocks();
+
+      mockApi({
+        email: [{ body: payload({ primaryEmailNudge: "add-personal" }) }],
+        pending: [waiting("ada@example.com", 5)],
+      });
+      render(<EmailManager intent="add-personal" />);
+      expect(await codeForm()).toBeInTheDocument();
+      expect(screen.queryByRole("form", { name: "Kişisel e-posta ekle" })).not.toBeInTheDocument();
+    });
+
+    it("ignores an intent the addresses no longer allow", async () => {
+      mockApi({ email: [{ body: payload({ ...withPersonal, email: "ada@example.com", primary: "personal" }) }] });
+      render(<EmailManager intent="add-personal" />);
+      const group = await screen.findByRole("group", { name: "Birincil e-posta" });
+      await waitFor(() => expect(screen.getByRole("button", { name: "ada@example.com — Değiştir" })).toBeEnabled());
+      expect(screen.queryByRole("form")).not.toBeInTheDocument();
+      expect(within(group).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
     });
   });
 });

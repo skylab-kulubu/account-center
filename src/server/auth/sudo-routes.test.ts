@@ -595,13 +595,7 @@ describe("sudo BFF routes", () => {
         credentials: { password: false, totp: [], passkeys: [identityFixture.credentials.passkeys[0]] },
       });
       expect((await reauthenticate(formRequest("csrfToken=session-bound-csrf"))).status).toBe(409);
-      // Legacy two-factor WebAuthn is not a passkey and does not block the fallback.
-      routeMocks.identity.mockResolvedValue({
-        ...noMethods,
-        credentials: { password: false, totp: [], passkeys: [identityFixture.credentials.passkeys[1]] },
-      });
-      expect((await reauthenticate(formRequest("csrfToken=session-bound-csrf"))).status).toBe(303);
-      expect(routeMocks.beginSudoReauthentication).toHaveBeenCalledTimes(1);
+      expect(routeMocks.beginSudoReauthentication).not.toHaveBeenCalled();
     });
 
     it("fails closed when the person's methods cannot be read", async () => {

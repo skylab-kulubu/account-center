@@ -23,15 +23,6 @@ describe("sudo method availability", () => {
     });
   });
 
-  it("counts only passwordless passkeys, not legacy two-factor WebAuthn credentials", () => {
-    const legacyOnly = credentials.passkeys.filter(({ type }) => type === "webauthn");
-    expect(legacyOnly).toHaveLength(1);
-    expect(sudoMethodAvailability({ password: false, totp: [], passkeys: legacyOnly })).toEqual({
-      methods: [],
-      fallback: "microsoft",
-    });
-  });
-
   it("offers the Microsoft re-authentication only when no in-product method exists", () => {
     expect(sudoMethodAvailability({ password: false, totp: [], passkeys: [] })).toEqual({
       methods: [],

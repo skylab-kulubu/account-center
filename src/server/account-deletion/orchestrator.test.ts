@@ -201,6 +201,7 @@ class MemoryDeletionRepository implements AccountDeletionRepository {
 function fixture(
   overrides: Partial<CoreAccountDeletionGateway> = {},
   revokeSubjectSessionsBySessionId = vi.fn().mockResolvedValue(2),
+  forget = vi.fn<(subject: string) => Promise<void>>().mockResolvedValue(undefined),
 ) {
   const repository = new MemoryDeletionRepository();
   const core: CoreAccountDeletionGateway = {
@@ -216,8 +217,9 @@ function fixture(
     new AesGcmSecretCipher(Buffer.alloc(32, 8)),
     Buffer.alloc(32, 9),
     () => now,
+    { forget },
   );
-  return { repository, core, revokeSubjectSessionsBySessionId, orchestrator };
+  return { repository, core, revokeSubjectSessionsBySessionId, forget, orchestrator };
 }
 
 /** A bearer the session has just refreshed: it outlives any recovery window. */
@@ -433,6 +435,45 @@ describe("account deletion orchestration", () => {
     });
     expect(repository.intent).not.toHaveProperty("encryptedIdentityTokens");
     expect(repository.intent).not.toHaveProperty("subjectDigest");
+    expect(result).toMatchObject({ status: "processing", receipt: coreReceipt });
+  });
+
+  it("forgets the person's dismissed nudges once the deletion is confirmed, before core hears of it", async () => {
+    const initiate = vi.fn().mockRejectedValue(new CoreAccountDeletionUnauthorizedError());
+    const { orchestrator, forget } = fixture({ initiate });
+    const fresh = await reauthenticate(orchestrator);
+
+    await expect(orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    })).rejects.toBeInstanceOf(AccountDeletionSudoRejectedError);
+    expect(forget).toHaveBeenCalledWith(session.subject);
+    expect(forget.mock.invocationCallOrder[0]).toBeLessThan(initiate.mock.invocationCallOrder[0]!);
+  });
+
+  it("never lets a failure to forget the nudges stop the deletion, nor forgets them for a wrong confirmation", async () => {
+    const forget = vi.fn<(subject: string) => Promise<void>>().mockRejectedValue(new Error("database down"));
+    const { orchestrator, core } = fixture({}, undefined, forget);
+    const fresh = await reauthenticate(orchestrator);
+
+    await expect(orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "hesabımı sil",
+    })).rejects.toBeInstanceOf(AccountDeletionProofError);
+    expect(forget).not.toHaveBeenCalled();
+
+    const result = await orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    });
+    expect(forget).toHaveBeenCalledTimes(1);
+    expect(core.initiate).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ status: "processing", receipt: coreReceipt });
   });
 
