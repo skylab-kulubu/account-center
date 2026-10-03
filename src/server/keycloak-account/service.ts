@@ -54,6 +54,23 @@ export class AccountReadService {
     );
   }
 
+  /**
+   * Validates a token that is already in the server-side session (as opposed
+   * to one just minted by a refresh). A stored token that no longer meets the
+   * contract, such as a pre-K2 token with only the `account` audience, means
+   * the session is stale, not that the identity provider answered wrongly:
+   * the person logs in again, and the login exchange fails closed if Keycloak
+   * is still wrong. Expiry is left to the caller.
+   */
+  #validateStored(accessToken: string, session: SessionIdentity) {
+    try {
+      return this.#validate(accessToken, session);
+    } catch (error) {
+      if (error instanceof AccountAccessTokenContractError) throw new AccountReauthenticationRequiredError();
+      throw error;
+    }
+  }
+
   #managedSessions(session: SessionIdentity, sessions: AccountSession[]) {
     return this.#validatedSessions(sessions).map(({ id, ...candidate }) => ({
       ...candidate,
@@ -87,7 +104,7 @@ export class AccountReadService {
       }
       const winner = await this.sessions.readTokens(session.id);
       if (winner && winner.version !== snapshot.version) {
-        this.#validate(winner.tokens.accessToken, session);
+        this.#validateStored(winner.tokens.accessToken, session);
         return winner.tokens.accessToken;
       }
       throw new AccountReauthenticationRequiredError();
@@ -103,7 +120,7 @@ export class AccountReadService {
       }
       throw new AccountReauthenticationRequiredError();
     }
-    this.#validate(winner.tokens.accessToken, session);
+    this.#validateStored(winner.tokens.accessToken, session);
     return winner.tokens.accessToken;
   }
 
@@ -116,7 +133,7 @@ export class AccountReadService {
     if (!snapshot) throw new AccountReauthenticationRequiredError();
     let expiresAt: Date;
     try {
-      ({ expiresAt } = this.#validate(snapshot.tokens.accessToken, session));
+      ({ expiresAt } = this.#validateStored(snapshot.tokens.accessToken, session));
     } catch (error) {
       if (!(error instanceof AccountAccessTokenExpiredError)) throw error;
       return this.#refresh(session, snapshot);

@@ -29,7 +29,11 @@ Sıra production sunucusunda, SKY LAB hub'ındaki ops sihirbazlarıyla (`ops/wiz
 6. **Doğrulama.** `/api/health` ve `/api/ready` `200`.
 7. **Reconcile yeniden.** Yeni imaj iki audience kümesini de kabul ettiği için (`token_audience_legacy` olayıyla izlenir) `core` audience mapper'ı reconcile ile geri kondu; token'lar `["account","core"]` taşımaya başladı.
 
-Bugün bu sıranın dersi şudur: **token sözleşmesini genişleten Keycloak değişikliği, genişlemeyi kabul eden Hesap Merkezi imajından önce canlıya çıkmamalıdır.** v2'de bu, `core` mapper'ının geçici olarak elle kaldırılmasıyla çözüldü; bundan sonra aynı türden bir değişiklik "önce kabul eden imaj, sonra Keycloak" sırasıyla çıkar (aşağıda, A0c).
+Bugün bu sıranın dersi şudur: **token sözleşmesini genişleten Keycloak değişikliği, genişlemeyi kabul eden Hesap Merkezi imajından önce canlıya çıkmamalıdır.** v2'de bu, `core` mapper'ının geçici olarak elle kaldırılmasıyla çözüldü; bundan sonra aynı türden bir değişiklik "önce kabul eden imaj, sonra Keycloak" sırasıyla çıkar (A0b iki kümeyi kabul eden imajdı, A0c tek kümeye döndürdü; aşağıda).
+
+### Sıkılaştırma (A0c)
+
+K2'den sonra eski `{account}` kümesi yalnız geçiş için kabul ediliyordu. Production loglarında sıfır `token_audience_legacy` olayı kanıtlandı: 2 Ekim 2026 ~21:10Z, salt okunur `ops/wizards/account-center-audience-legacy-check.sh` (SKY LAB hub'ı) ile; log penceresi 84 saat, son 24 saatte 0 olay, çalışan imajda olayı üreten kod doğrulandı. account-center#65 ile kabul edilen küme yalnız `{account, core}` oldu ve `token_audience_legacy` olayı koddan kalktı. Bu değişikliği taşıyan imajdan önceki imajlar iki kümeyi de kabul eder. Saklı oturum token'ı eski küme taşıyorsa oturum bayat sayılır ve kişi yeniden girişe yönlenir. Ayrıntı ve geri alma notu: [Keycloak sözleşmesi](keycloak-26.7.4-contract.md#geçiş-sırası).
 
 ## Bugün bir sürümün çıkışı
 
@@ -37,7 +41,7 @@ Bugün bu sıranın dersi şudur: **token sözleşmesini genişleten Keycloak de
 2. **Release.** `main` → `production` tek squash commit'idir (`release/production-<tarih>-<konu>` dalı, PR tabanı `production`); `production` dalı squash olduğu için `git log` değil ağaç karşılaştırılır. `main`'de başkasının yayınlanmamış işi varsa release hepsini taşır: önce sahiplerine sorulur.
 3. **Yayın.** `main` ve `production` push'larında `container.yml`: testler, aday imaj (migrate, prune, `/api/ready`, retired handoff ve edge path smoke testleri) ve GHCR'ye `<dal>` ile `<dal>-<sha>` etiketleriyle yayın (`production-2ced4b8` gibi); yalnız `production`'da `DOKPLOY_DEPLOY_HOOK` ile Dokploy tetiklenir. Push'tan sonra o SHA için gerçekten bir build başladığı doğrulanır; başlamadıysa boş bir aynı-ağaç commit'iyle yeniden tetiklenir.
 4. **Migration.** Ek (additive) migration deploy'dan **önce**, üretim imajının içinden ve uygulamanın kullandığı `DATABASE_URL` ile çalıştırılır (`node scripts/migrate.mjs`; ikinci koşu no-op). Şemayı daraltan ya da eski imajı bozabilecek bir migration yedek + geri yükleme provasından sonra, yeni sürüm her yerde yayındayken çalıştırılır ([saklama kılavuzu](auth-retention-runbook.md#doğrulama-ve-geri-dönüş)).
-5. **Doğrulama.** `/api/health` ve `/api/ready` `200`; çalışan imajın digest'i; `GET /internal/x` ve `GET /handoff` `404`; `GET /.well-known/assetlinks.json` değişkenler tanımlıysa `200`, değilse `404`; `my.`'de çıkış yapıp yeniden giriş. Loglarda `oidc_login_failed`, `account_access_gate` (`unavailable`/`blocked`), `auth_prune_failed` ve `token_audience_legacy` izlenir.
+5. **Doğrulama.** `/api/health` ve `/api/ready` `200`; çalışan imajın digest'i; `GET /internal/x` ve `GET /handoff` `404`; `GET /.well-known/assetlinks.json` değişkenler tanımlıysa `200`, değilse `404`; `my.`'de çıkış yapıp yeniden giriş. Loglarda `oidc_login_failed`, `account_access_gate` (`unavailable`/`blocked`) ve `auth_prune_failed` izlenir.
 6. **Keycloak değişikliği** ayrı depodadır (`e-skylab-keycloak`): her yayın fiziksel Touch ID kanıtı ister (`keycloak-production` ortam değişkenleri ve issue #1 yorumu), yayından sonra çoğu zaman sunucuda uzlaştırıcı iki kez koşar (ikincisi no-op olmalı). Hesap Merkezi'ni etkileyen yerler: token claim'leri ve audience'ları, passkey RP ID, SPI sürümü.
 
 Ortam değişkenleri Dokploy uygulamasındadır (gizli değerler OpenBao referansıdır, ADR-0049); repoya gizli değer girmez. Tam liste ve biçimler: [README, ortam değişkenleri](../README.md#ortam-değişkenleri).
@@ -49,13 +53,12 @@ Ortam değişkenleri Dokploy uygulamasındadır (gizli değerler OpenBao referan
 ## Geri dönüş
 
 - **Hesap Merkezi:** bir önceki imajı yeniden dağıtmak. Migration'lar geri alınmaz. `0008`'den (#51, `e4738ce`) önceki imajlar `/api/ready`'de `account_native_*` tablolarını aradığı için `0003` elle yeniden uygulanmadan hazır olmaz; bu yüzden geri dönüş hedefi #51 ve sonrasıdır.
-- **Audience:** `core` audience mapper'ını kaldırmak (K2'yi geri almak) bugün oturumları kilitlemez (eski küme kabul edilir) ama core çağrıları (kulüp profili, ad eşitleme) çalışmaz; A0c sonrasında bütün oturumları kilitler.
+- **Audience:** kabul edilen küme yalnız `{account, core}` (A0c): `core` audience mapper'ını kaldırmak (K2'yi geri almak) bütün oturumları kilitler, çünkü `core` audience'ı olmayan token reddedilir. Önce imajı A0c'den önceki (iki kümeyi kabul eden) bir sürüme döndür; o imajda bile core çağrıları (kulüp profili, ad eşitleme) mapper olmadan çalışmaz.
 - **Passkey RP ID** `yildizskylab.com`'dan geri dönmez: dönmek bütün passkey'leri yeniden geçersiz kılar.
 - **K4 (e-postayla giriş, canlı):** Keycloak SPI'ı `1.14.0`'dan eski bir sürüme dönmeden önce `KEYCLOAK_PASSWORD_FORM=auth-username-password-form` ile parola formu eski hâline getirilmelidir (aksi hâlde parolalı giriş durur); ayrıntı Keycloak runbook'unda.
 
 ## Bekleyen işler
 
-- **A0c, audience sıkılaştırma.** `ACCEPTED_AUDIENCE_SETS`'ten eski `{account}` kümesi ve `token_audience_legacy` olayı kaldırılacak; önce production loglarında en az 8 saattir sıfır olay görüldüğü kanıtlanır ([Keycloak sözleşmesi](keycloak-26.7.4-contract.md#geçiş-sırası)).
 - **K4b, parola sıfırlama.** Keycloak'ın parola sıfırlama akışının da okul ya da kişisel adresi tanıması (ve "e-posta gönderildi" deyip göndermemesinin düzeltilmesi) devam ediyor (e-skylab-keycloak, PR açılacak); Account Center tarafında kod değişikliği gerekmez.
 - **Hesap silme açılışı** (`ACCOUNT_ERASURE_MODE=enforce`): kod production'dadır ama kapalıdır; açılış platform kapılarına bağlıdır ([account-deletion.md](account-deletion.md#account_erasure_mode-ve-açılış-kapıları)).
 - **Mobil `/.well-known` değerleri ve kök alan adı proxy'si** (OPS1b): Mobile Lab'in paket adı, parmak izi, Team ID ve bundle ID'sini vermesi bekleniyor ([kenar güveni](auth-edge-trust.md#public-yol-sınırı-internal-ve-well-known)).

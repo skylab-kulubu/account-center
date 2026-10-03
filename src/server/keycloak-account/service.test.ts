@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { OidcTokenSet } from "@/server/auth/types";
 import { AccountAccessTokenContractError } from "@/server/keycloak-account/access-token";
 import { KeycloakAccountContractError } from "@/server/keycloak-account/schema";
-import { AccountReadService } from "@/server/keycloak-account/service";
+import { AccountReadService, AccountReauthenticationRequiredError } from "@/server/keycloak-account/service";
 import type { AccountProfile, KeycloakAccountReadAdapter } from "@/server/keycloak-account/types";
 
 const now = new Date("2026-09-20T12:00:00Z");
@@ -217,42 +217,77 @@ describe("AccountReadService", () => {
     );
   });
 
-  it("serves a pre-cutover single-audience token during the K2 transition and logs it", async () => {
+  it("sends a stored token with an overbroad or malformed audience, including the pre-K2 account-only set, back to login before any Account REST request", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const legacy = tokenSet(jwt({ aud: "account" }));
-    const { service, adapter, oidc } = fixture(legacy);
-    await expect(service.profile(session)).resolves.toMatchObject({ firstName: "Ada" });
-    expect(adapter.profile).toHaveBeenCalledWith(legacy.accessToken);
-    expect(oidc.refresh).not.toHaveBeenCalled();
-    expect(info).toHaveBeenCalledTimes(1);
-    expect(String(info.mock.calls[0]?.[0])).toContain("token_audience_legacy");
-    expect(String(info.mock.calls[0]?.[0])).not.toContain(legacy.accessToken);
+    for (const aud of ["account", ["account"], ["core"], ["account", "account"], ["account", "core", "skyforms"]]) {
+      const { service, adapter, oidc } = fixture(tokenSet(jwt({ aud })));
+      await expect(service.profile(session)).rejects.toBeInstanceOf(AccountReauthenticationRequiredError);
+      expect(adapter.profile).not.toHaveBeenCalled();
+      expect(oidc.refresh).not.toHaveBeenCalled();
+    }
+    expect(info).not.toHaveBeenCalled();
     info.mockRestore();
   });
 
-  it("rejects overbroad or malformed audience tokens before any Account REST request", async () => {
-    for (const aud of [["core"], ["account", "account"], ["account", "core", "skyforms"]]) {
-      const { service, adapter } = fixture(tokenSet(jwt({ aud })));
-      await expect(service.profile(session)).rejects.toBeInstanceOf(AccountAccessTokenContractError);
-      expect(adapter.profile).not.toHaveBeenCalled();
-    }
-  });
-
-  it("rejects a token that carries core roles even with the expected audience", async () => {
+  it("sends a stored token that carries core roles back to login, even with the expected audience", async () => {
     const { service, adapter } = fixture(tokenSet(jwt({
       resource_access: {
         account: { roles: ["manage-account", "view-profile"] },
         core: { roles: ["admin"] },
       },
     })));
-    await expect(service.profile(session)).rejects.toBeInstanceOf(AccountAccessTokenContractError);
+    await expect(service.profile(session)).rejects.toBeInstanceOf(AccountReauthenticationRequiredError);
     expect(adapter.profile).not.toHaveBeenCalled();
   });
 
-  it("does not persist a refreshed token that drifts from the Account REST contract", async () => {
+  it("sends an expired stored token with the legacy audience back to login instead of refreshing it", async () => {
+    const expiredLegacy = tokenSet(jwt({ aud: "account", exp: Math.floor(now.getTime() / 1_000) - 1 }));
+    const { service, oidc, vault } = fixture(expiredLegacy);
+    await expect(service.accessToken(session)).rejects.toBeInstanceOf(AccountReauthenticationRequiredError);
+    expect(oidc.refresh).not.toHaveBeenCalled();
+    expect(vault.replaceTokens).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["accessToken()", (service: AccountReadService) => service.accessToken(session)],
+    ["groups()", (service: AccountReadService) => service.groups(session)],
+    ["authorization()", (service: AccountReadService) => service.authorization(session)],
+  ])("sends a legacy-audience stored token back to login through %s", async (_label, call) => {
+    const { service } = fixture(tokenSet(jwt({ aud: ["account"] })));
+    await expect(call(service)).rejects.toBeInstanceOf(AccountReauthenticationRequiredError);
+  });
+
+  it("sends a concurrent refresher's stored token back to login when it breaks the contract", async () => {
+    const expired = tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) - 1 }));
+    const { service, oidc, vault } = fixture(expired);
+    const snapshot = { tokens: expired, version: "encrypted-v1" };
+    vault.readTokens
+      .mockResolvedValueOnce(snapshot)
+      .mockResolvedValueOnce({ tokens: tokenSet(jwt({ aud: ["account"] })), version: "encrypted-v2" });
+    vault.replaceTokens.mockResolvedValue(false);
+
+    await expect(service.accessToken(session)).rejects.toBeInstanceOf(AccountReauthenticationRequiredError);
+    expect(oidc.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends a concurrent refresher's stored token back to login when this refresh failed and it breaks the contract", async () => {
+    const expired = tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) - 1 }));
+    const { service, oidc, vault } = fixture(expired);
+    oidc.refresh.mockRejectedValue(new Error("upstream down"));
+    vault.readTokens
+      .mockResolvedValueOnce({ tokens: expired, version: "encrypted-v1" })
+      .mockResolvedValueOnce({ tokens: tokenSet(jwt({ aud: ["account"] })), version: "encrypted-v2" });
+
+    await expect(service.accessToken(session)).rejects.toBeInstanceOf(AccountReauthenticationRequiredError);
+  });
+
+  it.each([
+    ["an extra audience", ["account", "core", "skyforms"]],
+    ["the pre-K2 account-only audience", ["account"]],
+  ])("does not persist a refreshed token that drifts from the Account REST contract with %s", async (_label, aud) => {
     const expired = tokenSet(jwt({ exp: Math.floor(now.getTime() / 1_000) - 1 }));
     const { service, adapter, oidc, vault } = fixture(expired);
-    oidc.refresh.mockResolvedValue(tokenSet(jwt({ aud: ["account", "core", "skyforms"] })));
+    oidc.refresh.mockResolvedValue(tokenSet(jwt({ aud })));
 
     await expect(service.profile(session)).rejects.toBeInstanceOf(AccountAccessTokenContractError);
     expect(vault.replaceTokens).not.toHaveBeenCalled();
