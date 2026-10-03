@@ -21,6 +21,17 @@ import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization
  */
 export type YtuLinkCallbackStatus = "success" | "cancelled" | "error" | "unverified";
 
+/** Which flow an OIDC round trip belongs to, in the logs' words. */
+export type OidcFlowPurpose = "login" | "sudo" | "ytu_link";
+
+/**
+ * What `callback` learned before it failed, for the failure log only: the
+ * flow of the transaction it consumed. It stays empty when no transaction
+ * was found (expired, used, another browser), because only the transaction
+ * knows whose it was.
+ */
+export type OidcCallbackContext = { purpose?: OidcFlowPurpose };
+
 export type OidcFlowOptions = {
   /** Alias of the YTÜ Microsoft identity provider, the only `kc_action_parameter` ever pushed. */
   ytuIdpAlias: string;
@@ -86,7 +97,6 @@ export class OidcFlowService {
     await this.transactions.create(
       { ...proof, purpose: "login", returnTo: normalizeReturnTo(returnTo) },
       browserBinding,
-      authorization.expiresIn,
     );
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
@@ -120,7 +130,6 @@ export class OidcFlowService {
         initiatedAt: initiatedAt.toISOString(),
       },
       browserBinding,
-      authorization.expiresIn,
     );
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
@@ -154,7 +163,6 @@ export class OidcFlowService {
         initiatedAt: initiatedAt.toISOString(),
       },
       browserBinding,
-      authorization.expiresIn,
     );
     return { authorizationUrl: authorization.authorizationUrl, browserBinding };
   }
@@ -291,11 +299,15 @@ export class OidcFlowService {
     browserBinding: string | undefined,
     sessionHandle?: string,
     requestId: string = randomUUID(),
+    context: OidcCallbackContext = {},
   ) {
     const state = callbackUrl.searchParams.get("state");
     if (!state) throw new InvalidOidcTransactionError();
     const transaction = await this.transactions.consume(state, browserBinding);
     if (!transaction) throw new InvalidOidcTransactionError();
+    context.purpose = transaction.purpose === "sudo-reauthentication"
+      ? "sudo"
+      : transaction.purpose === "ytu-link" ? "ytu_link" : "login";
 
     if (transaction.purpose === "sudo-reauthentication") {
       return this.#sudoReauthenticationCallback(callbackUrl, transaction, sessionHandle);

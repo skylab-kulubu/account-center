@@ -1,6 +1,8 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import type { OAuthCallbackError } from "@/server/auth/oauth-callback-error";
+import type { OidcFlowPurpose } from "@/server/auth/oidc-flow";
 import type { OidcProviderStage } from "@/server/auth/oidc-protocol";
 
 const sensitiveKey = /(?:authorization|cookie|token|secret|code|state|nonce|verifier|email|name|subject|sid|credential)/i;
@@ -46,6 +48,18 @@ type AuthLog = {
   requestId: string;
   outcome: "success" | "failure";
   providerStage?: OidcProviderStage;
+  /**
+   * `oidc_login_failed`: whose start or callback failed (`login`, `sudo` for
+   * Sudo mode's Microsoft fallback, `ytu_link`). Absent when the callback
+   * found no transaction (expired, used, another browser): only the
+   * transaction knows whose it was.
+   */
+  purpose?: OidcFlowPurpose;
+  /**
+   * `oidc_login_failed`: the OAuth `error` the callback carried, allowlisted
+   * (`other` for anything else); never `error_description`.
+   */
+  oauthError?: OAuthCallbackError;
   /** Proof kind of a sudo attempt; never the material itself. */
   sudoMethod?: "password" | "totp" | "passkey" | "reauth";
   /** Which security-page action ran; never a label, secret, code, attestation or credential id. */

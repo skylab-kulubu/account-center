@@ -326,7 +326,7 @@ test("wrong, exhausted, vanished and rate-limited codes each say what happened",
       await route.fulfill({
         status: 429,
         headers: { "retry-after": "1800" },
-        json: { error: "code_limit", detail: "Bir saatte en fazla üç doğrulama kodu isteyebilirsin.", retryAfter: 1_800 },
+        json: { error: "code_limit", detail: "Şu anda yeni doğrulama kodu istenemiyor: bir saatte en fazla üç kod gönderilir, kısa sürede yapılan hesap değişikliklerinin de bir sınırı var.", retryAfter: 1_800 },
       });
       return;
     }
@@ -371,8 +371,8 @@ test("wrong, exhausted, vanished and rate-limited codes each say what happened",
 
   await form.getByRole("button", { name: "Yeni kod gönder" }).click();
   // The vanished code stays announced next to the wait, so the person knows both what happened and when to retry.
-  await expect(form.getByRole("alert").filter({ hasText: "üç doğrulama kodu" })).toHaveText(
-    "Bir saatte en fazla üç doğrulama kodu isteyebilirsin. Yeniden denemek için bekle: 30 dakika.",
+  await expect(form.getByRole("alert").filter({ hasText: "yeni doğrulama kodu istenemiyor" })).toHaveText(
+    "Şu anda yeni doğrulama kodu istenemiyor: bir saatte en fazla üç kod gönderilir, kısa sürede yapılan hesap değişikliklerinin de bir sınırı var. Yeniden denemek için bekle: 30 dakika.",
   );
   await expect(form.getByRole("alert").filter({ hasText: "süresi dolmuş" })).toBeVisible();
   await expect(form.getByRole("button", { name: "Yeni kod gönder" })).toBeDisabled();

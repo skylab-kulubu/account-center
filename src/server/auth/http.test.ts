@@ -1,11 +1,14 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { describe, expect, it } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
+import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import type { AuthConfig } from "@/server/auth/config";
 import {
   mutationHasExactOrigin,
+  OIDC_TRANSACTION_COOKIE,
   requestWantsHtmlNavigation,
   sessionMutationHasExactOrigin,
+  setOidcTransactionCookie,
 } from "@/server/auth/http";
 import type { SessionRepository } from "@/server/auth/repositories";
 import { SessionManager } from "@/server/auth/sessions";
@@ -97,5 +100,20 @@ describe("mutation request protection", () => {
         headers,
       }))).toBe(false);
     }
+  });
+});
+
+describe("OIDC transaction cookie", () => {
+  it("lives exactly as long as the server-side transaction it binds", () => {
+    const response = NextResponse.redirect("https://e.yildizskylab.com/authorize", 303);
+    setOidcTransactionCookie(response, "b".repeat(43));
+    expect(response.cookies.get(OIDC_TRANSACTION_COOKIE)).toMatchObject({
+      value: "b".repeat(43),
+      maxAge: OIDC_TRANSACTION_TTL_SECONDS,
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+    });
   });
 });

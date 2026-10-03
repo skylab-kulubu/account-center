@@ -14,6 +14,7 @@ export type AnonymousAuthRateLimitScope =
   | "login"
   | "callback"
   | "sudo"
+  | "sudo_passkey"
   | "sudo_options"
   | "security_mutation"
   | "totp_confirm"
@@ -22,11 +23,14 @@ export type AnonymousAuthRateLimitScope =
   | "email_confirm";
 
 /**
- * `sudo`, `sudo_options`, `security_mutation`, `totp_confirm`,
- * `identity_mutation`, `email_mutation` and `email_confirm` are keyed by the
- * local session id (`consumeKey`) and mirror the sky-account budgets (10
- * proofs, 30 option requests, 30 credential mutations, 10 TOTP confirmations
- * per fixed 15-minute window; name and username changes share the SPI's
+ * `sudo`, `sudo_passkey`, `sudo_options`, `security_mutation`,
+ * `totp_confirm`, `identity_mutation`, `email_mutation` and `email_confirm`
+ * are keyed by the local session id (`consumeKey`) and mirror the
+ * sky-account budgets (10 password/TOTP proofs, 10 passkey proofs, 30 option
+ * requests, 30 credential mutations, 10 TOTP confirmations per fixed
+ * 15-minute window; like the SPI's `sudo-passkey`, passkey proofs have their
+ * own budget because an assertion cannot be guessed, so spent password or
+ * code tries never lock the passkey out; name and username changes share the SPI's
  * 30-wide `mutation` budget with the credential routes, so they get a tighter
  * 10, and so do the e-mail page's changes) so a session cannot burn the
  * person's upstream budget or the realm brute-force counter from this side.
@@ -39,6 +43,7 @@ const policies: Record<AnonymousAuthRateLimitScope, { limit: number; windowSecon
   login: { limit: 10, windowSeconds: 60 },
   callback: { limit: 30, windowSeconds: 60 },
   sudo: { limit: 10, windowSeconds: 15 * 60 },
+  sudo_passkey: { limit: 10, windowSeconds: 15 * 60 },
   sudo_options: { limit: 30, windowSeconds: 15 * 60 },
   security_mutation: { limit: 30, windowSeconds: 15 * 60 },
   totp_confirm: { limit: 10, windowSeconds: 15 * 60 },
