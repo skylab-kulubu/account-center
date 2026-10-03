@@ -18,9 +18,7 @@ export type SudoMethodAvailability = {
 export function sudoMethodAvailability(credentials: SkyAccountIdentity["credentials"]): SudoMethodAvailability {
   const methods: SudoMethod[] = [];
   if (credentials.password) methods.push("password");
-  // Legacy two-factor `webauthn` credentials are not passkeys: the SPI does not
-  // accept them for sudo, so they must not light up the tab.
-  if (credentials.passkeys.some(({ type }) => type === "webauthn-passwordless")) methods.push("passkey");
+  if (credentials.passkeys.length > 0) methods.push("passkey");
   if (credentials.totp.length > 0) methods.push("totp");
   return { methods, fallback: methods.length === 0 ? "microsoft" : null };
 }

@@ -8,7 +8,6 @@ import type {
   AuthenticationSummary,
   CredentialInventory,
   JsonValue,
-  LinkedAccount,
   OwnedCredential,
   ProfileAttributeMetadata,
   ProfileAttributeName,
@@ -20,9 +19,7 @@ export type KeycloakAccountResource =
   | "credentials"
   | "sessions"
   | "devices"
-  | "groups"
-  | "linked-accounts"
-  | "linked-account-uri";
+  | "groups";
 
 export class KeycloakAccountContractError extends Error {
   constructor(readonly resource: KeycloakAccountResource) {
@@ -598,80 +595,4 @@ export function parseGroups(value: unknown): AccountGroup[] {
       attributes: group.attributes ? copyStringListMap(group.attributes) : {},
     };
   });
-}
-
-const linkedAccountKeys = new Set([
-  "connected",
-  "social",
-  "providerAlias",
-  "providerName",
-  "displayName",
-  "linkedUsername",
-]);
-const MAX_LINKED_ACCOUNTS = 64;
-const providerAlias = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
-
-export function parseLinkedAccounts(value: unknown): LinkedAccount[] {
-  if (!Array.isArray(value) || value.length > MAX_LINKED_ACCOUNTS) {
-    throw new KeycloakAccountContractError("linked-accounts");
-  }
-  const seen = new Set<string>();
-  return value.map((account) => {
-    if (
-      !isObject(account) ||
-      !hasOnlyKeys(account, linkedAccountKeys) ||
-      typeof account.connected !== "boolean" ||
-      typeof account.social !== "boolean" ||
-      !requiredString(account.providerAlias, 255) ||
-      !providerAlias.test(account.providerAlias) ||
-      !optionalString(account.providerName) ||
-      !optionalString(account.displayName) ||
-      !optionalString(account.linkedUsername)
-    ) {
-      throw new KeycloakAccountContractError("linked-accounts");
-    }
-    if (seen.has(account.providerAlias)) throw new KeycloakAccountContractError("linked-accounts");
-    seen.add(account.providerAlias);
-    return {
-      connected: account.connected,
-      providerAlias: account.providerAlias,
-      displayName: account.displayName?.trim() || null,
-      linkedUsername: account.linkedUsername?.trim() || null,
-      social: account.social,
-    };
-  });
-}
-
-const linkedAccountUriKeys = new Set(["accountLinkUri", "nonce", "hash"]);
-
-export function parseLinkedAccountUri(value: unknown, issuer: URL, expectedProviderAlias: string): URL {
-  if (
-    !isObject(value) ||
-    !hasOnlyKeys(value, linkedAccountUriKeys) ||
-    !requiredString(value.accountLinkUri, 4_096) ||
-    !requiredString(value.nonce, 255) ||
-    !requiredString(value.hash, 255)
-  ) {
-    throw new KeycloakAccountContractError("linked-account-uri");
-  }
-  let uri: URL;
-  try {
-    uri = new URL(value.accountLinkUri);
-  } catch {
-    throw new KeycloakAccountContractError("linked-account-uri");
-  }
-  const realmPath = issuer.pathname.replace(/\/$/, "");
-  if (
-    uri.protocol !== "https:" ||
-    uri.origin !== issuer.origin ||
-    uri.username ||
-    uri.password ||
-    uri.hash ||
-    uri.pathname !== `${realmPath}/broker/${encodeURIComponent(expectedProviderAlias)}/link` ||
-    uri.searchParams.get("nonce") !== value.nonce ||
-    uri.searchParams.get("hash") !== value.hash
-  ) {
-    throw new KeycloakAccountContractError("linked-account-uri");
-  }
-  return uri;
 }

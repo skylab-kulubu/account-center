@@ -57,7 +57,6 @@ export const securityCopy = {
     empty: "Kayıtlı bir passkey yok.",
     add: "Passkey ekle",
     unsupported: "Bu tarayıcı passkey eklemeyi desteklemiyor. Güncel bir tarayıcı ya da SKY LAB uygulaması kullan.",
-    legacy: "Eski tür güvenlik anahtarı; giriş ve doğrulamada kullanılmaz, yalnız kaldırılabilir.",
     kind: "Passkey",
   },
   remove: {
@@ -114,12 +113,12 @@ function CredentialRow({
   const name = credentialName(row, fallbackLabel);
   const transports = transportsDescription(row);
   return (
-    <div className="settings-row security-credential" data-has-trailing="" data-legacy={row.legacy ? "" : undefined}>
+    <div className="settings-row security-credential" data-has-trailing="">
       <span className="settings-row__icon">{icon}</span>
       <span className="settings-row__copy">
         <strong>{name}</strong>
         <small>
-          {row.legacy ? securityCopy.passkeys.legacy : formattedCreatedAt(row.createdAt)}
+          {formattedCreatedAt(row.createdAt)}
           {transports ? ` · ${transports}` : null}
         </small>
       </span>
@@ -160,9 +159,8 @@ function RemoveDialog({
   const kind = flow.section === "totp" ? securityCopy.totp.kind : securityCopy.passkeys.kind;
   const name = credentialName(flow.credential, kind);
   const lastPasskeyWithoutPassword = flow.section === "passkeys" &&
-    !flow.credential.legacy &&
     !payload.password &&
-    payload.passkeys.filter((row) => !row.legacy).length === 1;
+    payload.passkeys.length === 1;
   const titleId = `${baseId}-title`;
   const descriptionId = `${baseId}-description`;
   return (
@@ -360,7 +358,7 @@ export function SecurityManager() {
   const busy = flow !== null;
   // Rendered only after the browser fetched the inventory, so the probe never disagrees with server markup.
   const createSupported = webauthnCreateSupported();
-  const passkeys = payload.passkeys.filter((row) => !row.legacy);
+  const passkeys = payload.passkeys;
   const totpLabels = payload.totp.map((row) => row.label ?? "").filter(Boolean);
   const passkeyLabels = payload.passkeys.map((row) => row.label ?? "").filter(Boolean);
   const csrfRenewed = async () => {

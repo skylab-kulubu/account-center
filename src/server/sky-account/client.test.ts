@@ -92,7 +92,6 @@ describe("SkyAccountHttpClient", () => {
         totp: [expect.objectContaining({ id: "2f0c5b4a-8d3e-4c1b-9a7f-000000000001", type: "otp", label: "Telefon" })],
         passkeys: [
           expect.objectContaining({ type: "webauthn-passwordless", label: "MacBook" }),
-          expect.objectContaining({ type: "webauthn", label: null, createdAt: null }),
         ],
       },
     });
@@ -101,6 +100,17 @@ describe("SkyAccountHttpClient", () => {
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer server-held-user-token");
     expect(calls[0]?.headers.get("x-sky-sudo")).toBeNull();
     expect(calls[0]?.headers.get("accept")).toBe("application/json, application/problem+json");
+  });
+
+  it("treats a listed legacy two-factor WebAuthn credential as contract drift: the SPI never lists one", async () => {
+    const legacy = { id: "2f0c5b4a-8d3e-4c1b-9a7f-000000000003", type: "webauthn", label: null, createdAt: null };
+    for (const credentials of [
+      { ...identityFixture.credentials, passkeys: [...identityFixture.credentials.passkeys, legacy] },
+      { ...identityFixture.credentials, totp: [...identityFixture.credentials.totp, legacy] },
+    ]) {
+      const { client } = transport(() => json({ ...identityFixture, credentials }));
+      await expect(client.identity(bearer)).rejects.toBeInstanceOf(SkyAccountContractError);
+    }
   });
 
   it("patches the name without sudo and returns the fresh identity", async () => {

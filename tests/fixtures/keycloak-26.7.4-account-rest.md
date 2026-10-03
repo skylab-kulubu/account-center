@@ -14,10 +14,6 @@ implementations and representations:
   `UserProfileAttributeGroupMetadata`) for the `userProfileMetadata=true` profile.
 - `AccountRestService.groupMemberships` with `ModelToRepresentation.toRepresentation(group, full)`
   (`GroupRepresentation`) for `/account/groups?briefRepresentation=false`.
-- `LinkedAccountsResource` with `LinkedAccountRepresentation` (Jackson property
-  `social` for the `isSocial` field, `guiOrder` ignored) for `/account/linked-accounts`,
-  and `AccountLinkUriRepresentation` for the deprecated `/account/linked-accounts/{alias}`
-  link URI (404 unless `allow-client-initiated-account-linking` is enabled).
 
 The fixture deliberately contains attributes outside the pinned set
 (`skyMail`, `usernameChangedAt`, `locale`), IP addresses, credential IDs,

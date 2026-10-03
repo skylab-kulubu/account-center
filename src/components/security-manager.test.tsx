@@ -22,7 +22,6 @@ vi.mock("@/components/sudo-provider", () => ({
 
 const totpReference = "t".repeat(43);
 const passkeyReference = "p".repeat(43);
-const legacyReference = "l".repeat(43);
 const csrfToken = "session-bound-csrf";
 
 function payload(overrides: Record<string, unknown> = {}) {
@@ -31,7 +30,6 @@ function payload(overrides: Record<string, unknown> = {}) {
     totp: [{ reference: totpReference, label: "Telefon", createdAt: "2026-09-21T13:10:41.130Z" }],
     passkeys: [
       { reference: passkeyReference, label: "MacBook", createdAt: "2026-09-01T08:00:00.000Z", transports: ["internal", "hybrid"] },
-      { reference: legacyReference, label: null, createdAt: null, legacy: true },
     ],
     sudo: { methods: ["password", "passkey", "totp"], fallback: null, active: null },
     csrfToken,
@@ -89,11 +87,11 @@ describe("SecurityManager", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Passkey’ler" })).toBeInTheDocument();
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText(/Eklendi: 1 Eylül 2026 · Bu cihaz · Telefon \/ QR/)).toBeInTheDocument();
-    expect(screen.getByText(/Eski tür güvenlik anahtarı/)).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /— Kaldır$/ })).toHaveLength(3);
+    expect(screen.queryByText(/Eski tür güvenlik anahtarı/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /— Kaldır$/ })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Doğrulama uygulaması ekle" })).toBeEnabled();
     expect(fetch).toHaveBeenCalledWith("/api/account/security", { cache: "no-store", credentials: "same-origin" });
-    for (const reference of [totpReference, passkeyReference, legacyReference, csrfToken]) {
+    for (const reference of [totpReference, passkeyReference, csrfToken]) {
       expect(container.innerHTML).not.toContain(reference);
     }
   });

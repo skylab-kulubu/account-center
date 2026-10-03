@@ -2,11 +2,11 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { PostgresSessionRepository, PostgresSudoRepository } from "@/server/auth/postgres-repositories";
 import { SudoRequiredError, SudoSessionInactiveError, SudoVault } from "@/server/auth/sudo";
+import { isolatedSchema } from "@/test/isolated-schema";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const databaseDescribe = databaseUrl ? describe : describe.skip;
@@ -21,7 +21,8 @@ const migrations = [
 const sudoToken = "eyJhbGciOiJIUzUxMiJ9.eyJ0eXAiOiJza3ktc3VkbyJ9.integration-signature";
 
 databaseDescribe("PostgreSQL sudo storage", () => {
-  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const database = isolatedSchema(databaseUrl, "account_sudo_storage_test");
+  const pool = database.pool;
   const sessions = new PostgresSessionRepository(pool);
   const repository = new PostgresSudoRepository(pool);
   const cipher = new AesGcmSecretCipher(Buffer.alloc(32, 11));
@@ -46,6 +47,7 @@ databaseDescribe("PostgreSQL sudo storage", () => {
   }
 
   beforeAll(async () => {
+    await database.create();
     for (const migration of migrations) {
       await pool.query(await readFile(resolve(process.cwd(), "migrations", migration), "utf8"));
     }
@@ -57,7 +59,7 @@ databaseDescribe("PostgreSQL sudo storage", () => {
   });
 
   afterAll(async () => {
-    await pool.end();
+    await database.drop();
   });
 
   it("applies the sudo migration idempotently on top of the live schema", async () => {
@@ -65,7 +67,8 @@ databaseDescribe("PostgreSQL sudo storage", () => {
     const columns = await pool.query<{ column_name: string; data_type: string; is_nullable: string }>(
       `SELECT column_name, data_type, is_nullable
          FROM information_schema.columns
-        WHERE table_name = 'account_sessions'
+        WHERE table_schema = current_schema()
+          AND table_name = 'account_sessions'
           AND column_name IN ('sudo_token_ciphertext', 'sudo_expires_at')
         ORDER BY column_name`,
     );

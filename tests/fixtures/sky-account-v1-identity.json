@@ -28,12 +28,6 @@
         "type": "webauthn-passwordless",
         "label": "MacBook",
         "createdAt": "2026-09-01T08:00:00.000Z"
-      },
-      {
-        "id": "2f0c5b4a-8d3e-4c1b-9a7f-000000000003",
-        "type": "webauthn",
-        "label": null,
-        "createdAt": null
       }
     ]
   }
