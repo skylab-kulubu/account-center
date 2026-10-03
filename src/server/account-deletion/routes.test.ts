@@ -378,6 +378,22 @@ describe("account deletion BFF routes", () => {
 
     mocks.createReauthenticatedIntent.mockRejectedValueOnce(foreign("AccountDeletionProofError"));
     expect((await prepare(jsonMutation("/api/account/deletion/prepare"))).status).toBe(428);
+
+    const retryRequest = () => new NextRequest("https://my.yildizskylab.com/api/account/deletion/status/retry", {
+      method: "POST",
+      headers: {
+        origin: "https://my.yildizskylab.com",
+        "sec-fetch-site": "same-origin",
+        "x-csrf-token": "receipt-csrf",
+        cookie: `${ACCOUNT_DELETION_RECEIPT_COOKIE}=${coreReceipt}`,
+      },
+    });
+    mocks.retry.mockRejectedValueOnce(foreign("AccountDeletionProofError"));
+    const refusedRetry = await retry(retryRequest());
+    expect(refusedRetry.status).toBe(400);
+    await expect(refusedRetry.json()).resolves.toEqual({ error: "invalid_request" });
+    mocks.retry.mockRejectedValueOnce(foreign("AccountDeletionUnavailableError"));
+    expect((await retry(retryRequest())).status).toBe(503);
   });
 
   it("submits nothing on a token-less proof, which core could never verify", async () => {
