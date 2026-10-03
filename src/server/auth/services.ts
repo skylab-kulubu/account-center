@@ -5,7 +5,7 @@ import {
   BackchannelLogoutService,
   KeycloakBackchannelLogoutVerifier,
 } from "@/server/auth/backchannel-logout";
-import { getAuthConfig } from "@/server/auth/config";
+import { getAuthConfig, OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { OidcFlowService } from "@/server/auth/oidc-flow";
 import { OAuth4WebApiProtocol } from "@/server/auth/oidc-protocol";
 import { OidcTransactionStore } from "@/server/auth/oidc-transactions";
@@ -67,7 +67,7 @@ function createAuthServices() {
   const transactions = new OidcTransactionStore(
     new PostgresOidcTransactionRepository(pool),
     cipher,
-    config.oidcTransactionTtlSeconds,
+    OIDC_TRANSACTION_TTL_SECONDS,
   );
   const oidc = new OidcFlowService(protocol, transactions, sessions, accountAccess, {
     ytuIdpAlias: config.ytuIdpAlias,

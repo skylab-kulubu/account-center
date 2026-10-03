@@ -33,9 +33,7 @@ describe("authentication configuration", () => {
   });
 
   it("gives a login round trip 15 minutes, within the realm's 30-minute login timeout", () => {
-    environment("3600");
     expect(OIDC_TRANSACTION_TTL_SECONDS).toBe(15 * 60);
-    expect(getAuthConfig().oidcTransactionTtlSeconds).toBe(OIDC_TRANSACTION_TTL_SECONDS);
     // e-skylab-keycloak config/account-center-realm.json: accessCodeLifespanLogin.
     expect(OIDC_TRANSACTION_TTL_SECONDS).toBeLessThanOrEqual(1_800);
   });
