@@ -15,6 +15,7 @@ import "server-only";
  */
 
 import { isGoogleWalletSaveUrl } from "@/lib/skypass-wallet";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 const BEARER_TOKEN = /^[\x21-\x7e]{1,8192}$/;
 const STATUS_TIMEOUT_MS = 5_000;
@@ -62,10 +63,10 @@ export type CoreSkyPassWalletFailure =
   | "contract"
   | "invalid_input";
 
-const errorBrand = Symbol.for("skylab.account-center.core-skypass-wallet-error");
-
 export class CoreSkyPassWalletError extends Error {
-  readonly [errorBrand] = true;
+  static {
+    brandCrossBundleError(this, "CoreSkyPassWalletError");
+  }
 
   constructor(
     readonly failure: CoreSkyPassWalletFailure,
@@ -75,16 +76,6 @@ export class CoreSkyPassWalletError extends Error {
     super(`Core SkyPass Wallet request failed: ${failure}.`);
     this.name = "CoreSkyPassWalletError";
   }
-}
-
-/**
- * `instanceof` is not enough here: the services registry is shared through
- * `globalThis`, so the client that threw may come from another server
- * bundle (the page's) than the route that maps the error, each with its own
- * copy of this class. The brand is the same in every copy.
- */
-export function isCoreSkyPassWalletError(error: unknown): error is CoreSkyPassWalletError {
-  return typeof error === "object" && error !== null && (error as Record<symbol, unknown>)[errorBrand] === true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

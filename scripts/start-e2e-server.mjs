@@ -25,7 +25,19 @@ const mockCore = process.env.CORE_API_URL
       pictureBase: process.env.APP_URL ?? `https://127.0.0.1:${port}`,
     });
 
-const env = mockCore ? { ...process.env, CORE_API_URL: mockCore.origin } : process.env;
+/**
+ * With the mock core in place, `e2e-realm-redirect.mjs` sends the realm's
+ * sky-account calls for `e2e-realm-` subjects to it as well.
+ */
+const realmRedirect = new URL("./e2e-realm-redirect.mjs", import.meta.url).href;
+const env = mockCore
+  ? {
+      ...process.env,
+      CORE_API_URL: mockCore.origin,
+      E2E_MOCK_REALM_ORIGIN: mockCore.origin,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${realmRedirect}`].filter(Boolean).join(" "),
+    }
+  : process.env;
 
 const nextBinary = join(process.cwd(), "node_modules", ".bin", "next");
 const child = spawn(

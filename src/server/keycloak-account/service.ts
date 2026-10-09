@@ -15,8 +15,13 @@ import type {
   AccountSession,
   KeycloakAccountReadAdapter,
 } from "@/server/keycloak-account/types";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 export class AccountReauthenticationRequiredError extends Error {
+  static {
+    brandCrossBundleError(this, "AccountReauthenticationRequiredError");
+  }
+
   constructor() {
     super("The Account REST user token cannot be refreshed.");
     this.name = "AccountReauthenticationRequiredError";

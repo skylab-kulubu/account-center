@@ -22,6 +22,12 @@ import { join } from "node:path";
  * and its core `code`); `GET /__e2e/wallet/{sub}` shows the state, the
  * calls core received and the save links it handed out. Wallet calls are
  * kept apart from the profile `requests`.
+ *
+ * The same server also stands in for the realm's sky-account
+ * `GET identity` (`tests/fixtures/sky-account-v1-identity.json`, the
+ * bearer's own `sub`), which the Sudo mode gate reads to list the person's
+ * methods. The dev server reaches it only through
+ * `scripts/e2e-realm-redirect.mjs`, and only for `e2e-realm-` subjects.
  */
 
 const MAX_PICTURE_BYTES = 5 * 1_024 * 1_024;
@@ -172,6 +178,7 @@ export function startMockCore({
   clientId = process.env.OIDC_CLIENT_ID ?? "account-center",
 }) {
   const fixture = JSON.parse(readFileSync(join(process.cwd(), "tests", "fixtures", "core-users-me.json"), "utf8"));
+  const identityFixture = JSON.parse(readFileSync(join(process.cwd(), "tests", "fixtures", "sky-account-v1-identity.json"), "utf8"));
   const users = new Map();
   /** receipt → lifecycle record, plus the idempotency index the intake reuses. */
   const deletions = new Map();
@@ -332,6 +339,12 @@ export function startMockCore({
           requests: user.requests,
           pictures: user.pictures.map(({ id, contentType, bytes }) => ({ id, contentType, byteLength: bytes.length, base64: bytes.toString("base64") })),
         });
+      }
+
+      if (/^\/realms\/[^/]+\/sky-account\/v1\/identity$/.test(url.pathname) && request.method === "GET") {
+        const bearer = decodeBearer(request.headers.authorization, "account");
+        if (!bearer) return problem(response, 401, "Unauthorized");
+        return json(response, 200, { ...identityFixture, sub: bearer.sub });
       }
 
       if (url.pathname.startsWith("/v1/account-deletion-requests")) {

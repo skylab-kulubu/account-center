@@ -383,8 +383,7 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
       await expect(dialog).toHaveCount(0);
       expect(popups).toHaveLength(0);
 
-      // The server's own 428 is covered by the route tests: under `next dev` the
-      // Sudo gate's error check can miss a vault built by the page's bundle.
+      // The server's own 428 for this route is asserted without `page.route` in `sudo-gate.spec.ts`.
       expect((await walletState()).saveUrls).toHaveLength(0);
     });
 

@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import type { AccountAccessDecision, AccountAccessGate } from "@/server/access-gate/gate";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 type SubjectSessionRevoker = {
   revokeSubject(subject: string): Promise<number>;
@@ -49,6 +50,10 @@ export class AccountAccessAuthorizer {
 }
 
 export class AccountAccessBlockedError extends Error {
+  static {
+    brandCrossBundleError(this, "AccountAccessBlockedError");
+  }
+
   constructor() {
     super("Account access was denied.");
     this.name = "AccountAccessBlockedError";
@@ -56,6 +61,10 @@ export class AccountAccessBlockedError extends Error {
 }
 
 export class AccountAccessUnavailableError extends Error {
+  static {
+    brandCrossBundleError(this, "AccountAccessUnavailableError");
+  }
+
   constructor() {
     super("Account access could not be verified.");
     this.name = "AccountAccessUnavailableError";

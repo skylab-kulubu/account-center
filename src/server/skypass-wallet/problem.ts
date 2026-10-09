@@ -1,6 +1,6 @@
 import "server-only";
 
-import { isCoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
+import { CoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
 import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
 
@@ -28,7 +28,7 @@ function withRetry(problem: SkyPassWalletProblem, seconds: number | null): SkyPa
 }
 
 export function toSkyPassWalletProblem(error: unknown): SkyPassWalletProblem {
-  if (!isCoreSkyPassWalletError(error)) return toAccountProblem(error);
+  if (!(error instanceof CoreSkyPassWalletError)) return toAccountProblem(error);
   switch (error.failure) {
     case "off":
       return skyPassWalletDisabledProblem;

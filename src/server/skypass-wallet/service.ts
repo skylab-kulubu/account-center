@@ -1,6 +1,6 @@
 import "server-only";
 
-import { isCoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
+import { CoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
 import type { CoreSkyPassWalletClient, CoreSkyPassWalletStatus } from "@/server/core/skypass-wallet-client";
 import type { AccountReadService } from "@/server/keycloak-account/service";
 
@@ -29,7 +29,7 @@ export class SkyPassWalletService {
     try {
       return await operation(accessToken);
     } catch (error) {
-      if (!isCoreSkyPassWalletError(error) || error.failure !== "unauthorized") throw error;
+      if (!(error instanceof CoreSkyPassWalletError) || error.failure !== "unauthorized") throw error;
       return operation(await this.tokens.accessToken(session, { forceRefresh: true }));
     }
   }

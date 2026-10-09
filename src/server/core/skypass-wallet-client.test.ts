@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CoreSkyPassWalletError,
   CoreSkyPassWalletHttpClient,
-  isCoreSkyPassWalletError,
 } from "@/server/core/skypass-wallet-client";
 
 const baseUrl = new URL("https://api.yildizskylab.com");
@@ -133,15 +132,5 @@ describe("Core SkyPass Wallet HTTP client", () => {
     vi.stubGlobal("fetch", fetch);
     expect((await failureOf(new CoreSkyPassWalletHttpClient(baseUrl).status("bad token"))).failure).toBe("invalid_input");
     expect(fetch).not.toHaveBeenCalled();
-  });
-});
-
-describe("isCoreSkyPassWalletError", () => {
-  it("recognises the error of another bundle's copy of the class by its brand", () => {
-    const foreign = Object.assign(new Error("x"), { [Symbol.for("skylab.account-center.core-skypass-wallet-error")]: true, failure: "ended" });
-    expect(isCoreSkyPassWalletError(new CoreSkyPassWalletError("ended"))).toBe(true);
-    expect(isCoreSkyPassWalletError(foreign)).toBe(true);
-    expect(isCoreSkyPassWalletError(new Error("x"))).toBe(false);
-    expect(isCoreSkyPassWalletError(null)).toBe(false);
   });
 });

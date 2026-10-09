@@ -5,6 +5,7 @@ import type { AuthConfig } from "@/server/auth/config";
 import { oidcRedirectUri, YTU_IDP_ALIAS_PATTERN } from "@/server/auth/config";
 import type { OidcTokenSet } from "@/server/auth/types";
 import { validateAccountAccessToken } from "@/server/keycloak-account/access-token";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 /**
  * The one Keycloak application-initiated action Account Center still requests:
@@ -62,6 +63,10 @@ export interface OidcProtocol {
 }
 
 export class OidcContractError extends Error {
+  static {
+    brandCrossBundleError(this, "OidcContractError");
+  }
+
   constructor(message: string) {
     super(message);
     this.name = "OidcContractError";
@@ -76,6 +81,10 @@ export type OidcProviderStage =
   | "id_token_signature";
 
 export class OidcProviderStageError extends Error {
+  static {
+    brandCrossBundleError(this, "OidcProviderStageError");
+  }
+
   constructor(readonly stage: OidcProviderStage) {
     super(`The OIDC provider failed during ${stage}.`);
     this.name = "OidcProviderStageError";

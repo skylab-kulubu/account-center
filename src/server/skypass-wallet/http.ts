@@ -16,7 +16,7 @@ import {
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import { getAuthServices } from "@/server/auth/services";
 import { requireAccountSudo } from "@/server/auth/sudo-gate";
-import { isCoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
+import { CoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
 import { skyPassWalletDisabledProblem, toSkyPassWalletProblem } from "@/server/skypass-wallet/problem";
 import type { SkyPassWalletProblem } from "@/server/skypass-wallet/problem";
 import { skyPassWalletServiceFor } from "@/server/skypass-wallet/service";
@@ -65,7 +65,7 @@ function withRotatedHandle(response: NextResponse, sessionUse: SessionUse) {
 /** A Keycloak-side 401 ends the local session like every account route; a core 401 only reports it. */
 async function failureResponse(request: NextRequest, services: Services, sessionUse: SessionUse, error: unknown) {
   const response = problemResponse(request, toSkyPassWalletProblem(error));
-  if (response.status === 401 && !isCoreSkyPassWalletError(error)) {
+  if (response.status === 401 && !(error instanceof CoreSkyPassWalletError)) {
     try {
       await services.sessions.revokeSession(sessionUse.session.id);
     } catch {
