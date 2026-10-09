@@ -192,6 +192,38 @@ describe("SkyPassWalletCard", () => {
     await waitFor(() => expect(assign).toHaveBeenCalledWith(saveUrl));
   });
 
+  it("leaves this tab alone when the person closed the waiting tab", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    fetchMock.mockImplementation(async () => {
+      tab.closed = true;
+      return Response.json({ saveUrl });
+    });
+    renderCard();
+
+    fireEvent.click(addButton());
+
+    expect(await screen.findByText(/Google Cüzdan sekmesi kapatıldı/)).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
+    expect(tab.location.replace).not.toHaveBeenCalled();
+    await waitFor(() => expect(addButton()).toHaveFocus());
+  });
+
+  it("starts one request for a double click", async () => {
+    let answer: (value: Response) => void = () => undefined;
+    fetchMock.mockReturnValue(new Promise<Response>((resolve) => { answer = resolve; }));
+    renderCard();
+
+    const button = addButton();
+    button.click();
+    button.click();
+    answer(Response.json({ saveUrl }));
+
+    await waitFor(() => expect(tab.location.replace).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(openMock).toHaveBeenCalledTimes(1);
+  });
+
   it("never navigates to a link that is not Google's save URL", async () => {
     fetchMock.mockResolvedValue(Response.json({ saveUrl: "https://evil.example/gp/v/save/a.b.c" }));
     renderCard();

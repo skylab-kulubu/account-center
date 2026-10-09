@@ -173,6 +173,8 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
   const revokeTrigger = useRef<HTMLButtonElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef<"revoke" | "add" | null>(null);
+  /** Set synchronously on the first press, so a double click cannot start a second request before React re-renders. */
+  const linkInFlight = useRef(false);
   const headingId = useId();
 
   useEffect(() => {
@@ -197,6 +199,7 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
   }
 
   async function verifyFirst(challenged: boolean) {
+    linkInFlight.current = true;
     setPending("verify");
     try {
       if (await ensureSudo(challenged ? { challenged: true } : undefined)) {
@@ -207,12 +210,14 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
         });
       }
     } finally {
+      linkInFlight.current = false;
       setPending(null);
     }
   }
 
   const add = () => {
-    if (pending) return;
+    if (pending || linkInFlight.current) return;
+    linkInFlight.current = true;
     setFeedback(null);
     if (!sudoExpiresAt || sudoExpiresAt.getTime() - Date.now() < SUDO_LINK_MARGIN_MS) {
       void verifyFirst(false);
@@ -250,17 +255,25 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
           return;
         }
         setIssued(true);
-        if (tab && !tab.closed) {
+        if (tab === null) {
+          // No new tab was allowed: this tab goes to Google instead.
+          window.location.assign(saveUrl);
+        } else if (tab.closed) {
+          // The person closed the waiting tab: they changed their mind, so this tab stays here.
+          restoreFocus.current = "add";
+          setFeedback({
+            tone: "success",
+            message: `Google Cüzdan sekmesi kapatıldı. Pası eklemek için “${GOOGLE_WALLET_BUTTON_LABEL}” düğmesine yeniden bas.`,
+          });
+        } else {
           tab.location.replace(saveUrl);
           setFeedback({
             tone: "success",
             message: "Google Cüzdan yeni sekmede açıldı. Pası orada kaydet; kapıda telefonundaki kodu göstermen yeterli.",
           });
-        } else {
-          // No new tab was allowed: this tab goes to Google instead.
-          window.location.assign(saveUrl);
         }
       } finally {
+        linkInFlight.current = false;
         setPending(null);
       }
     })();

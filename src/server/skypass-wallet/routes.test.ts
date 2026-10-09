@@ -112,6 +112,16 @@ describe("SkyPass Google Wallet BFF routes", () => {
     expect(routeMocks.googleSaveUrl).not.toHaveBeenCalled();
   });
 
+  it("writes no pass when the Sudo check itself fails", async () => {
+    routeMocks.requireFreshSudo.mockRejectedValue(new Error("sudo storage unavailable"));
+
+    const response = await POST(request("POST"));
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("gp/v/save");
+    expect(routeMocks.googleSaveUrl).not.toHaveBeenCalled();
+  });
+
   it("accepts a Microsoft re-authentication proof without a sky-account token (no SPI call here)", async () => {
     routeMocks.requireFreshSudo.mockResolvedValue({ method: "reauth", sudoToken: null, expiresAt: new Date("2026-10-09T13:05:00Z") });
 

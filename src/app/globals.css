@@ -1646,9 +1646,9 @@ a.settings-row:hover .settings-row__chevron {
   outline-offset: 4px;
 }
 
+/* No opacity or filter: Google's artwork keeps its colours; `aria-busy` and the progress line say it is busy. */
 .google-wallet-button:disabled {
   cursor: progress;
-  opacity: 0.6;
 }
 
 .wallet-card__platform-note {
