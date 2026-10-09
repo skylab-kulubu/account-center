@@ -2,9 +2,10 @@
 
 import { AlertCircle, ShieldCheck, Smartphone, WalletCards, XCircle } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { ConfirmationDialog } from "@/components/confirmation-dialog";
 import { StatusBadge } from "@/components/settings";
+import { useSudo } from "@/components/sudo-provider";
 import { ActionProgress } from "@/components/ui-states";
 import { GOOGLE_WALLET_BUTTON_SRC, isGoogleWalletSaveUrl } from "@/lib/skypass-wallet";
 
@@ -14,10 +15,14 @@ type Feedback =
   | { tone: "success"; message: string }
   | { tone: "danger"; problem: SafeProblem };
 
-type Pending = "link" | "revoke" | null;
+type Pending = "verify" | "link" | "revoke" | null;
+
+type Platform = "unknown" | "apple-mobile" | "other";
 
 const LINK_ROUTE = "/api/account/skypass/wallet/google";
 const LOGIN_HREF = "/login?returnTo=%2Fclub-profile";
+/** A proof with less life than this is renewed first: core may take up to 20 s to write the pass. */
+const SUDO_LINK_MARGIN_MS = 60_000;
 
 const networkProblem: SafeProblem = {
   title: "Bağlantı kurulamadı",
@@ -69,6 +74,27 @@ function parseProblem(value: unknown, status: number, fallback: SafeProblem): Sa
     status,
     ...(typeof value.code === "string" && value.code.length <= 64 ? { code: value.code } : {}),
   };
+}
+
+/**
+ * Google Wallet has no iPhone or iPad app, so the button is not offered
+ * there. iPadOS asks for desktop sites as a Mac by default; a real Mac has
+ * no touch screen, so a "Macintosh" with touch points is an iPad. Decided in
+ * the browser only: the server never sees `maxTouchPoints`.
+ */
+export function isAppleMobile(userAgent: string, maxTouchPoints: number) {
+  if (/\b(?:iPhone|iPad|iPod)\b/.test(userAgent)) return true;
+  return /\bMacintosh\b/.test(userAgent) && maxTouchPoints > 1;
+}
+
+const subscribeToNothing = () => () => {};
+
+function usePlatform(): Platform {
+  return useSyncExternalStore(
+    subscribeToNothing,
+    () => (isAppleMobile(navigator.userAgent, navigator.maxTouchPoints ?? 0) ? "apple-mobile" : "other"),
+    () => "unknown",
+  );
 }
 
 /**
@@ -124,6 +150,11 @@ function FeedbackBanner({ feedback }: { feedback: Feedback }) {
  * whoever saves it first owns the pass, so it lives in a local variable for
  * the one navigation it is fetched for: it is never put in state, the DOM,
  * storage, a log, a query string or an error message.
+ *
+ * Asking for the link needs Sudo mode. Without a fresh proof the click only
+ * opens the Sudo dialog and asks for a second press, so the tab is always
+ * opened by a click of its own (popup blockers allow it) rather than after a
+ * dialog of unknown length. Ending the pass needs no Sudo mode.
  */
 export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued: boolean; csrfToken: string }) {
   const [issued, setIssued] = useState(initialIssued);
@@ -131,6 +162,8 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
   const [pending, setPending] = useState<Pending>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const { ensureSudo, invalidateSudo, sudoExpiresAt } = useSudo();
+  const platform = usePlatform();
   const revokeTrigger = useRef<HTMLButtonElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef<"revoke" | "add" | null>(null);
@@ -157,11 +190,30 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
     setFeedback({ tone: "danger", problem });
   }
 
+  async function verifyFirst(challenged: boolean) {
+    setPending("verify");
+    try {
+      if (await ensureSudo(challenged ? { challenged: true } : undefined)) {
+        restoreFocus.current = "add";
+        setFeedback({
+          tone: "success",
+          message: "Kimliğin doğrulandı. Pası eklemek için “Google Cüzdan’a ekle” düğmesine yeniden bas.",
+        });
+      }
+    } finally {
+      setPending(null);
+    }
+  }
+
   const add = () => {
     if (pending) return;
+    setFeedback(null);
+    if (!sudoExpiresAt || sudoExpiresAt.getTime() - Date.now() < SUDO_LINK_MARGIN_MS) {
+      void verifyFirst(false);
+      return;
+    }
     const tab = openPendingTab();
     setPending("link");
-    setFeedback(null);
     void (async () => {
       try {
         let response: Response;
@@ -170,6 +222,13 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
         } catch {
           tab?.close();
           fail(networkProblem);
+          return;
+        }
+        if (response.status === 428) {
+          // The server has the last word on the proof's life: verify, then ask for a fresh click.
+          tab?.close();
+          invalidateSudo();
+          await verifyFirst(true);
           return;
         }
         const body = await responseJson(response);
@@ -260,18 +319,25 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
         </span>
         {off ? null : (
           <span className="wallet-card__actions">
-            <button
-              ref={addButton}
-              className="google-wallet-button"
-              type="button"
-              disabled={pending !== null}
-              aria-busy={pending === "link"}
-              onClick={add}
-            >
-              {/* Google's own button artwork, unaltered (brand guidelines); next/image would re-encode it. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt="Google Cüzdan’a ekle" src={GOOGLE_WALLET_BUTTON_SRC} />
-            </button>
+            {platform === "other" ? (
+              <button
+                ref={addButton}
+                className="google-wallet-button"
+                type="button"
+                disabled={pending !== null}
+                aria-busy={pending === "link" || pending === "verify"}
+                onClick={add}
+              >
+                {/* Google's own button artwork, unaltered (brand guidelines); next/image would re-encode it. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img alt="Google Cüzdan’a ekle" src={GOOGLE_WALLET_BUTTON_SRC} />
+              </button>
+            ) : null}
+            {platform === "apple-mobile" ? (
+              <span className="wallet-card__platform-note">
+                Google Cüzdan iPhone’da yok; Apple Cüzdan desteği daha sonra gelecek.
+              </span>
+            ) : null}
             {pending === "link" ? <ActionProgress label="Bağlantı hazırlanıyor" /> : null}
             {issued ? (
               <button

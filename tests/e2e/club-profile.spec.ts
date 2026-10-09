@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { devices, expect, test } from "@playwright/test";
 import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
-import { seedAuthenticatedSession } from "./auth-session";
+import { csrfTokenFor, seedAuthenticatedSession, seedSudoProof } from "./auth-session";
 
 const baseUrl = "https://127.0.0.1:3100";
 const mockCoreUrl = `https://127.0.0.1:${process.env.E2E_MOCK_CORE_PORT ?? "3101"}`;
@@ -351,8 +351,13 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
     });
 
     expect((await inspector.put(walletUrl, { data: { available: true } })).status()).toBe(200);
+    const csrfToken = csrfTokenFor(fixture.sessionId);
+    const methods = (active: { method: "reauth"; expiresAt: string } | null) =>
+      page.route("**/api/account/sudo/methods", (route) =>
+        route.fulfill({ json: { methods: ["password"], fallback: null, active, csrfToken } }));
 
-    await test.step("the save link opens in a new tab without an opener and leaves no trace here", async () => {
+    await test.step("without Sudo mode the button opens the Sudo dialog and nothing else", async () => {
+      await methods(null);
       await gotoClubProfile(page);
       const section = page.getByRole("region", { name: "Google Cüzdan" });
       await expect(section).toContainText("Pas yok");
@@ -361,6 +366,28 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
         .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
         .analyze();
       expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([]);
+
+      const popups: unknown[] = [];
+      page.on("popup", (popup) => popups.push(popup));
+      await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
+      const dialog = page.getByRole("dialog", { name: "Kimliğini doğrula" });
+      await expect(dialog).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+      expect(popups).toHaveLength(0);
+
+      // The server's own 428 is covered by the route tests: under `next dev` the
+      // Sudo gate's error check can miss a vault built by the page's bundle.
+      expect((await walletState()).saveUrls).toHaveLength(0);
+    });
+
+    await test.step("the save link opens in a new tab without an opener and leaves no trace here", async () => {
+      const { expiresAt } = await seedSudoProof(fixture.sessionId);
+      await page.unroute("**/api/account/sudo/methods");
+      await methods({ method: "reauth", expiresAt: expiresAt.toISOString() });
+      const section = page.getByRole("region", { name: "Google Cüzdan" });
+      await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
+      await expect(section.getByRole("status")).toContainText("Kimliğin doğrulandı");
 
       const popupPromise = page.waitForEvent("popup");
       await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
@@ -424,5 +451,30 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
     expect(errors.filter((message) => !/status of 429/.test(message))).toEqual([]);
   } finally {
     await inspector.dispose();
+  }
+});
+
+test("an iPhone gets a note instead of the Google Wallet button", async ({ browser, playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "account-ui-matrix", "one pass is sufficient");
+  const { defaultBrowserType: _browserType, ...iphone } = devices["iPhone 15"];
+  void _browserType;
+  const context = await browser.newContext({ ...iphone, baseURL: baseUrl, ignoreHTTPSErrors: true });
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const fixture = await installSession(context, `club-profile-wallet-ios-${testInfo.retry}`);
+    await context.route("**/google-wallet/*.svg", (route) => route.fulfill({ contentType: "image/svg+xml", body: walletButtonStub }));
+    const walletUrl = `${mockCoreUrl}/__e2e/wallet/${encodeURIComponent(fixture.subject)}`;
+    expect((await inspector.put(walletUrl, { data: { available: true, issued: true } })).status()).toBe(200);
+    const page = await context.newPage();
+    const errors = collectPageErrors(page);
+    await gotoClubProfile(page);
+    const section = page.getByRole("region", { name: "Google Cüzdan" });
+    await expect(section).toContainText("Google Cüzdan iPhone’da yok; Apple Cüzdan desteği daha sonra gelecek.");
+    await expect(section.getByRole("button", { name: "Google Cüzdan’a ekle" })).toHaveCount(0);
+    await expect(section.getByRole("button", { name: "Cüzdandan kaldır" })).toBeVisible();
+    expect(errors).toEqual([]);
+  } finally {
+    await inspector.dispose();
+    await context.close();
   }
 });

@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DELETE, POST } from "@/app/api/account/skypass/wallet/google/route";
 import { SESSION_COOKIE } from "@/server/auth/http";
+import { SudoRequiredError } from "@/server/auth/sudo";
 import { CoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
 import { AccountReauthenticationRequiredError } from "@/server/keycloak-account/service";
 
@@ -16,7 +17,14 @@ const routeMocks = vi.hoisted(() => ({
   status: vi.fn(),
   googleSaveUrl: vi.fn(),
   revokeGoogle: vi.fn(),
+  requireFreshSudo: vi.fn(),
+  clearSudo: vi.fn(),
+  identity: vi.fn(),
   services: {} as Record<string, unknown>,
+}));
+
+vi.mock("@/server/auth/sudo-methods", () => ({
+  resolveSudoMethods: async () => ({ methods: ["password", "passkey"], fallback: null }),
 }));
 
 vi.mock("@/server/auth/services", () => ({
@@ -35,6 +43,8 @@ function buildServices(options: { coreEnabled?: boolean } = {}) {
     sessionAccess: { authenticateMutation: routeMocks.authenticateMutation },
     sessions: { revokeSession: routeMocks.revokeLocalSession },
     account: { accessToken: routeMocks.accessToken },
+    sudo: { requireFreshSudo: routeMocks.requireFreshSudo, clearSudo: routeMocks.clearSudo },
+    skyAccount: { identity: routeMocks.identity },
     coreSkyPassWallet: options.coreEnabled === false
       ? null
       : { status: routeMocks.status, googleSaveUrl: routeMocks.googleSaveUrl, revokeGoogle: routeMocks.revokeGoogle },
@@ -63,6 +73,7 @@ describe("SkyPass Google Wallet BFF routes", () => {
     routeMocks.accessToken.mockResolvedValue("server-held-user-token");
     routeMocks.googleSaveUrl.mockResolvedValue(saveUrl);
     routeMocks.revokeGoogle.mockResolvedValue(undefined);
+    routeMocks.requireFreshSudo.mockResolvedValue({ method: "passkey", sudoToken: "sudo-token", expiresAt: new Date("2026-10-09T13:05:00Z") });
     for (const method of ["log", "info", "warn", "error", "debug"] as const) {
       vi.spyOn(console, method).mockImplementation(logged);
     }
@@ -85,7 +96,32 @@ describe("SkyPass Google Wallet BFF routes", () => {
     expect(logged).not.toHaveBeenCalled();
   });
 
-  it("ends the pass with 204", async () => {
+  it("asks for Sudo mode before core writes a pass", async () => {
+    routeMocks.requireFreshSudo.mockRejectedValue(new SudoRequiredError("missing", null));
+
+    const response = await POST(request("POST"));
+
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toEqual({
+      error: "sudo_required",
+      reason: "missing",
+      methods: ["password", "passkey"],
+      fallback: null,
+    });
+    expect(routeMocks.requireFreshSudo).toHaveBeenCalledWith(activeSession.id, expect.anything());
+    expect(routeMocks.googleSaveUrl).not.toHaveBeenCalled();
+  });
+
+  it("accepts a Microsoft re-authentication proof without a sky-account token (no SPI call here)", async () => {
+    routeMocks.requireFreshSudo.mockResolvedValue({ method: "reauth", sudoToken: null, expiresAt: new Date("2026-10-09T13:05:00Z") });
+
+    expect((await POST(request("POST"))).status).toBe(200);
+    expect(routeMocks.clearSudo).not.toHaveBeenCalled();
+  });
+
+  it("ends the pass with 204 and without Sudo mode", async () => {
+    routeMocks.requireFreshSudo.mockRejectedValue(new SudoRequiredError("missing", null));
+
     const response = await DELETE(request("DELETE"));
 
     expect(response.status).toBe(204);

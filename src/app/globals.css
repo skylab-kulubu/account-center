@@ -1647,6 +1647,12 @@ a.settings-row:hover .settings-row__chevron {
   opacity: 0.6;
 }
 
+.wallet-card__platform-note {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
 .wallet-card__note {
   display: flex;
   align-items: flex-start;

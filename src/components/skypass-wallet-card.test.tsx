@@ -1,6 +1,18 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SkyPassWalletCard } from "@/components/skypass-wallet-card";
+import { isAppleMobile, SkyPassWalletCard } from "@/components/skypass-wallet-card";
+
+const sudo = vi.hoisted(() => ({
+  ensureSudo: vi.fn(),
+  invalidateSudo: vi.fn(),
+  sudoExpiresAt: null as Date | null,
+}));
+
+vi.mock("@/components/sudo-provider", () => ({ useSudo: () => sudo }));
+
+const iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1";
+const macSafari = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15";
+const android = "Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36";
 
 const saveUrl = "https://pay.google.com/gp/v/save/eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJza3lsYWIifQ.c2lnbmF0dXJl";
 
@@ -44,6 +56,8 @@ const storageWrites = vi.fn();
 const consoleWrites = vi.fn();
 
 beforeEach(() => {
+  sudo.sudoExpiresAt = new Date(Date.now() + 5 * 60_000);
+  sudo.ensureSudo.mockResolvedValue(true);
   tab = fakeTab();
   fetchMock = vi.fn();
   openMock = vi.fn(() => tab);
@@ -63,7 +77,74 @@ afterEach(() => {
   consoleWrites.mockReset();
 });
 
+describe("isAppleMobile", () => {
+  it("hides the button on iPhone and iPad, also when iPadOS asks for the desktop site, but not on a Mac", () => {
+    expect(isAppleMobile(iphone, 5)).toBe(true);
+    expect(isAppleMobile("Mozilla/5.0 (iPad; CPU OS 18_6 like Mac OS X)", 5)).toBe(true);
+    expect(isAppleMobile(macSafari, 5)).toBe(true);
+    expect(isAppleMobile(macSafari, 0)).toBe(false);
+    expect(isAppleMobile(android, 5)).toBe(false);
+  });
+});
+
 describe("SkyPassWalletCard", () => {
+  it("shows a note instead of the button on an iPhone and still lets the pass be ended", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(iphone);
+    renderCard(true);
+
+    expect(screen.queryByRole("button", { name: "Google Cüzdan’a ekle" })).not.toBeInTheDocument();
+    expect(screen.getByText("Google Cüzdan iPhone’da yok; Apple Cüzdan desteği daha sonra gelecek.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Cüzdandan kaldır/ })).toBeInTheDocument();
+  });
+
+  it("verifies first when there is no fresh Sudo proof and opens nothing until the next press", async () => {
+    sudo.sudoExpiresAt = null;
+    renderCard();
+
+    fireEvent.click(addButton());
+
+    expect(await screen.findByText(/Kimliğin doğrulandı/)).toBeInTheDocument();
+    expect(sudo.ensureSudo).toHaveBeenCalledWith(undefined);
+    expect(openMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(addButton()).toHaveFocus());
+  });
+
+  it("renews a proof that would expire while core writes the pass", async () => {
+    sudo.sudoExpiresAt = new Date(Date.now() + 10_000);
+    renderCard();
+
+    fireEvent.click(addButton());
+
+    await waitFor(() => expect(sudo.ensureSudo).toHaveBeenCalled());
+    expect(openMock).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet when the person closes the Sudo dialog", async () => {
+    sudo.sudoExpiresAt = null;
+    sudo.ensureSudo.mockResolvedValue(false);
+    renderCard();
+
+    fireEvent.click(addButton());
+
+    await waitFor(() => expect(addButton()).toBeEnabled());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("closes the tab and verifies again when the server says the proof is gone", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "sudo_required", reason: "expired", methods: ["password"], fallback: null }), { status: 428 }));
+    renderCard();
+
+    fireEvent.click(addButton());
+
+    expect(await screen.findByText(/Kimliğin doğrulandı/)).toBeInTheDocument();
+    expect(tab.close).toHaveBeenCalled();
+    expect(tab.location.replace).not.toHaveBeenCalled();
+    expect(sudo.invalidateSudo).toHaveBeenCalled();
+    expect(sudo.ensureSudo).toHaveBeenCalledWith({ challenged: true });
+  });
+
   it("shows Google's own button and no revoke action before a pass exists", () => {
     renderCard();
     const image = within(addButton()).getByRole("img", { name: "Google Cüzdan’a ekle" });
