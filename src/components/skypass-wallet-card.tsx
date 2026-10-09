@@ -7,7 +7,13 @@ import { ConfirmationDialog } from "@/components/confirmation-dialog";
 import { StatusBadge } from "@/components/settings";
 import { useSudo } from "@/components/sudo-provider";
 import { ActionProgress } from "@/components/ui-states";
-import { GOOGLE_WALLET_BUTTON_SRC, isGoogleWalletSaveUrl } from "@/lib/skypass-wallet";
+import {
+  GOOGLE_WALLET_BADGE_SRC,
+  GOOGLE_WALLET_BUTTON_LABEL,
+  GOOGLE_WALLET_BUTTON_SRC,
+  GOOGLE_WALLET_CONDENSED_MEDIA,
+  isGoogleWalletSaveUrl,
+} from "@/lib/skypass-wallet";
 
 type SafeProblem = { title: string; detail: string; status: number };
 
@@ -197,7 +203,7 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
         restoreFocus.current = "add";
         setFeedback({
           tone: "success",
-          message: "Kimliğin doğrulandı. Pası eklemek için “Google Cüzdan’a ekle” düğmesine yeniden bas.",
+          message: `Kimliğin doğrulandı. Pası eklemek için “${GOOGLE_WALLET_BUTTON_LABEL}” düğmesine yeniden bas.`,
         });
       }
     } finally {
@@ -328,9 +334,11 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
                 aria-busy={pending === "link" || pending === "verify"}
                 onClick={add}
               >
-                {/* Google's own button artwork, unaltered (brand guidelines); next/image would re-encode it. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img alt="Google Cüzdan’a ekle" src={GOOGLE_WALLET_BUTTON_SRC} />
+                {/* Google's own artwork, unaltered (brand guidelines); next/image would re-encode it. */}
+                <picture>
+                  <source media={GOOGLE_WALLET_CONDENSED_MEDIA} srcSet={GOOGLE_WALLET_BADGE_SRC} />
+                  <img alt={GOOGLE_WALLET_BUTTON_LABEL} src={GOOGLE_WALLET_BUTTON_SRC} />
+                </picture>
               </button>
             ) : null}
             {platform === "apple-mobile" ? (

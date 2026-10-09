@@ -46,7 +46,7 @@ function renderCard(initialIssued = false) {
 }
 
 function addButton() {
-  return screen.getByRole("button", { name: "Google Cüzdan’a ekle" });
+  return screen.getByRole("button", { name: "Google Cüzdana ekle" });
 }
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -92,7 +92,7 @@ describe("SkyPassWalletCard", () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(iphone);
     renderCard(true);
 
-    expect(screen.queryByRole("button", { name: "Google Cüzdan’a ekle" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Google Cüzdana ekle" })).not.toBeInTheDocument();
     expect(screen.getByText("Google Cüzdan iPhone’da yok; Apple Cüzdan desteği daha sonra gelecek.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Cüzdandan kaldır/ })).toBeInTheDocument();
   });
@@ -147,8 +147,11 @@ describe("SkyPassWalletCard", () => {
 
   it("shows Google's own button and no revoke action before a pass exists", () => {
     renderCard();
-    const image = within(addButton()).getByRole("img", { name: "Google Cüzdan’a ekle" });
+    const image = within(addButton()).getByRole("img", { name: "Google Cüzdana ekle" });
     expect(image).toHaveAttribute("src", "/google-wallet/tr_add_to_google_wallet_button.svg");
+    const condensed = addButton().querySelector("source");
+    expect(condensed).toHaveAttribute("srcset", "/google-wallet/tr_add_to_google_wallet_badge.svg");
+    expect(condensed).toHaveAttribute("media", "(max-width: 359px)");
     expect(screen.getByText("Pas yok")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Cüzdandan kaldır/ })).not.toBeInTheDocument();
   });
@@ -223,7 +226,7 @@ describe("SkyPassWalletCard", () => {
     fireEvent.click(addButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Google Cüzdan şu anda kullanılamıyor");
-    expect(screen.queryByRole("button", { name: "Google Cüzdan’a ekle" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Google Cüzdana ekle" })).not.toBeInTheDocument();
     expect(screen.getByText(/Google Cüzdan şu anda kapalı/)).toBeInTheDocument();
   });
 

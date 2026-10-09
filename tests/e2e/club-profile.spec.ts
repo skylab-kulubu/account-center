@@ -321,6 +321,15 @@ test("the BFF re-validates picture bytes and origin before anything reaches core
   }
 });
 
+/** Google's artwork actually loaded and is drawn at least 48 px tall (brand guidelines). */
+async function expectWalletArtwork(page: Page, file: string) {
+  const image = page.getByRole("button", { name: "Google Cüzdana ekle" }).getByRole("img");
+  // `<picture>` picks its source again after a viewport change, so wait for the loaded one.
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
+    element.complete && element.naturalWidth > 0 ? new URL(element.currentSrc).pathname : null)).toBe(`/google-wallet/${file}`);
+  expect((await image.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+}
+
 type MockWalletState = {
   available: boolean;
   issued: boolean;
@@ -328,8 +337,6 @@ type MockWalletState = {
   saveUrls: string[];
 };
 
-/** A stand-in for Google's button artwork, so the flow does not depend on the asset file. */
-const walletButtonStub = '<svg xmlns="http://www.w3.org/2000/svg" width="199" height="48"><rect width="199" height="48" rx="24"/></svg>';
 
 test("SkyPass goes to Google Wallet in a new tab and comes off it again", async ({ context, page, playwright }, testInfo) => {
   test.skip(testInfo.project.name !== "account-ui-matrix", "one browser-backed round trip is sufficient");
@@ -339,7 +346,6 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
   const walletUrl = `${mockCoreUrl}/__e2e/wallet/${encodeURIComponent(fixture.subject)}`;
   const walletState = async () => (await inspector.get(walletUrl)).json() as Promise<MockWalletState>;
   const errors = collectPageErrors(page);
-  await context.route("**/google-wallet/*.svg", (route) => route.fulfill({ contentType: "image/svg+xml", body: walletButtonStub }));
   await context.route("https://pay.google.com/**", (route) =>
     route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Google Wallet</title><p>stub</p>" }));
 
@@ -361,6 +367,7 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
       await gotoClubProfile(page);
       const section = page.getByRole("region", { name: "Google Cüzdan" });
       await expect(section).toContainText("Pas yok");
+      await expectWalletArtwork(page, "tr_add_to_google_wallet_button.svg");
       const accessibility = await new AxeBuilder({ page })
         .include("section[aria-labelledby]")
         .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
@@ -369,7 +376,7 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
 
       const popups: unknown[] = [];
       page.on("popup", (popup) => popups.push(popup));
-      await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
+      await section.getByRole("button", { name: "Google Cüzdana ekle" }).click();
       const dialog = page.getByRole("dialog", { name: "Kimliğini doğrula" });
       await expect(dialog).toBeVisible();
       await page.keyboard.press("Escape");
@@ -386,11 +393,11 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
       await page.unroute("**/api/account/sudo/methods");
       await methods({ method: "reauth", expiresAt: expiresAt.toISOString() });
       const section = page.getByRole("region", { name: "Google Cüzdan" });
-      await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
+      await section.getByRole("button", { name: "Google Cüzdana ekle" }).click();
       await expect(section.getByRole("status")).toContainText("Kimliğin doğrulandı");
 
       const popupPromise = page.waitForEvent("popup");
-      await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
+      await section.getByRole("button", { name: "Google Cüzdana ekle" }).click();
       const popup = await popupPromise;
       await popup.waitForURL(/^https:\/\/pay\.google\.com\/gp\/v\/save\//);
       const { saveUrls } = await walletState();
@@ -415,6 +422,7 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
       await page.setViewportSize({ width: 320, height: 720 });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, "document must not overflow horizontally").toBeLessThanOrEqual(1);
+      await expectWalletArtwork(page, "tr_add_to_google_wallet_badge.svg");
       await testInfo.attach("skypass-wallet-320", {
         body: await page.getByRole("region", { name: "Google Cüzdan" }).screenshot(),
         contentType: "image/png",
@@ -426,7 +434,7 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
       expect((await inspector.put(walletUrl, { data: { failNext: 429 } })).status()).toBe(200);
       const section = page.getByRole("region", { name: "Google Cüzdan" });
       const popupPromise = page.waitForEvent("popup");
-      await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
+      await section.getByRole("button", { name: "Google Cüzdana ekle" }).click();
       const popup = await popupPromise;
       await expect(section.getByRole("alert")).toContainText("Yaklaşık 42 saniye sonra");
       await expect.poll(() => popup.isClosed()).toBe(true);
@@ -462,7 +470,6 @@ test("an iPhone gets a note instead of the Google Wallet button", async ({ brows
   const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
   try {
     const fixture = await installSession(context, `club-profile-wallet-ios-${testInfo.retry}`);
-    await context.route("**/google-wallet/*.svg", (route) => route.fulfill({ contentType: "image/svg+xml", body: walletButtonStub }));
     const walletUrl = `${mockCoreUrl}/__e2e/wallet/${encodeURIComponent(fixture.subject)}`;
     expect((await inspector.put(walletUrl, { data: { available: true, issued: true } })).status()).toBe(200);
     const page = await context.newPage();
@@ -470,7 +477,7 @@ test("an iPhone gets a note instead of the Google Wallet button", async ({ brows
     await gotoClubProfile(page);
     const section = page.getByRole("region", { name: "Google Cüzdan" });
     await expect(section).toContainText("Google Cüzdan iPhone’da yok; Apple Cüzdan desteği daha sonra gelecek.");
-    await expect(section.getByRole("button", { name: "Google Cüzdan’a ekle" })).toHaveCount(0);
+    await expect(section.getByRole("button", { name: "Google Cüzdana ekle" })).toHaveCount(0);
     await expect(section.getByRole("button", { name: "Cüzdandan kaldır" })).toBeVisible();
     expect(errors).toEqual([]);
   } finally {

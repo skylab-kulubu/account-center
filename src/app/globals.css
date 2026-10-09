@@ -1631,6 +1631,10 @@ a.settings-row:hover .settings-row__chevron {
   cursor: pointer;
 }
 
+.google-wallet-button picture {
+  display: block;
+}
+
 .google-wallet-button img {
   display: block;
   width: auto;
