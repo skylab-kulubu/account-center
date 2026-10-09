@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
 import {
   contractShapedSudoToken,
+  csrfTokenFor,
   seedAuthenticatedSession,
   seedSudoProof,
   sessionState,
@@ -267,4 +268,35 @@ test("asks for Sudo mode again when core refuses the proof, and changes nothing"
   expect(state?.revoked_at).toBeNull();
   expect(state?.sudo_expires_at).toBeNull();
   expect(errors).toEqual([]);
+});
+
+test("without a proof both deletion steps answer the server's own 428 and nothing reaches core", async ({ playwright }, testInfo) => {
+  // A `realm-` subject: the mock realm serves the identity the challenge lists methods from.
+  const fixture = await seedAuthenticatedSession(`realm-deletion-gate-${testInfo.retry}`, { contractToken: true });
+  const csrf = csrfTokenFor(fixture.sessionId);
+  const api = await playwright.request.newContext({
+    baseURL: baseUrl,
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: { cookie: `${sessionCookieName}=${fixture.handle}`, origin: baseUrl, "sec-fetch-site": "same-origin" },
+  });
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  const challenge = { error: "sudo_required", reason: "missing", methods: ["password", "passkey", "totp"], fallback: null };
+
+  try {
+    // The page first: the shared services are then built by another bundle than the routes' (A9).
+    expect((await api.get("/delete-account", { maxRedirects: 0 })).status()).toBe(200);
+
+    const prepare = await api.post("/api/account/deletion/prepare", { headers: { "x-csrf-token": csrf }, maxRedirects: 0 });
+    expect(prepare.status()).toBe(428);
+    expect(await prepare.json()).toEqual(challenge);
+
+    const deletion = await api.post("/api/account/deletion", { form: { csrfToken: csrf }, maxRedirects: 0 });
+    expect(deletion.status()).toBe(428);
+    expect(await deletion.json()).toEqual(challenge);
+
+    expect(await coreIntakes(inspector, fixture.subject)).toEqual([]);
+  } finally {
+    await api.dispose();
+    await inspector.dispose();
+  }
 });

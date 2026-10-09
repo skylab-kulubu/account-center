@@ -13,6 +13,7 @@ import type {
   YtuLinkTransactionPayload,
 } from "@/server/auth/types";
 import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 /**
  * How the `idp_link` round trip ended: Keycloak's own `kc_action_status`, or
@@ -51,6 +52,10 @@ const allowedReturnPaths = new Set([
 ]);
 
 export class InvalidOidcTransactionError extends Error {
+  static {
+    brandCrossBundleError(this, "InvalidOidcTransactionError");
+  }
+
   constructor() {
     super("The OIDC transaction is invalid, expired, or already used.");
     this.name = "InvalidOidcTransactionError";

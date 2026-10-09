@@ -1,5 +1,7 @@
 import "server-only";
 
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
+
 /**
  * Club-profile client for core `GET/PATCH /v1/users/me` and
  * `POST/DELETE /v1/users/me/profile-picture`, called with the person's own
@@ -90,6 +92,10 @@ export interface CoreProfileClient {
 }
 
 export class CoreProfileUnavailableError extends Error {
+  static {
+    brandCrossBundleError(this, "CoreProfileUnavailableError");
+  }
+
   constructor() {
     super("Core profile is unavailable.");
     this.name = "CoreProfileUnavailableError";
@@ -97,6 +103,10 @@ export class CoreProfileUnavailableError extends Error {
 }
 
 export class CoreProfileUnauthorizedError extends Error {
+  static {
+    brandCrossBundleError(this, "CoreProfileUnauthorizedError");
+  }
+
   constructor() {
     super("Core rejected the profile credential.");
     this.name = "CoreProfileUnauthorizedError";
@@ -104,6 +114,10 @@ export class CoreProfileUnauthorizedError extends Error {
 }
 
 export class CoreProfileForbiddenError extends Error {
+  static {
+    brandCrossBundleError(this, "CoreProfileForbiddenError");
+  }
+
   constructor() {
     super("Core denied the profile operation.");
     this.name = "CoreProfileForbiddenError";
@@ -111,6 +125,10 @@ export class CoreProfileForbiddenError extends Error {
 }
 
 export class CoreProfileNotFoundError extends Error {
+  static {
+    brandCrossBundleError(this, "CoreProfileNotFoundError");
+  }
+
   constructor() {
     super("Core has no profile for the caller.");
     this.name = "CoreProfileNotFoundError";
@@ -119,6 +137,10 @@ export class CoreProfileNotFoundError extends Error {
 
 /** Core refused the request itself (validation, size, media type, rate limit). */
 export class CoreProfileRejectedError extends Error {
+  static {
+    brandCrossBundleError(this, "CoreProfileRejectedError");
+  }
+
   constructor(readonly status: number) {
     super(`Core rejected the profile request with status ${status}.`);
     this.name = "CoreProfileRejectedError";
@@ -126,6 +148,10 @@ export class CoreProfileRejectedError extends Error {
 }
 
 export class CoreProfileContractError extends Error {
+  static {
+    brandCrossBundleError(this, "CoreProfileContractError");
+  }
+
   constructor() {
     super("Core profile response did not match the pinned contract.");
     this.name = "CoreProfileContractError";
@@ -133,6 +159,10 @@ export class CoreProfileContractError extends Error {
 }
 
 export class CoreProfileInvalidInputError extends Error {
+  static {
+    brandCrossBundleError(this, "CoreProfileInvalidInputError");
+  }
+
   constructor(readonly field: string) {
     super(`Core profile request input is invalid: ${field}.`);
     this.name = "CoreProfileInvalidInputError";

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { isEmailCodeAttempts } from "@/lib/email-fields";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 /**
  * RFC 7807 problem codes of sky-account API v1 with their pinned HTTP
@@ -80,6 +81,10 @@ const RFC3339_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 
 /** A typed sky-account rejection. The message never carries the upstream body. */
 export class SkyAccountProblem extends Error {
+  static {
+    brandCrossBundleError(this, "SkyAccountProblem");
+  }
+
   readonly code: SkyAccountProblemCode;
   readonly status: SkyAccountProblemDetails["status"];
   readonly detail: string;
@@ -106,6 +111,10 @@ export class SkyAccountProblem extends Error {
 }
 
 export class SkyAccountUnavailableError extends Error {
+  static {
+    brandCrossBundleError(this, "SkyAccountUnavailableError");
+  }
+
   constructor() {
     super("sky-account v1 is unavailable.");
     this.name = "SkyAccountUnavailableError";
@@ -113,6 +122,10 @@ export class SkyAccountUnavailableError extends Error {
 }
 
 export class SkyAccountContractError extends Error {
+  static {
+    brandCrossBundleError(this, "SkyAccountContractError");
+  }
+
   constructor() {
     super("sky-account v1 response did not match the pinned contract.");
     this.name = "SkyAccountContractError";
@@ -120,6 +133,10 @@ export class SkyAccountContractError extends Error {
 }
 
 export class SkyAccountInvalidInputError extends Error {
+  static {
+    brandCrossBundleError(this, "SkyAccountInvalidInputError");
+  }
+
   constructor(readonly field: string) {
     super(`sky-account v1 request input is invalid: ${field}.`);
     this.name = "SkyAccountInvalidInputError";

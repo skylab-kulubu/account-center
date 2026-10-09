@@ -8,6 +8,7 @@ import {
 import type { AuthConfig } from "@/server/auth/config";
 import { hmacSha256 } from "@/server/auth/crypto";
 import type { BackchannelLogoutRepository } from "@/server/auth/repositories";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 const backchannelLogoutEvent = "http://schemas.openid.net/event/backchannel-logout";
 
@@ -23,6 +24,10 @@ export interface BackchannelLogoutVerifier {
 }
 
 export class InvalidBackchannelLogoutError extends Error {
+  static {
+    brandCrossBundleError(this, "InvalidBackchannelLogoutError");
+  }
+
   constructor() {
     super("Invalid backchannel logout token.");
     this.name = "InvalidBackchannelLogoutError";
@@ -30,6 +35,10 @@ export class InvalidBackchannelLogoutError extends Error {
 }
 
 export class BackchannelLogoutReplayError extends Error {
+  static {
+    brandCrossBundleError(this, "BackchannelLogoutReplayError");
+  }
+
   constructor() {
     super("Backchannel logout token was already consumed.");
     this.name = "BackchannelLogoutReplayError";

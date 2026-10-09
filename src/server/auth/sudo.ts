@@ -5,6 +5,7 @@ import { COMPACT_JWS } from "@/server/contract-shapes";
 import type { SecretCipher } from "@/server/auth/crypto";
 import { logAuthEvent } from "@/server/auth/logging";
 import type { SudoRepository } from "@/server/auth/repositories";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 /** Upper bound for a stored sudo proof; the sky-account SPI issues five-minute tokens. */
 export const SUDO_MAX_LIFETIME_SECONDS = 15 * 60;
@@ -60,6 +61,10 @@ export type SudoStatus = {
  * it into `428 sudo_required` with the methods the person can use.
  */
 export class SudoRequiredError extends Error {
+  static {
+    brandCrossBundleError(this, "SudoRequiredError");
+  }
+
   constructor(
     readonly reason: SudoRequirementReason,
     readonly availableMethods: readonly SudoMethod[] | null,
@@ -70,6 +75,10 @@ export class SudoRequiredError extends Error {
 }
 
 export class SudoSessionInactiveError extends Error {
+  static {
+    brandCrossBundleError(this, "SudoSessionInactiveError");
+  }
+
   constructor() {
     super("The session is no longer active; the sudo proof was not stored.");
     this.name = "SudoSessionInactiveError";

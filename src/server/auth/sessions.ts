@@ -13,6 +13,7 @@ import type { SecretCipher } from "@/server/auth/crypto";
 import type { SessionRepository } from "@/server/auth/repositories";
 import type { BrowserSession, OidcTokenSet } from "@/server/auth/types";
 import type { ActiveSession } from "@/server/auth/types";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 type SessionPolicy = {
   absoluteTtlSeconds: number;
@@ -23,6 +24,10 @@ type SessionPolicy = {
 };
 
 export class DeletedSessionTokenDecryptError extends Error {
+  static {
+    brandCrossBundleError(this, "DeletedSessionTokenDecryptError");
+  }
+
   constructor() {
     super("Deleted session token material could not be decrypted.");
     this.name = "DeletedSessionTokenDecryptError";
@@ -35,6 +40,10 @@ export class DeletedSessionTokenDecryptError extends Error {
  * after it began.
  */
 export class UpstreamSessionExpiredError extends Error {
+  static {
+    brandCrossBundleError(this, "UpstreamSessionExpiredError");
+  }
+
   constructor() {
     super("Upstream authentication session has expired.");
     this.name = "UpstreamSessionExpiredError";
@@ -42,6 +51,10 @@ export class UpstreamSessionExpiredError extends Error {
 }
 
 export class ActiveSessionTokenDecryptError extends Error {
+  static {
+    brandCrossBundleError(this, "ActiveSessionTokenDecryptError");
+  }
+
   constructor() {
     super("Active session token material could not be decrypted.");
     this.name = "ActiveSessionTokenDecryptError";

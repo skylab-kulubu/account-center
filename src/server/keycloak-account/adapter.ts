@@ -16,10 +16,15 @@ import type {
   AuthenticationSummary,
   KeycloakAccountReadAdapter,
 } from "@/server/keycloak-account/types";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 const MAX_ACCOUNT_RESPONSE_BYTES = 512 * 1_024;
 
 export class KeycloakAccountUnauthorizedError extends Error {
+  static {
+    brandCrossBundleError(this, "KeycloakAccountUnauthorizedError");
+  }
+
   constructor() {
     super("Keycloak rejected the user Account REST token.");
     this.name = "KeycloakAccountUnauthorizedError";
@@ -27,6 +32,10 @@ export class KeycloakAccountUnauthorizedError extends Error {
 }
 
 export class KeycloakAccountForbiddenError extends Error {
+  static {
+    brandCrossBundleError(this, "KeycloakAccountForbiddenError");
+  }
+
   constructor() {
     super("Keycloak denied the required user Account REST role contract.");
     this.name = "KeycloakAccountForbiddenError";
@@ -34,6 +43,10 @@ export class KeycloakAccountForbiddenError extends Error {
 }
 
 export class KeycloakAccountUnavailableError extends Error {
+  static {
+    brandCrossBundleError(this, "KeycloakAccountUnavailableError");
+  }
+
   constructor() {
     super("Keycloak Account REST is unavailable.");
     this.name = "KeycloakAccountUnavailableError";
