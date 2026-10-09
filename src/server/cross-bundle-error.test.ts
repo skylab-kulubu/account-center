@@ -21,6 +21,7 @@ function loadModules() {
     import("@/server/keycloak-account/adapter"),
     import("@/server/keycloak-account/service"),
     import("@/server/core/profile-client"),
+    import("@/server/core/skypass-wallet-client"),
   ]);
 }
 
@@ -46,6 +47,7 @@ describe("error classes shared through the service registry", () => {
       "SudoRequiredError",
       "SkyAccountProblem",
       "CoreProfileRejectedError",
+      "CoreSkyPassWalletError",
       "KeycloakAccountUnauthorizedError",
       "AccountReauthenticationRequiredError",
     ]));

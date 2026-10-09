@@ -32,6 +32,7 @@ const sudoRoutes: Array<{ method: "POST" | "DELETE"; path: string; data?: Record
   { method: "POST", path: "/api/account/security/passkeys/options" },
   { method: "POST", path: "/api/account/security/passkeys/register", data: { attestation: {}, label: "Anahtar" } },
   { method: "DELETE", path: `/api/account/security/credentials/${"r".repeat(43)}` },
+  { method: "POST", path: "/api/account/skypass/wallet/google" },
 ];
 
 /** Follows a rotated session handle the way the browser's cookie jar would. */
