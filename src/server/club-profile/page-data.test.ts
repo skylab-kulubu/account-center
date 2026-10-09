@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import meFixture from "../../../tests/fixtures/core-users-me.json";
 import { loadClubProfilePage } from "@/server/club-profile/page-data";
 import { CoreProfileUnavailableError } from "@/server/core/profile-client";
+import { CoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
 import type { CoreProfile } from "@/server/core/profile-client";
 import { KeycloakAccountUnavailableError } from "@/server/keycloak-account/adapter";
 import { AccountReauthenticationRequiredError } from "@/server/keycloak-account/service";
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   profile: vi.fn(),
   csrfToken: vi.fn(),
   getMe: vi.fn(),
+  walletStatus: vi.fn(),
   services: {} as Record<string, unknown>,
   redirect: vi.fn((destination: string) => {
     throw new Error(`redirect:${destination}`);
@@ -38,6 +40,11 @@ function buildServices(options: { coreEnabled?: boolean } = {}) {
       uploadProfilePicture: vi.fn(),
       deleteProfilePicture: vi.fn(),
     },
+    coreSkyPassWallet: options.coreEnabled === false ? null : {
+      status: mocks.walletStatus,
+      googleSaveUrl: vi.fn(),
+      revokeGoogle: vi.fn(),
+    },
   };
 }
 
@@ -49,6 +56,7 @@ describe("loadClubProfilePage", () => {
     mocks.accessToken.mockResolvedValue("server-held-user-token");
     mocks.csrfToken.mockReturnValue("session-bound-csrf");
     mocks.getMe.mockResolvedValue(profile);
+    mocks.walletStatus.mockResolvedValue({ google: { available: false, issued: false } });
     mocks.profile.mockResolvedValue({
       username: "ada",
       firstName: "Ada",
@@ -77,10 +85,34 @@ describe("loadClubProfilePage", () => {
         status: "ready",
         value: expect.objectContaining({ faculty: "Elektrik-Elektronik Fakültesi", studentCardLinked: true, phone: "+905551112233" }),
       },
+      skyPassWallet: { status: "hidden" },
       csrfToken: "session-bound-csrf",
     });
     expect(JSON.stringify(data)).not.toContain(meFixture.id);
     expect(mocks.profile).not.toHaveBeenCalled();
+  });
+
+  it("offers SkyPass in Google Wallet only while core says it is on", async () => {
+    mocks.walletStatus.mockResolvedValue({ google: { available: true, issued: true } });
+
+    expect((await loadClubProfilePage()).skyPassWallet).toEqual({ status: "ready", issued: true });
+    expect(mocks.walletStatus).toHaveBeenCalledWith("server-held-user-token");
+  });
+
+  it("hides the Wallet section when its status cannot be read, without failing the page", async () => {
+    mocks.walletStatus.mockRejectedValue(new CoreSkyPassWalletError("not_found"));
+
+    const data = await loadClubProfilePage();
+
+    expect(data.skyPassWallet).toEqual({ status: "hidden" });
+    expect(data.clubProfile).toMatchObject({ status: "ready" });
+  });
+
+  it("does not ask for the Wallet status when the profile read failed", async () => {
+    mocks.getMe.mockRejectedValue(new CoreProfileUnavailableError());
+
+    expect((await loadClubProfilePage()).skyPassWallet).toEqual({ status: "hidden" });
+    expect(mocks.walletStatus).not.toHaveBeenCalled();
   });
 
   it("falls back to the Keycloak identity with a problem banner when core fails", async () => {

@@ -13,6 +13,7 @@ import type {
   ProfileAttributeName,
   ProfileAttributes,
 } from "@/server/keycloak-account/types";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 export type KeycloakAccountResource =
   | "profile"
@@ -22,6 +23,10 @@ export type KeycloakAccountResource =
   | "groups";
 
 export class KeycloakAccountContractError extends Error {
+  static {
+    brandCrossBundleError(this, "KeycloakAccountContractError");
+  }
+
   constructor(readonly resource: KeycloakAccountResource) {
     super(`Keycloak 26.7.4 ${resource} response did not match the pinned contract.`);
     this.name = "KeycloakAccountContractError";

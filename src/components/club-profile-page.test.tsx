@@ -9,6 +9,12 @@ vi.mock("@/server/club-profile/page-data", () => ({
   loadClubProfilePage: vi.fn(),
 }));
 
+vi.mock("@/components/skypass-wallet-card", () => ({
+  SkyPassWalletCard: ({ initialIssued, csrfToken }: { initialIssued: boolean; csrfToken: string }) => (
+    <div data-testid="skypass-wallet-card" data-csrf={csrfToken} data-issued={String(initialIssued)} />
+  ),
+}));
+
 vi.mock("@/components/club-profile-editor", () => ({
   ClubProfileEditor: ({ initial, csrfToken }: { initial: ClubProfileView; csrfToken: string }) => (
     <div data-testid="club-profile-editor" data-csrf={csrfToken}>{initial.faculty}</div>
@@ -50,6 +56,7 @@ function pageData(overrides: Partial<ClubProfilePageData> = {}): ClubProfilePage
   return {
     identity,
     clubProfile: { status: "ready", value: clubProfile },
+    skyPassWallet: { status: "hidden" },
     csrfToken: "session-bound-csrf",
     ...overrides,
   };
@@ -78,6 +85,19 @@ describe("Kulüp profili page", () => {
     expect(editor).toHaveAttribute("data-csrf", "session-bound-csrf");
     expect(editor).toHaveTextContent("Elektrik-Elektronik Fakültesi");
     expect(screen.getByText(/yeniden doğrulama istemez/)).toBeInTheDocument();
+  });
+
+  it("shows the Google Wallet section only while core offers it", async () => {
+    vi.mocked(loadClubProfilePage).mockResolvedValue(pageData());
+    const { unmount } = render(await ClubProfilePage());
+    expect(screen.queryByTestId("skypass-wallet-card")).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(loadClubProfilePage).mockResolvedValue(pageData({ skyPassWallet: { status: "ready", issued: true } }));
+    render(await ClubProfilePage());
+    const card = screen.getByTestId("skypass-wallet-card");
+    expect(card).toHaveAttribute("data-issued", "true");
+    expect(card).toHaveAttribute("data-csrf", "session-bound-csrf");
   });
 
   it("shows the unlinked card and missing phone states without ever offering to edit them", async () => {

@@ -2,6 +2,7 @@ import "server-only";
 
 import { decodeJwt, decodeProtectedHeader } from "jose";
 import { isReservedObjectKey } from "@/server/contract-shapes";
+import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 const requiredAccountRoles = ["manage-account", "view-profile"] as const;
 
@@ -88,6 +89,10 @@ function parseSkyAuthorization(claim: unknown): SkyAuthorization | null {
 }
 
 export class AccountAccessTokenContractError extends Error {
+  static {
+    brandCrossBundleError(this, "AccountAccessTokenContractError");
+  }
+
   constructor() {
     super("The server-held Account REST token does not match the pinned user-token contract.");
     this.name = "AccountAccessTokenContractError";
@@ -95,6 +100,10 @@ export class AccountAccessTokenContractError extends Error {
 }
 
 export class AccountAccessTokenExpiredError extends Error {
+  static {
+    brandCrossBundleError(this, "AccountAccessTokenExpiredError");
+  }
+
   constructor() {
     super("The server-held Account REST token has expired.");
     this.name = "AccountAccessTokenExpiredError";

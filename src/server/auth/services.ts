@@ -30,6 +30,7 @@ import { AccountDeletionOrchestrator } from "@/server/account-deletion/orchestra
 import { CoreAccountDeletionHttpGateway } from "@/server/account-deletion/core-gateway";
 import { PostgresAccountDeletionRepository } from "@/server/account-deletion/postgres-repository";
 import { CoreProfileHttpClient } from "@/server/core/profile-client";
+import { CoreSkyPassWalletHttpClient } from "@/server/core/skypass-wallet-client";
 import { SkyAccountHttpClient } from "@/server/sky-account/client";
 import { NoticeDismissals, PostgresNoticeDismissalRepository } from "@/server/notice-dismissals/store";
 
@@ -77,6 +78,7 @@ function createAuthServices() {
   const skyAccount = new SkyAccountHttpClient(config.issuer);
   const noticeDismissals = new NoticeDismissals(new PostgresNoticeDismissalRepository(pool), config.sessionHmacKey);
   const coreProfile = config.coreApiUrl ? new CoreProfileHttpClient(config.coreApiUrl) : null;
+  const coreSkyPassWallet = config.coreApiUrl ? new CoreSkyPassWalletHttpClient(config.coreApiUrl) : null;
   const accountDeletion = config.accountErasure.mode === "enforce"
     ? new AccountDeletionOrchestrator(
         new PostgresAccountDeletionRepository(pool),
@@ -99,6 +101,7 @@ function createAuthServices() {
     sudo,
     skyAccount,
     coreProfile,
+    coreSkyPassWallet,
     noticeDismissals,
     backchannelLogout: new BackchannelLogoutService(
       new KeycloakBackchannelLogoutVerifier(config),
