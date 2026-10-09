@@ -9,6 +9,7 @@ import {
 import { AccountDataProblem } from "@/components/account-data-problem";
 import { ClubProfileEditor } from "@/components/club-profile-editor";
 import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { SkyPassWalletCard } from "@/components/skypass-wallet-card";
 import { accountRoute } from "@/config/account-routes";
 import { loadClubProfilePage } from "@/server/club-profile/page-data";
 import type { ClubProfileState } from "@/server/club-profile/page-data";
@@ -116,6 +117,10 @@ export default async function ClubProfilePage() {
           trailing={<StatusBadge>Salt okunur</StatusBadge>}
         />
       </SettingsGroup>
+
+      {club && data.skyPassWallet.status === "ready" ? (
+        <SkyPassWalletCard initialIssued={data.skyPassWallet.issued} csrfToken={data.csrfToken} />
+      ) : null}
 
       {club ? <ClubProfileEditor initial={club} csrfToken={data.csrfToken} /> : null}
 

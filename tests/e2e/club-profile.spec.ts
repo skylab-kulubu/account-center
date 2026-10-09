@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { devices, expect, test } from "@playwright/test";
 import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
-import { seedAuthenticatedSession } from "./auth-session";
+import { csrfTokenFor, seedAuthenticatedSession, seedSudoProof } from "./auth-session";
 
 const baseUrl = "https://127.0.0.1:3100";
 const mockCoreUrl = `https://127.0.0.1:${process.env.E2E_MOCK_CORE_PORT ?? "3101"}`;
@@ -318,5 +318,169 @@ test("the BFF re-validates picture bytes and origin before anything reaches core
   } finally {
     await api.dispose();
     await inspector.dispose();
+  }
+});
+
+/** Google's artwork actually loaded and is drawn at least 48 px tall (brand guidelines). */
+async function expectWalletArtwork(page: Page, file: string) {
+  const image = page.getByRole("button", { name: "Google Cüzdana ekle" }).getByRole("img");
+  // `<picture>` picks its source again after a viewport change, so wait for the loaded one.
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
+    element.complete && element.naturalWidth > 0 ? new URL(element.currentSrc).pathname : null)).toBe(`/google-wallet/${file}`);
+  expect((await image.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+}
+
+type MockWalletState = {
+  available: boolean;
+  issued: boolean;
+  requests: Array<{ method: string; path: string }>;
+  saveUrls: string[];
+};
+
+
+test("SkyPass goes to Google Wallet in a new tab and comes off it again", async ({ context, page, playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "account-ui-matrix", "one browser-backed round trip is sufficient");
+  test.setTimeout(90_000);
+  const fixture = await installSession(context, `club-profile-wallet-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  const walletUrl = `${mockCoreUrl}/__e2e/wallet/${encodeURIComponent(fixture.subject)}`;
+  const walletState = async () => (await inspector.get(walletUrl)).json() as Promise<MockWalletState>;
+  const errors = collectPageErrors(page);
+  await context.route("https://pay.google.com/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Google Wallet</title><p>stub</p>" }));
+
+  try {
+    await test.step("the section stays hidden while core has Google Wallet off", async () => {
+      await gotoClubProfile(page);
+      await expect(page.getByRole("heading", { level: 2, name: "Google Cüzdan" })).toHaveCount(0);
+      expect((await walletState()).requests.map(({ method, path }) => `${method} ${path}`)).toEqual(["GET /v1/skypass/wallet"]);
+    });
+
+    expect((await inspector.put(walletUrl, { data: { available: true } })).status()).toBe(200);
+    const csrfToken = csrfTokenFor(fixture.sessionId);
+    const methods = (active: { method: "reauth"; expiresAt: string } | null) =>
+      page.route("**/api/account/sudo/methods", (route) =>
+        route.fulfill({ json: { methods: ["password"], fallback: null, active, csrfToken } }));
+
+    await test.step("without Sudo mode the button opens the Sudo dialog and nothing else", async () => {
+      await methods(null);
+      await gotoClubProfile(page);
+      const section = page.getByRole("region", { name: "Google Cüzdan" });
+      await expect(section).toContainText("Pas yok");
+      await expectWalletArtwork(page, "tr_add_to_google_wallet_button.svg");
+      const accessibility = await new AxeBuilder({ page })
+        .include("section[aria-labelledby]")
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+        .analyze();
+      expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([]);
+
+      const popups: unknown[] = [];
+      page.on("popup", (popup) => popups.push(popup));
+      await section.getByRole("button", { name: "Google Cüzdana ekle" }).click();
+      const dialog = page.getByRole("dialog", { name: "Kimliğini doğrula" });
+      await expect(dialog).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+      expect(popups).toHaveLength(0);
+
+      // The server's own 428 for this route is asserted without `page.route` in `sudo-gate.spec.ts`.
+      expect((await walletState()).saveUrls).toHaveLength(0);
+    });
+
+    await test.step("the save link opens in a new tab without an opener and leaves no trace here", async () => {
+      const { expiresAt } = await seedSudoProof(fixture.sessionId);
+      await page.unroute("**/api/account/sudo/methods");
+      await methods({ method: "reauth", expiresAt: expiresAt.toISOString() });
+      const section = page.getByRole("region", { name: "Google Cüzdan" });
+      await section.getByRole("button", { name: "Google Cüzdana ekle" }).click();
+      await expect(section.getByRole("status")).toContainText("Kimliğin doğrulandı");
+
+      const popupPromise = page.waitForEvent("popup");
+      await section.getByRole("button", { name: "Google Cüzdana ekle" }).click();
+      const popup = await popupPromise;
+      await popup.waitForURL(/^https:\/\/pay\.google\.com\/gp\/v\/save\//);
+      const { saveUrls } = await walletState();
+      expect(saveUrls).toHaveLength(1);
+      expect(popup.url()).toBe(saveUrls[0]);
+      expect(await popup.evaluate(() => window.opener)).toBeNull();
+      await popup.close();
+
+      await expect(section.getByRole("status")).toContainText("Google Cüzdan yeni sekmede açıldı");
+      await expect(section).toContainText("Pas etkin");
+      expect(page.url()).toBe(`${baseUrl}/club-profile`);
+      const traces = await page.evaluate(() => [
+        document.documentElement.outerHTML,
+        JSON.stringify({ ...window.localStorage }),
+        JSON.stringify({ ...window.sessionStorage }),
+      ].join("\n"));
+      expect(traces).not.toContain("gp/v/save");
+      await testInfo.attach("skypass-wallet-issued", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+    });
+
+    await test.step("the section fits a 320px WebView", async () => {
+      await page.setViewportSize({ width: 320, height: 720 });
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, "document must not overflow horizontally").toBeLessThanOrEqual(1);
+      await expectWalletArtwork(page, "tr_add_to_google_wallet_badge.svg");
+      await testInfo.attach("skypass-wallet-320", {
+        body: await page.getByRole("region", { name: "Google Cüzdan" }).screenshot(),
+        contentType: "image/png",
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+    });
+
+    await test.step("a rate-limited link explains the wait and opens nothing", async () => {
+      expect((await inspector.put(walletUrl, { data: { failNext: 429 } })).status()).toBe(200);
+      const section = page.getByRole("region", { name: "Google Cüzdan" });
+      const popupPromise = page.waitForEvent("popup");
+      await section.getByRole("button", { name: "Google Cüzdana ekle" }).click();
+      const popup = await popupPromise;
+      await expect(section.getByRole("alert")).toContainText("Yaklaşık 42 saniye sonra");
+      await expect.poll(() => popup.isClosed()).toBe(true);
+      expect((await walletState()).saveUrls).toHaveLength(1);
+    });
+
+    await test.step("revoking asks first and ends the pass", async () => {
+      const section = page.getByRole("region", { name: "Google Cüzdan" });
+      await section.getByRole("button", { name: "Cüzdandan kaldır" }).click();
+      const dialog = page.getByRole("dialog", { name: "Pas Google Cüzdan’dan kaldırılsın mı?" });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Pası kaldır" }).click();
+      await expect(section.getByRole("status")).toContainText("Pas kaldırıldı");
+      await expect(section).toContainText("Pas yok");
+      const state = await walletState();
+      expect(state.issued).toBe(false);
+      expect(state.requests.filter(({ method }) => method === "DELETE")).toHaveLength(1);
+      await testInfo.attach("skypass-wallet-revoked", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+    });
+
+    // The browser reports the deliberate 429 above as a failed resource load; nothing else may fail.
+    expect(errors.filter((message) => !/status of 429/.test(message))).toEqual([]);
+  } finally {
+    await inspector.dispose();
+  }
+});
+
+test("an iPhone gets a note instead of the Google Wallet button", async ({ browser, playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "account-ui-matrix", "one pass is sufficient");
+  const { defaultBrowserType: _browserType, ...iphone } = devices["iPhone 15"];
+  void _browserType;
+  const context = await browser.newContext({ ...iphone, baseURL: baseUrl, ignoreHTTPSErrors: true });
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const fixture = await installSession(context, `club-profile-wallet-ios-${testInfo.retry}`);
+    const walletUrl = `${mockCoreUrl}/__e2e/wallet/${encodeURIComponent(fixture.subject)}`;
+    expect((await inspector.put(walletUrl, { data: { available: true, issued: true } })).status()).toBe(200);
+    const page = await context.newPage();
+    const errors = collectPageErrors(page);
+    await gotoClubProfile(page);
+    const section = page.getByRole("region", { name: "Google Cüzdan" });
+    await expect(section).toContainText("Google Cüzdan iPhone’da yok; Apple Cüzdan desteği daha sonra gelecek.");
+    await expect(section.getByRole("button", { name: "Google Cüzdana ekle" })).toHaveCount(0);
+    await expect(section.getByRole("button", { name: "Cüzdandan kaldır" })).toBeVisible();
+    expect(errors).toEqual([]);
+  } finally {
+    await inspector.dispose();
+    await context.close();
   }
 });
