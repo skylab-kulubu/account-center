@@ -35,6 +35,7 @@ const pages = [
   "/api/account/sessions",
   "/api/account/security",
   "/api/account/club-profile",
+  "/api/account/skypass/wallet/google",
   "/api/account/sudo/methods",
   "/api/account/deletion/status",
 ];

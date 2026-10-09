@@ -15,6 +15,13 @@ import { join } from "node:path";
  * lists which proof headers each intake call carried. `PUT /__e2e/users/{sub}`
  * merges profile members before the first page load (for example
  * `ytuLinked`), the way core's YTÜ login would have set them.
+ *
+ * SkyPass in Google Wallet (`/v1/skypass/wallet…`) starts off, as core does
+ * without its settings. `PUT /__e2e/wallet/{sub}` merges `available`,
+ * `issued` and `failNext` (a status the next link or revoke answers with,
+ * and its core `code`); `GET /__e2e/wallet/{sub}` shows the state, the
+ * calls core received and the save links it handed out. Wallet calls are
+ * kept apart from the profile `requests`.
  */
 
 const MAX_PICTURE_BYTES = 5 * 1_024 * 1_024;
@@ -26,6 +33,24 @@ const ytuFields = ["university", "faculty", "department"];
 function problem(response, status, title) {
   response.writeHead(status, { "content-type": "application/problem+json" });
   response.end(JSON.stringify({ type: "about:blank", title, status }));
+}
+
+const walletProblemCodes = {
+  429: "skypass_wallet_link_rate_limited",
+  502: "skypass_google_wallet_unavailable",
+  503: "skypass_google_wallet_off",
+};
+
+function walletProblem(response, status) {
+  const body = { type: "about:blank", title: "Wallet", status, detail: "Wallet", instance: "/v1/skypass/wallet/google" };
+  if (walletProblemCodes[status]) body.code = walletProblemCodes[status];
+  if (status === 429) body.retryAfterSeconds = 42;
+  response.writeHead(status, {
+    "content-type": "application/problem+json",
+    ...(status === 429 ? { "retry-after": "42" } : {}),
+    ...(status === 502 ? { "retry-after": "30" } : {}),
+  });
+  response.end(JSON.stringify(body));
 }
 
 function json(response, status, body) {
@@ -153,6 +178,8 @@ export function startMockCore({
   const deletionKeys = new Map();
   /** subject → which proof headers each intake call carried and how it ended; never the values. */
   const deletionIntakes = new Map();
+  /** subject → SkyPass Google Wallet state; off until a test turns it on. */
+  const wallets = new Map();
   const pictureUrl = (id) => `${pictureBase}/skylab.svg?picture=${encodeURIComponent(id)}`;
 
   function userFor(sub) {
@@ -166,6 +193,42 @@ export function startMockCore({
       users.set(sub, user);
     }
     return user;
+  }
+
+  function walletFor(sub) {
+    let wallet = wallets.get(sub);
+    if (!wallet) {
+      wallet = { available: false, issued: false, failNext: null, requests: [], saveUrls: [] };
+      wallets.set(sub, wallet);
+    }
+    return wallet;
+  }
+
+  function skyPassWallet(request, response, url, sub) {
+    const wallet = walletFor(sub);
+    wallet.requests.push({ method: request.method, path: url.pathname });
+    if (url.pathname === "/v1/skypass/wallet" && request.method === "GET") {
+      return json(response, 200, { google: { available: wallet.available, issued: wallet.issued } });
+    }
+    if (url.pathname !== "/v1/skypass/wallet/google" || !["POST", "DELETE"].includes(request.method)) {
+      return problem(response, 404, "Not Found");
+    }
+    if (!wallet.available) return walletProblem(response, 503);
+    if (wallet.failNext) {
+      const status = wallet.failNext;
+      wallet.failNext = null;
+      return walletProblem(response, status);
+    }
+    if (request.method === "DELETE") {
+      wallet.issued = false;
+      response.writeHead(204);
+      return response.end();
+    }
+    wallet.issued = true;
+    const segment = () => randomBytes(24).toString("base64url");
+    const saveUrl = `https://pay.google.com/gp/v/save/${segment()}.${segment()}.${segment()}`;
+    wallet.saveUrls.push(saveUrl);
+    return json(response, 200, { saveUrl });
   }
 
   function accountDeletion(request, response, url, body) {
@@ -230,6 +293,24 @@ export function startMockCore({
       if (intakeInspection && request.method === "GET") {
         return json(response, 200, deletionIntakes.get(decodeURIComponent(intakeInspection[1])) ?? []);
       }
+      const walletInspection = /^\/__e2e\/wallet\/([^/]+)$/.exec(url.pathname);
+      if (walletInspection && request.method === "PUT") {
+        let overrides;
+        try {
+          overrides = JSON.parse((await readBody(request)).toString("utf8"));
+        } catch {
+          return problem(response, 400, "Bad Request");
+        }
+        if (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)) return problem(response, 400, "Bad Request");
+        const wallet = walletFor(decodeURIComponent(walletInspection[1]));
+        for (const key of ["available", "issued", "failNext"]) {
+          if (Object.hasOwn(overrides, key)) wallet[key] = overrides[key];
+        }
+        return json(response, 200, wallet);
+      }
+      if (walletInspection && request.method === "GET") {
+        return json(response, 200, walletFor(decodeURIComponent(walletInspection[1])));
+      }
       const inspection = /^\/__e2e\/users\/([^/]+)$/.exec(url.pathname);
       if (inspection && request.method === "PUT") {
         let overrides;
@@ -259,6 +340,7 @@ export function startMockCore({
 
       const claims = decodeBearer(request.headers.authorization);
       if (!claims) return problem(response, 401, "Unauthorized");
+      if (url.pathname.startsWith("/v1/skypass/wallet")) return skyPassWallet(request, response, url, claims.sub);
       const user = userFor(claims.sub);
       const body = await readBody(request);
       const record = (extra = {}) => user.requests.push({ method: request.method, path: url.pathname, ...extra });

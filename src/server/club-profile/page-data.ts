@@ -11,6 +11,7 @@ import type { CoreProfile } from "@/server/core/profile-client";
 import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
 import type { AccountProfile } from "@/server/keycloak-account/types";
+import { skyPassWalletServiceFor } from "@/server/skypass-wallet/service";
 
 export type ClubProfileState =
   | { status: "ready"; value: ClubProfileView }
@@ -26,9 +27,17 @@ export type ClubProfileIdentity = {
   skyNumber: string | null;
 };
 
+/**
+ * SkyPass in Google Wallet: `ready` only when core says Google Wallet is on.
+ * Off, unreachable or refused, the section is simply not shown; the club
+ * profile banner already speaks for a core that is down.
+ */
+export type SkyPassWalletState = { status: "hidden" } | { status: "ready"; issued: boolean };
+
 export type ClubProfilePageData = {
   identity: { ok: true; value: ClubProfileIdentity } | { ok: false; problem: AccountProblem };
   clubProfile: ClubProfileState;
+  skyPassWallet: SkyPassWalletState;
   csrfToken: string;
 };
 
@@ -50,6 +59,22 @@ function identityFromKeycloak(profile: AccountProfile): ClubProfileIdentity {
   };
 }
 
+type SessionIdentity = { id: string; subject: string };
+
+async function loadSkyPassWallet(
+  services: Parameters<typeof skyPassWalletServiceFor>[0],
+  session: SessionIdentity,
+): Promise<SkyPassWalletState> {
+  const wallet = skyPassWalletServiceFor(services);
+  if (!wallet) return { status: "hidden" };
+  try {
+    const { google } = await wallet.status(session);
+    return google.available ? { status: "ready", issued: google.issued } : { status: "hidden" };
+  } catch {
+    return { status: "hidden" };
+  }
+}
+
 /**
  * Loads the club-profile page for the active session. The core profile is
  * the primary source: it carries the club fields and the shadow of the
@@ -57,7 +82,9 @@ function identityFromKeycloak(profile: AccountProfile): ClubProfileIdentity {
  * keeps in step with Keycloak, so a healthy page costs one upstream call.
  * When core is off or fails, the identity summary is read from Keycloak
  * Account REST instead so the page still shows who the person is next to
- * the club-profile banner.
+ * the club-profile banner. The SkyPass Wallet status is read after the
+ * profile (with the token that read just validated), and only when it
+ * succeeded.
  */
 export async function loadClubProfilePage(): Promise<ClubProfilePageData> {
   const services = getAuthServices();
@@ -76,6 +103,7 @@ export async function loadClubProfilePage(): Promise<ClubProfilePageData> {
       return {
         identity: { ok: true, value: identityFromCore(profile) },
         clubProfile: { status: "ready", value: toClubProfileView(profile) },
+        skyPassWallet: await loadSkyPassWallet(services, session),
         csrfToken,
       };
     } catch (error) {
@@ -89,5 +117,5 @@ export async function loadClubProfilePage(): Promise<ClubProfilePageData> {
   } catch (error) {
     identity = { ok: false, problem: toAccountProblem(error) };
   }
-  return { identity, clubProfile, csrfToken };
+  return { identity, clubProfile, skyPassWallet: { status: "hidden" }, csrfToken };
 }
