@@ -13,7 +13,7 @@ Account Center, `my.yildizskylab.com` üzerinde çalışan ayrı bir Next.js (Ap
 | Keycloak (OIDC) | Giriş, token yenileme, çıkış, backchannel logout | [Keycloak sözleşmesi](keycloak-26.7.4-contract.md) |
 | Keycloak Account REST | Kişinin kendi profil metaverisi, oturumları, grupları (salt okuma; oturum silme) | `src/server/keycloak-account` |
 | sky-account SPI | Ad, kullanıcı adı, e-posta, parola, TOTP, passkey, Sudo token'ı | `src/server/sky-account`, [sky-account-api.md](sky-account-api.md) |
-| core API | Kulüp profili (`/v1/users/me`) ve hesap silme komutu | `src/server/core`, `src/server/account-deletion` |
+| core API | Kulüp profili (`/v1/users/me`), SkyPass Google Cüzdan (`/v1/skypass/wallet…`) ve hesap silme komutu | `src/server/core`, `src/server/skypass-wallet`, `src/server/account-deletion` |
 | PostgreSQL | Şifreli oturum ve token kayıtları, OIDC transaction'ları, JTI replay, hız sınırı, silme niyetleri | `migrations/`, `src/server/*/postgres-repository*.ts` |
 | Redis | Platform çapındaki hesap erişim engeli (salt okuma) | `src/server/access-gate` |
 
@@ -89,7 +89,7 @@ Yazma uçları sırayla exact `Origin`, CSRF, erişim kapısı ve oturum doğrul
 | `/` Özet | Account REST profil + kimlik bilgisi özeti (sunucuda okunur) | yok | — |
 | `/identity` Kimlik | sky-account `GET identity` | `identity`, `identity/name`, `identity/username`, `identity/ytu-link` | [account-actions.md](account-actions.md) |
 | `/email` E-posta ve giriş | sky-account `email/*` | `email`, `email/pending`, `email/change-request`, `email/confirm`, `email/primary`, `email/personal`, `email/nudge/dismiss` | [account-actions.md](account-actions.md) |
-| `/club-profile` Kulüp profili | core `/v1/users/me` | `club-profile`, `club-profile/picture` | [aşağıda](#kulüp-profili) |
+| `/club-profile` Kulüp profili | core `/v1/users/me`, `/v1/skypass/wallet` | `club-profile`, `club-profile/picture`, `skypass/wallet/google` | [aşağıda](#kulüp-profili) |
 | `/security` Giriş ve güvenlik | sky-account `GET identity` + kimlik bilgisi uçları | `security`, `security/password`, `security/totp/*`, `security/passkeys/*`, `security/credentials/{reference}` | [account-actions.md](account-actions.md) |
 | `/sessions` Oturumlar ve cihazlar | Account REST `sessions` | `sessions`, `sessions/{reference}` | [aşağıda](#oturumlar-ve-cihazlar) |
 | `/permissions` Yetkilerim | `sky_authorization` + Account REST `groups` | yok (salt okunur) | [aşağıda](#yetkilerim) |
@@ -104,6 +104,14 @@ Yazma uçları sırayla exact `Origin`, CSRF, erişim kapısı ve oturum doğrul
 Yazma uçları exact `Origin`, CSRF ve erişim kapısı ister, **Sudo modu istemez** (kulüp verisi, kimlik bilgisi değil). Ad/soyad bu sayfadan yazılamaz; telefon, SKY numarası ve öğrenci kartı salt okunurdur ve gövdede görünürlerse `400`. Üniversite/fakülte/bölüm kırpılmış, kontrol/biçimlendirme/satır ayırıcı karakter içermeyen ve en çok 120 karakter; LinkedIn `https://` ile başlayan, host'u tam olarak `linkedin.com` ya da `www.linkedin.com` olan, kimlik bilgisi ve port içermeyen, en çok 200 karakterlik URL'dir (boş değer bağlantıyı siler; kayıt `new URL(value).href` ile). PATCH önce core'daki profili okur (`GET /v1/users/me`) ve yalnız değişen alanları `PATCH` eder; değişiklik yoksa core'a yazmaz (`changed: false`). **YTÜ'ye bağlı** kişide (core'un `ytuLinked`'i; kimin bağlı olduğuna yalnız core karar verir) üniversite, fakülte ve bölüm YTÜ girişinden gelir: sayfa onları "YTÜ hesabından gelir" rozetiyle salt okunur gösterir ve BFF bu alanları değiştiren PATCH'i core'a yazmadan `409 club-profile-ytu-managed` ile reddeder.
 
 Fotoğraf: tarayıcı `image/png|jpeg|webp` kabul eder, 5 MB üstünü göndermeden reddeder ve `blob:` önizleme gösterir. BFF gövdeyi 5 MB + 64 KB çerçeve payıyla sınırlı okur, multipart'tan yalnız `file` alanını alır, türü beyan edilene değil sihirli baytlara göre belirler ve core'a o türle iletir. Her iki işlemden sonra profil core'dan yeniden okunur; tarayıcıya yalnız görünüm alanları döner (core kimlikleri, medya kimliği ve gölge adlar dönmez). Fotoğraf URL'si core'un medya origin'indedir (`PROFILE_PICTURE_ORIGIN`).
+
+#### SkyPass Google Cüzdan
+
+Sözleşme core'da: `docs/skypass-google-wallet.md`. Sayfa profil okunduktan sonra, aynı token'la `GET /v1/skypass/wallet` okur; bölüm yalnız `google.available` doğruyken görünür (kapalı, okunamayan ya da reddedilen durumda sessizce gizlenir; core'un kapalı olduğunu kulüp profili bandı zaten söyler). `issued` "Pas etkin / Pas yok" rozetidir ve "Cüzdandan kaldır" yalnız pas varken çıkar.
+
+`POST /api/account/skypass/wallet/google` core'dan `saveUrl` alır ve `no-store` ile yalnız soran tarayıcıya döner; `DELETE` aynı yolda pası bitirir (`204`). İkisi de yazma ucu gibi exact `Origin`, CSRF ve erişim kapısı ister, Sudo modu istemez (core'un kendisi de kişinin token'ından fazlasını istemez). Core'a giden istek 25 sn'de kesilir (core'un Google çağrıları 20 sn'lik tek süre paylaşır). Core yanıtları `code` ile eşlenir: `503 skypass_google_wallet_off`, `409 skypass_wallet_pass_ended` (bağlantı yazılırken pas bitti), `429 skypass_wallet_rate_limited` (`retryAfterSeconds` + `Retry-After`), `502 skypass_google_wallet_unavailable`.
+
+`saveUrl`'in süresi yoktur ve onu ilk kaydeden pası alır; bu yüzden BFF onu loglamaz, hataya koymaz, saklamaz ve yalnız `https://pay.google.com/gp/v/save/<JWS>` biçimindeyse iletir (aynı denetim tarayıcıda da yapılır: `src/lib/skypass-wallet.ts`). Tarayıcı tıklamanın içinde boş bir sekme açar (`opener` kaldırılır, `Referrer-Policy: same-origin`), istek bitince o sekmeyi `location.replace(saveUrl)` ile Google'a yollar; hata olursa sekmeyi kapatır. Tarayıcı yeni sekmeye izin vermezse aynı sekme Google'a gider. Bağlantı React durumuna, DOM'a, sorgu dizesine ya da depolamaya hiç girmez. Düğme Google'ın "Google Cüzdan'a ekle" görselidir (`public/google-wallet/`, marka kurallarına göre değiştirilmeden, en az 48 px).
 
 ### Oturumlar ve cihazlar
 

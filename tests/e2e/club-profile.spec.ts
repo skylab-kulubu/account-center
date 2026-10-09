@@ -320,3 +320,109 @@ test("the BFF re-validates picture bytes and origin before anything reaches core
     await inspector.dispose();
   }
 });
+
+type MockWalletState = {
+  available: boolean;
+  issued: boolean;
+  requests: Array<{ method: string; path: string }>;
+  saveUrls: string[];
+};
+
+/** A stand-in for Google's button artwork, so the flow does not depend on the asset file. */
+const walletButtonStub = '<svg xmlns="http://www.w3.org/2000/svg" width="199" height="48"><rect width="199" height="48" rx="24"/></svg>';
+
+test("SkyPass goes to Google Wallet in a new tab and comes off it again", async ({ context, page, playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "account-ui-matrix", "one browser-backed round trip is sufficient");
+  test.setTimeout(90_000);
+  const fixture = await installSession(context, `club-profile-wallet-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  const walletUrl = `${mockCoreUrl}/__e2e/wallet/${encodeURIComponent(fixture.subject)}`;
+  const walletState = async () => (await inspector.get(walletUrl)).json() as Promise<MockWalletState>;
+  const errors = collectPageErrors(page);
+  await context.route("**/google-wallet/*.svg", (route) => route.fulfill({ contentType: "image/svg+xml", body: walletButtonStub }));
+  await context.route("https://pay.google.com/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Google Wallet</title><p>stub</p>" }));
+
+  try {
+    await test.step("the section stays hidden while core has Google Wallet off", async () => {
+      await gotoClubProfile(page);
+      await expect(page.getByRole("heading", { level: 2, name: "Google Cüzdan" })).toHaveCount(0);
+      expect((await walletState()).requests.map(({ method, path }) => `${method} ${path}`)).toEqual(["GET /v1/skypass/wallet"]);
+    });
+
+    expect((await inspector.put(walletUrl, { data: { available: true } })).status()).toBe(200);
+
+    await test.step("the save link opens in a new tab without an opener and leaves no trace here", async () => {
+      await gotoClubProfile(page);
+      const section = page.getByRole("region", { name: "Google Cüzdan" });
+      await expect(section).toContainText("Pas yok");
+      const accessibility = await new AxeBuilder({ page })
+        .include("section[aria-labelledby]")
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+        .analyze();
+      expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([]);
+
+      const popupPromise = page.waitForEvent("popup");
+      await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
+      const popup = await popupPromise;
+      await popup.waitForURL(/^https:\/\/pay\.google\.com\/gp\/v\/save\//);
+      const { saveUrls } = await walletState();
+      expect(saveUrls).toHaveLength(1);
+      expect(popup.url()).toBe(saveUrls[0]);
+      expect(await popup.evaluate(() => window.opener)).toBeNull();
+      await popup.close();
+
+      await expect(section.getByRole("status")).toContainText("Google Cüzdan yeni sekmede açıldı");
+      await expect(section).toContainText("Pas etkin");
+      expect(page.url()).toBe(`${baseUrl}/club-profile`);
+      const traces = await page.evaluate(() => [
+        document.documentElement.outerHTML,
+        JSON.stringify({ ...window.localStorage }),
+        JSON.stringify({ ...window.sessionStorage }),
+      ].join("\n"));
+      expect(traces).not.toContain("gp/v/save");
+      await testInfo.attach("skypass-wallet-issued", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+    });
+
+    await test.step("the section fits a 320px WebView", async () => {
+      await page.setViewportSize({ width: 320, height: 720 });
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, "document must not overflow horizontally").toBeLessThanOrEqual(1);
+      await testInfo.attach("skypass-wallet-320", {
+        body: await page.getByRole("region", { name: "Google Cüzdan" }).screenshot(),
+        contentType: "image/png",
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+    });
+
+    await test.step("a rate-limited link explains the wait and opens nothing", async () => {
+      expect((await inspector.put(walletUrl, { data: { failNext: 429 } })).status()).toBe(200);
+      const section = page.getByRole("region", { name: "Google Cüzdan" });
+      const popupPromise = page.waitForEvent("popup");
+      await section.getByRole("button", { name: "Google Cüzdan’a ekle" }).click();
+      const popup = await popupPromise;
+      await expect(section.getByRole("alert")).toContainText("Yaklaşık 42 saniye sonra");
+      await expect.poll(() => popup.isClosed()).toBe(true);
+      expect((await walletState()).saveUrls).toHaveLength(1);
+    });
+
+    await test.step("revoking asks first and ends the pass", async () => {
+      const section = page.getByRole("region", { name: "Google Cüzdan" });
+      await section.getByRole("button", { name: "Cüzdandan kaldır" }).click();
+      const dialog = page.getByRole("dialog", { name: "Pas Google Cüzdan’dan kaldırılsın mı?" });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Pası kaldır" }).click();
+      await expect(section.getByRole("status")).toContainText("Pas kaldırıldı");
+      await expect(section).toContainText("Pas yok");
+      const state = await walletState();
+      expect(state.issued).toBe(false);
+      expect(state.requests.filter(({ method }) => method === "DELETE")).toHaveLength(1);
+      await testInfo.attach("skypass-wallet-revoked", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+    });
+
+    // The browser reports the deliberate 429 above as a failed resource load; nothing else may fail.
+    expect(errors.filter((message) => !/status of 429/.test(message))).toEqual([]);
+  } finally {
+    await inspector.dispose();
+  }
+});

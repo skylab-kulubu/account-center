@@ -1591,6 +1591,76 @@ a.settings-row:hover .settings-row__chevron {
   gap: 8px;
 }
 
+/* SkyPass in Google Wallet (club profile). */
+.wallet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-card);
+}
+
+.wallet-card__summary {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.wallet-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/*
+ * Google's button artwork as supplied: at least 48px tall, aspect ratio
+ * kept, nothing drawn over it. The 8px clear space the brand guidelines
+ * ask for is the gap around it and the transparent focus offset.
+ */
+.google-wallet-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.google-wallet-button img {
+  display: block;
+  width: auto;
+  height: 48px;
+}
+
+.google-wallet-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.google-wallet-button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.wallet-card__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--ink-faint);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.wallet-card__note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
 .secondary-button--accent {
   color: var(--accent);
   border-color: rgba(224, 200, 229, 0.24);
