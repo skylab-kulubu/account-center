@@ -212,6 +212,14 @@
     "detail": "Bu e-posta adresi başka bir hesapta kayıtlı. Başka bir adres dene.",
     "code": "email_taken"
   },
+  "email_school_domain": {
+    "type": "tag:yildizskylab.com,2026:sky-account:email_school_domain",
+    "title": "School addresses cannot be the personal e-mail",
+    "status": 400,
+    "detail": "Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.",
+    "code": "email_school_domain",
+    "field": "address"
+  },
   "email_not_verified": {
     "type": "tag:yildizskylab.com,2026:sky-account:email_not_verified",
     "title": "E-mail address is not verified",

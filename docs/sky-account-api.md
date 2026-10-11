@@ -201,6 +201,7 @@ temasındaki Türkçe mesaj paketinden üretilir.
 | 400 | `invalid_username` | `field` | `^[a-z0-9._]{3,30}$` desenine uymuyor |
 | 403 | `name_locked` | — | Doğrulanmış YTÜ hesabı adını değiştiremez |
 | 404 | `credential_not_found` | — | Kimlik bilgisi yok, kişiye ait değil ya da silinemez türde (parola) |
+| 400 | `email_school_domain` | `field` | Adres YTÜ alan adında (`yildiz.edu.tr` ya da alt alan adı, ör. `std.yildiz.edu.tr`); kişisel e-posta olamaz |
 | 400 | `invalid_email_code` | `attemptsLeft` | E-posta doğrulama kodu yanlış; `attemptsLeft` 0 ise kod öldü, yeni kod istenmeli |
 | 404 | `no_pending_email_change` | — | Kişinin bekleyen bir e-posta değişikliği yok: hiç istenmedi, kullanıldı, süresi doldu ya da deneme hakkı bitti |
 | 409 | `duplicate_label` | — | Aynı adda OTP ya da passkey zaten var |
@@ -597,6 +598,9 @@ e-posta doğrulayıcısından (`EmailValidator`, realm SMTP ayarıyla birlikte) 
   sayılmaz: birincil adres bu ikisinden biridir, ikisi de olmayan bir birincil (v2'den
   önce konmuş eski birincil) tam da kişinin kodla kanıtlayıp kişisel e-postası yapacağı
   adrestir (A1c). Kişinin kendi `email`'i olduğu için tekliği de engellemez.
+- Adres YTÜ alan adındaysa (`@` sonrası `yildiz.edu.tr` ya da bir alt alan adı, ör.
+  `std.yildiz.edu.tr`) `400 email_school_domain` (`field: "address"`): okul adresi
+  mezun olunca kapanabilir, kişisel e-posta olamaz.
 - Adres başka kişideyse `409 email_taken`. Denetim üç yerde yapılır: Keycloak'ın
   kendi `getUserByEmail` araması (büyük/küçük harf duyarsız; realm
   `duplicateEmailsAllowed=false` olduğu sürece belirleyici) ve `schoolEmail` ile

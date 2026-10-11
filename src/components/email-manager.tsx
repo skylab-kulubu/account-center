@@ -19,8 +19,10 @@ import {
   emailAddressMessage,
   isEmailCodeAttempts,
   isEmailCodeSeconds,
+  isSchoolDomainAddress,
   MAX_EMAIL_ADDRESS_LENGTH,
   normalizeEmailAddress,
+  schoolDomainAddressMessage,
 } from "@/lib/email-fields";
 import type { PendingEmailChange, PrimaryEmailChoice } from "@/lib/email-fields";
 import { primaryEmailNudgeFor } from "@/lib/primary-email-nudge";
@@ -104,6 +106,7 @@ export const emailCopy = {
     invalid: emailAddressMessage,
     alreadyYours: "Bu adres zaten hesabında kayıtlı.",
     taken: "Bu e-posta adresi başka bir hesapta kayıtlı. Başka bir adres dene.",
+    schoolDomain: schoolDomainAddressMessage,
   },
   change: {
     title: "Kişisel e-postayı değiştir",
@@ -442,13 +445,16 @@ function PersonalEmailFlow({
       }
       if (!again && outcome.kind === "error") {
         const error = errorOf(outcome.body);
-        if (proving && (error === "invalid_address" || error === "email_taken")) {
+        const fallback = error === "email_taken"
+          ? emailCopy.add.taken
+          : error === "email_school_domain" ? emailCopy.add.schoolDomain : emailCopy.add.invalid;
+        if (proving && (error === "invalid_address" || error === "email_taken" || error === "email_school_domain")) {
           // No address field to point at: the refusal is the panel's own message.
-          setFeedback({ tone: "danger", detail: detailOf(outcome.body, error === "email_taken" ? emailCopy.add.taken : emailCopy.add.invalid) });
+          setFeedback({ tone: "danger", detail: detailOf(outcome.body, fallback) });
           return;
         }
-        if (error === "invalid_address" || error === "email_taken") {
-          const detail = detailOf(outcome.body, error === "email_taken" ? emailCopy.add.taken : emailCopy.add.invalid);
+        if (error === "invalid_address" || error === "email_taken" || error === "email_school_domain") {
+          const detail = detailOf(outcome.body, fallback);
           if (error === "email_taken") setTaken((previous) => ({ ...previous, [address]: detail }));
           focusTarget.current = "address";
           setFieldError(detail);
@@ -484,6 +490,11 @@ function PersonalEmailFlow({
     if (knownAddresses(payload).includes(address)) {
       focusTarget.current = "address";
       setFieldError(emailCopy.add.alreadyYours);
+      return;
+    }
+    if (isSchoolDomainAddress(address)) {
+      focusTarget.current = "address";
+      setFieldError(emailCopy.add.schoolDomain);
       return;
     }
     void send(address, false);
