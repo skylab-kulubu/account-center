@@ -1,17 +1,28 @@
 import type { Metadata, Viewport } from "next";
-import { Space_Grotesk } from "next/font/google";
+import { Space_Grotesk, Space_Mono } from "next/font/google";
 import { connection } from "next/server";
 import "./globals.css";
 
+// skylcn-ui's tokens read the faces from these two variables (ADR 0055).
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin", "latin-ext"],
-  variable: "--font-space-grotesk",
+  variable: "--skylcn-font-sans",
   display: "swap",
+});
+
+// Only the TOTP secret and technical details are set in mono, so it is not preloaded on every page.
+const spaceMono = Space_Mono({
+  subsets: ["latin", "latin-ext"],
+  weight: "400",
+  variable: "--skylcn-font-mono",
+  display: "swap",
+  preload: false,
 });
 
 export const viewport: Viewport = {
   colorScheme: "dark",
-  themeColor: "#08070b",
+  // skylcn-ui's dark --sidebar, the page surface
+  themeColor: "#0a0a0a",
   viewportFit: "cover",
 };
 
@@ -29,7 +40,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   await connection();
 
   return (
-    <html lang="tr" className={spaceGrotesk.variable}>
+    <html lang="tr" className={`${spaceGrotesk.variable} ${spaceMono.variable}`}>
       <body>{children}</body>
     </html>
   );
