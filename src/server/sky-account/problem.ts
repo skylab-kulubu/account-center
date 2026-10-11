@@ -44,7 +44,7 @@ export const skyAccountProblemStatuses = {
   username_taken: [409],
   username_cooldown: [409],
   email_taken: [409],
-  /** `email/change-request`: the address is on a YTÜ domain (`yildiz.edu.tr` or a subdomain), which can never be the personal e-mail. */
+  /** `email/change-request` and `email/confirm` (a code requested before the rule): the address is on a YTÜ domain (`yildiz.edu.tr` or a subdomain), which can never be the personal e-mail. */
   email_school_domain: [400],
   /** `email/primary`: the chosen address is not proven (a personal address without its code, a school address without the YTÜ link). */
   email_not_verified: [409],

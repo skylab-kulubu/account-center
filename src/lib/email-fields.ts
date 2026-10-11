@@ -59,14 +59,15 @@ export function checkEmailAddress(value: unknown): FieldCheck<"invalid"> {
 
 /**
  * Whether the address is on the YTÜ domain or one of its subdomains (the
- * part after the last `@`, like the SPI reads it). Such an address is never
+ * part after the last `@`, without trailing dots, like the SPI reads it). Such an address is never
  * accepted as the personal e-mail (`email_school_domain`); the SPI stays the
  * judge.
  */
 export function isSchoolDomainAddress(address: string) {
   const at = address.lastIndexOf("@");
   if (at < 0) return false;
-  const domain = normalizeEmailAddress(address.slice(at + 1));
+  // Trailing dots dropped like the SPI does (`yildiz.edu.tr.` is the same domain).
+  const domain = normalizeEmailAddress(address.slice(at + 1)).replace(/\.+$/, "");
   return domain === SCHOOL_DOMAIN || domain.endsWith(`.${SCHOOL_DOMAIN}`);
 }
 

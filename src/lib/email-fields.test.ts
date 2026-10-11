@@ -34,7 +34,7 @@ describe("e-mail address rule", () => {
 
 describe("school-domain rule", () => {
   it("knows a YTÜ address (yildiz.edu.tr and its subdomains), which can never be the personal e-mail", () => {
-    for (const address of ["ada@yildiz.edu.tr", "ada@std.yildiz.edu.tr", "ada@ce.std.yildiz.edu.tr", "a@b@std.yildiz.edu.tr"]) {
+    for (const address of ["ada@yildiz.edu.tr", "ada@std.yildiz.edu.tr", "ada@ce.std.yildiz.edu.tr", "a@b@std.yildiz.edu.tr", "ada@yildiz.edu.tr.", "ada@std.yildiz.edu.tr.."]) {
       expect(isSchoolDomainAddress(address)).toBe(true);
     }
     for (const address of ["ada@example.com", "ada@notyildiz.edu.tr", "ada@yildiz.edu.tr.example.com", "yildiz.edu.tr@example.com", "ada@edu.tr", "ada"]) {

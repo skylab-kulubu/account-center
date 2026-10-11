@@ -214,7 +214,7 @@
   },
   "email_school_domain": {
     "type": "tag:yildizskylab.com,2026:sky-account:email_school_domain",
-    "title": "School addresses cannot be the personal e-mail",
+    "title": "School address cannot be a personal e-mail",
     "status": 400,
     "detail": "Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.",
     "code": "email_school_domain",

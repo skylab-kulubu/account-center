@@ -461,6 +461,28 @@ describe("EmailManager", () => {
       expect(api.of("change").map(({ body }) => body)).toEqual([{ address: "taken@example.com" }, { address: "free@example.com" }]);
     });
 
+    it("goes back to the address when the SPI refuses a YTÜ address at confirm (a code requested before the rule)", async () => {
+      const api = mockApi({
+        email: [{ body: payload() }],
+        pending: [waiting("ada.lovelace@yildiz.edu.tr", 4)],
+        confirm: [{ status: 400, body: { error: "email_school_domain", detail: "Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.", field: "address" } }],
+      });
+      render(<EmailManager />);
+      enterCode(await codeForm(), "123456");
+
+      const form = await screen.findByRole("form", { name: "Kişisel e-posta ekle" });
+      expect(screen.queryByRole("form", { name: "Doğrulama kodunu gir" })).not.toBeInTheDocument();
+      const input = within(form).getByLabelText("E-posta adresi");
+      expect(input).toHaveValue("ada.lovelace@yildiz.edu.tr");
+      expect(input).toHaveAttribute("aria-invalid", "true");
+      expect(within(form).getByRole("alert")).toHaveTextContent("Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.");
+      await waitFor(() => expect(input).toHaveFocus());
+
+      fireEvent.click(within(form).getByRole("button", { name: "Kod gönder" }));
+      expect(await within(form).findByRole("alert")).toHaveTextContent("Okul adresi mezun olunca kapanabilir;");
+      expect(api.of("change")).toHaveLength(0);
+    });
+
     it("leaves the account untouched when Sudo mode is dismissed", async () => {
       sudo.ensureSudo.mockResolvedValue(false);
       const api = mockApi({ email: [{ body: payload() }], change: [challenge] });
@@ -690,18 +712,28 @@ describe("EmailManager", () => {
       expect(api.of("confirm")).toHaveLength(0);
     });
 
-    it("explains that a YTÜ primary cannot become the personal e-mail and mails nothing", async () => {
-      const api = mockApi({
-        email: [{ body: payload({ email: "ada@yildiz.edu.tr", primary: "none" }) }],
+    it("does not offer to prove a YTÜ primary as the personal e-mail and says why", async () => {
+      const api = mockApi({ email: [{ body: payload({ email: "ada@yildiz.edu.tr", primary: "none" }) }] });
+      render(<EmailManager />);
+      const prove = await screen.findByRole("button", { name: "ada@yildiz.edu.tr — Kodla doğrula" });
+      expect(prove).toBeDisabled();
+      expect(prove).toHaveAccessibleDescription("Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.");
+      expect(screen.queryByText(/Bu adrese gelen 6 haneli kodu girersen/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Başka bir adres ekle" })).toBeEnabled();
+      expect(api.of("change")).toHaveLength(0);
+    });
+
+    it("puts the SPI's school-domain refusal in the proof panel", async () => {
+      mockApi({
+        email: [{ body: payload(legacy) }],
         change: [{ status: 400, body: { error: "email_school_domain", detail: "Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.", field: "address" } }],
       });
       render(<EmailManager />);
-      fireEvent.click(await screen.findByRole("button", { name: "ada@yildiz.edu.tr — Kodla doğrula" }));
+      fireEvent.click(await screen.findByRole("button", { name: "ada@hotmail.com — Kodla doğrula" }));
       const start = await screen.findByRole("form", { name: "Birincil adresini doğrula" });
       fireEvent.click(within(start).getByRole("button", { name: "Kod gönder" }));
       expect(await within(start).findByRole("alert")).toHaveTextContent("Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.");
       expect(screen.queryByRole("form", { name: "Doğrulama kodunu gir" })).not.toBeInTheDocument();
-      expect(api.of("confirm")).toHaveLength(0);
     });
 
     it("brings back a code already mailed to it as its proof", async () => {
