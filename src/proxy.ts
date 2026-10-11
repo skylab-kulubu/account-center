@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { parseProfilePictureOrigin } from "@/config/club-profile";
+import { allowedReturnQuery } from "@/lib/return-query";
 
 const sessionCookie = "__Host-sky-account";
 /** Read once per process; an invalid value fails the proxy at startup instead of shipping a broken policy. */
@@ -59,7 +60,7 @@ function contentSecurityPolicy(nonce: string) {
 }
 
 export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, searchParams } = request.nextUrl;
   if (isInternalPath(pathname)) {
     return new NextResponse(null, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
@@ -75,9 +76,11 @@ export function proxy(request: NextRequest) {
     !isWellKnownPath(pathname) &&
     !retiredNativeHandoffPaths.has(pathname) &&
     !request.cookies.has(sessionCookie);
+  // Only an allow-listed query (the e-mail page's nudge intent) survives the login round trip.
+  const returnTo = pathname + allowedReturnQuery(pathname, searchParams);
   const response = needsLogin
     ? NextResponse.redirect(
-        new URL(`/login?returnTo=${encodeURIComponent(pathname)}`, request.url),
+        new URL(`/login?returnTo=${encodeURIComponent(returnTo)}`, request.url),
       )
     : NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", policy);

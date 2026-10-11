@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { constantTimeEqual, sha256 } from "@/server/auth/crypto";
 import type { SecretCipher } from "@/server/auth/crypto";
+import { normalizeReturnTo } from "@/server/auth/oidc-flow";
 import type { OidcTransactionRepository } from "@/server/auth/repositories";
 import type { OidcTransactionPayload } from "@/server/auth/types";
 
@@ -11,8 +12,9 @@ function validCoreProof(payload: OidcTransactionPayload) {
     /^[A-Za-z0-9_-]{32,256}$/.test(payload.state) &&
     /^[A-Za-z0-9_-]{32,256}$/.test(payload.nonce) &&
     /^[A-Za-z0-9._~-]{43,128}$/.test(payload.codeVerifier) &&
-    ["/", "/identity", "/email", "/security", "/sessions", "/permissions", "/club-profile", "/delete-account"]
-      .includes(payload.returnTo)
+    // Only a value the allow-list keeps as it is: an account page, plus its allow-listed query.
+    typeof payload.returnTo === "string" &&
+    normalizeReturnTo(payload.returnTo) === payload.returnTo
   );
 }
 
