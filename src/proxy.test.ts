@@ -54,6 +54,27 @@ describe("security proxy", () => {
     );
   });
 
+  it("carries the e-mail page's nudge intent into the login redirect", () => {
+    const response = proxy(new NextRequest("https://my.yildizskylab.com/email?intent=add-personal"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/login?returnTo=%2Femail%3Fintent%3Dadd-personal",
+    );
+  });
+
+  it.each([
+    ["/email?intent=unknown", "%2Femail"],
+    ["/email?intent=add-personal&intent=make-personal-primary", "%2Femail"],
+    ["/email?next=https://attacker.invalid&intent=make-personal-primary", "%2Femail%3Fintent%3Dmake-personal-primary"],
+    ["/security?intent=add-personal&tab=x", "%2Fsecurity"],
+  ])("keeps only the allow-listed query of %s in the login redirect", (path, returnTo) => {
+    const response = proxy(new NextRequest(`https://my.yildizskylab.com${path}`));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://my.yildizskylab.com/login?returnTo=${returnTo}`);
+  });
+
   it("keeps the login page public", () => {
     const response = proxy(new NextRequest("https://my.yildizskylab.com/login"));
     expect(response.headers.get("x-middleware-next")).toBe("1");

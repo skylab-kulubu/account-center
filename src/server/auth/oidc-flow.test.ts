@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import { accountRoutes } from "@/config/account-routes";
+import { PRIMARY_EMAIL_NUDGES, primaryEmailNudgeIntentPath } from "@/lib/primary-email-nudge";
 import { OIDC_TRANSACTION_TTL_SECONDS } from "@/server/auth/config";
 import { InvalidOidcTransactionError, normalizeReturnTo, OidcFlowService } from "@/server/auth/oidc-flow";
 import type { OidcCallbackContext } from "@/server/auth/oidc-flow";
@@ -127,6 +128,46 @@ describe("normalizeReturnTo", () => {
     expect(normalizeReturnTo("/email")).toBe("/email");
     expect(normalizeReturnTo("/email?x=1#y")).toBe("/email");
     for (const rejected of ["/admin", "/emails", "https://attacker.invalid/email", "//attacker.invalid/email", "", null, undefined]) {
+      expect(normalizeReturnTo(rejected)).toBe("/");
+    }
+  });
+
+  it("keeps the e-mail page's nudge intent, so a signed-out click on a nudge link opens its flow after login", () => {
+    for (const nudge of PRIMARY_EMAIL_NUDGES) {
+      expect(normalizeReturnTo(primaryEmailNudgeIntentPath(nudge))).toBe(`/email?intent=${nudge}`);
+    }
+    expect(normalizeReturnTo("/email?intent=add-personal#y")).toBe("/email?intent=add-personal");
+    expect(normalizeReturnTo("/email?x=1&intent=add-personal&y=2")).toBe("/email?intent=add-personal");
+  });
+
+  it("drops every query it does not know: other parameters, other values, other pages, repeated intents", () => {
+    for (const [value, expected] of [
+      ["/email?intent=unknown", "/email"],
+      ["/email?intent=", "/email"],
+      ["/email?intent=ADD-PERSONAL", "/email"],
+      ["/email?intent=add-personal%0d%0aLocation:%20https://attacker.invalid", "/email"],
+      ["/email?intent=add-personal&intent=make-personal-primary", "/email"],
+      ["/email?intent[]=add-personal", "/email"],
+      ["/email?returnTo=https://attacker.invalid", "/email"],
+      ["/security?intent=add-personal", "/security"],
+      ["/?intent=add-personal", "/"],
+    ] as const) {
+      expect(normalizeReturnTo(value)).toBe(expected);
+    }
+  });
+
+  it("still sends every external or malformed target home, with or without a known intent", () => {
+    for (const rejected of [
+      "https://attacker.invalid/email?intent=add-personal",
+      "//attacker.invalid/email?intent=add-personal",
+      "/\\attacker.invalid/email?intent=add-personal",
+      "\\\\attacker.invalid/email?intent=add-personal",
+      "javascript:alert(1)//email?intent=add-personal",
+      "/%2F%2Fattacker.invalid/email?intent=add-personal",
+      "/%5Cattacker.invalid/email?intent=add-personal",
+      "/email%3Fintent%3Dadd-personal",
+      "/emails?intent=add-personal",
+    ]) {
       expect(normalizeReturnTo(rejected)).toBe("/");
     }
   });
