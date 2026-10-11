@@ -23,6 +23,11 @@ export type PrimaryEmailChoice = "school" | "personal";
 
 export const emailAddressMessage = "Geçerli bir e-posta adresi gir.";
 export const emailCodeMessage = "Doğrulama kodu 6 rakamdan oluşur.";
+/** The SPI's `email_school_domain`: a YTÜ address may close after graduation, so it is never the personal e-mail. */
+export const schoolDomainAddressMessage = "Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.";
+
+/** The YTÜ domain; it and its subdomains (`std.yildiz.edu.tr`, …) are school addresses. */
+export const SCHOOL_DOMAIN = "yildiz.edu.tr";
 
 /**
  * A change waiting for its code, as the BFF answers it and the page shows
@@ -50,6 +55,20 @@ export function checkEmailAddress(value: unknown): FieldCheck<"invalid"> {
     return { ok: false, reason: "invalid" };
   }
   return { ok: true, value: address };
+}
+
+/**
+ * Whether the address is on the YTÜ domain or one of its subdomains (the
+ * part after the last `@`, without trailing dots, like the SPI reads it). Such an address is never
+ * accepted as the personal e-mail (`email_school_domain`); the SPI stays the
+ * judge.
+ */
+export function isSchoolDomainAddress(address: string) {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return false;
+  // Trailing dots dropped like the SPI does (`yildiz.edu.tr.` is the same domain).
+  const domain = normalizeEmailAddress(address.slice(at + 1)).replace(/\.+$/, "");
+  return domain === SCHOOL_DOMAIN || domain.endsWith(`.${SCHOOL_DOMAIN}`);
 }
 
 /** The six digits without the spaces a copy inserts, or `invalid`. */

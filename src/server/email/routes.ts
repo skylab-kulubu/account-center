@@ -17,6 +17,7 @@ import {
   emailAddressMessage,
   emailCodeMessage,
   isPrimaryEmailChoice,
+  schoolDomainAddressMessage,
 } from "@/lib/email-fields";
 import type { PrimaryEmailChoice } from "@/lib/email-fields";
 import { isPrimaryEmailNudge, primaryEmailNudgeFor } from "@/lib/primary-email-nudge";
@@ -54,6 +55,8 @@ export type EmailRouteProblem = {
     | "invalid_code"
     | "no_pending_change"
     | "email_taken"
+    /** A YTÜ address offered as the personal e-mail; the `detail` is the page's own sentence. */
+    | "email_school_domain"
     | "email_not_verified"
     | "no_fallback_email"
     | "email_not_sent"
@@ -135,6 +138,8 @@ function failureResponse(request: NextRequest, services: Services, session: Sess
         return problemResponse(404, { error: "no_pending_change", detail: error.detail });
       case "email_taken":
         return problemResponse(409, { error: "email_taken", detail: error.detail, field: "address" });
+      case "email_school_domain":
+        return problemResponse(400, { error: "email_school_domain", detail: schoolDomainAddressMessage, field: "address" });
       case "email_not_verified":
         return problemResponse(409, { error: "email_not_verified", detail: error.detail });
       case "no_fallback_email":
@@ -186,6 +191,8 @@ function failureReason(error: unknown): FailureReason {
         return "no_pending_change";
       case "email_taken":
         return "email_taken";
+      case "email_school_domain":
+        return "email_school_domain";
       case "email_not_verified":
         return "email_not_verified";
       case "no_fallback_email":
