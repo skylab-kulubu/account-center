@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import * as oauth from "oauth4webapi";
+import { allowedReturnQuery } from "@/lib/return-query";
 import { randomOpaqueValue } from "@/server/auth/crypto";
 import { logAuthEvent } from "@/server/auth/logging";
 import type { OidcProtocol } from "@/server/auth/oidc-protocol";
@@ -39,7 +40,11 @@ export type OidcFlowOptions = {
   clock?: () => Date;
 };
 
-/** Account pages a login or a Sudo mode re-authentication may return to; mirrored in `oidc-transactions.ts`. */
+/**
+ * Account pages a login or a Sudo mode re-authentication may return to; a
+ * stored transaction must hold a value `normalizeReturnTo` leaves unchanged
+ * (`oidc-transactions.ts`). The only query kept is `allowedReturnQuery`'s.
+ */
 const allowedReturnPaths = new Set([
   "/",
   "/identity",
@@ -67,7 +72,7 @@ export function normalizeReturnTo(value: string | null | undefined) {
   try {
     const url = new URL(value, "https://account-center.invalid");
     if (url.origin !== "https://account-center.invalid" || !allowedReturnPaths.has(url.pathname)) return "/";
-    return url.pathname;
+    return url.pathname + allowedReturnQuery(url.pathname, url.searchParams);
   } catch {
     return "/";
   }

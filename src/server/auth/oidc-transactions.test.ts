@@ -59,7 +59,12 @@ describe("OidcTransactionStore", () => {
       () => new Date("2026-09-23T00:00:00Z"),
     );
     const browserBinding = "b".repeat(43);
-    const paths = [...accountRoutes.map(({ href }) => href), "/email"];
+    const paths = [
+      ...accountRoutes.map(({ href }) => href),
+      "/email",
+      "/email?intent=add-personal",
+      "/email?intent=make-personal-primary",
+    ];
     for (const [index, returnTo] of paths.entries()) {
       const payload = {
         state: `${String.fromCharCode(97 + index)}${"s".repeat(42)}`,
@@ -70,9 +75,22 @@ describe("OidcTransactionStore", () => {
       await store.create(payload, browserBinding);
       await expect(store.consume(payload.state, browserBinding)).resolves.toEqual(payload);
     }
-    const foreign = { state: "z".repeat(43), nonce: "n".repeat(43), codeVerifier: "v".repeat(43), returnTo: "/emails" };
-    await store.create(foreign, browserBinding);
-    await expect(store.consume(foreign.state, browserBinding)).resolves.toBeNull();
+    for (const [index, returnTo] of [
+      "/emails",
+      "/email?intent=unknown",
+      "/email?x=1&intent=add-personal",
+      "/security?intent=add-personal",
+      "//attacker.invalid/email?intent=add-personal",
+    ].entries()) {
+      const foreign = {
+        state: `${String.fromCharCode(65 + index)}${"z".repeat(42)}`,
+        nonce: "n".repeat(43),
+        codeVerifier: "v".repeat(43),
+        returnTo,
+      };
+      await store.create(foreign, browserBinding);
+      await expect(store.consume(foreign.state, browserBinding)).resolves.toBeNull();
+    }
   });
 
   it("rejects expired transactions", async () => {
