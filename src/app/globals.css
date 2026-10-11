@@ -1,29 +1,38 @@
 @import "tailwindcss";
+@import "@skylab-kulubu/skylcn-ui/theme.css";
+/*
+ * theme.css scans the whole package so skylcn components get their classes.
+ * No page renders a skylcn component yet, so the scan is off for now (about
+ * 95 KB of unused CSS); the first pull request that renders one removes this
+ * line. The glob is pnpm's real path of the package, whatever its version.
+ */
+@source not "../../node_modules/.pnpm/@skylab-kulubu+skylcn-ui@*/**";
 
-@theme {
-  --font-sans: var(--font-space-grotesk), "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --color-skylab-300: #f3e8f5;
-  --color-skylab-400: #ebd5ee;
-  --color-skylab-500: #e0c8e5;
-  --color-skylab-700: #ae7eb6;
-  --color-skylab-900: #6e4576;
-}
-
+/*
+ * Account Center's own token names, pointed at the skylcn-ui tokens (ADR 0055).
+ * skylcn-ui is the source of truth; these names stay only until the page rules
+ * that read them move to skylcn components. Names skylcn already owns
+ * (--accent, --border, --border-subtle, --border-strong, --primary, --ring)
+ * are read straight from skylcn and never redefined here: skylcn's --accent is
+ * a neutral hover wash, not the lilac brand colour.
+ */
 :root {
-  --surface-page: #08070b;
-  --surface-card: rgba(18, 17, 22, 0.78);
-  --surface-raised: rgba(30, 28, 34, 0.82);
-  --surface-hover: rgba(255, 255, 255, 0.055);
-  --border-subtle: rgba(255, 255, 255, 0.075);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --ink: #f5f1ec;
-  --ink-muted: #aaa4ae;
-  --ink-faint: #9b94a0;
-  --accent: #e0c8e5;
-  --accent-muted: rgba(224, 200, 229, 0.11);
-  --danger: #fca5a5;
-  --danger-muted: rgba(239, 68, 68, 0.09);
-  --focus: rgba(224, 200, 229, 0.9);
+  --surface-page: var(--sidebar);
+  /* Translucent, so the background bloom and stars still show through the cards */
+  --surface-card: color-mix(in srgb, var(--sheet) 78%, transparent);
+  --surface-raised: color-mix(in srgb, var(--popover) 82%, transparent);
+  --surface-hover: var(--accent);
+  --ink: var(--foreground);
+  --ink-muted: var(--muted-foreground);
+  --ink-faint: var(--subtle-foreground);
+  --primary-muted: color-mix(in srgb, var(--primary) 11%, transparent);
+  --danger: var(--destructive);
+  --danger-muted: color-mix(in srgb, var(--destructive) 9%, transparent);
+  /*
+   * A 2px outline needs more than skylcn's 40% --ring to stay visible on the
+   * near-black page, so the focus ring keeps its strength in the brand colour.
+   */
+  --focus: color-mix(in srgb, var(--primary) 90%, transparent);
 }
 
 * {
@@ -43,7 +52,7 @@ body {
   margin: 0;
   background: var(--surface-page);
   color: var(--ink);
-  font-family: var(--font-space-grotesk), "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-family-sans);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
@@ -90,8 +99,8 @@ a {
   padding: 10px 14px;
   border: 1px solid var(--border-strong);
   border-radius: 9px;
-  color: #161217;
-  background: var(--accent);
+  color: var(--primary-foreground);
+  background: var(--primary);
   font-size: 0.78rem;
   font-weight: 650;
   transform: translateY(calc(-100% - 20px));
@@ -124,7 +133,7 @@ a {
 
 .background__bloom {
   background:
-    radial-gradient(900px 620px at 82% 6%, rgba(224, 200, 229, 0.105), transparent 62%),
+    radial-gradient(900px 620px at 82% 6%, color-mix(in srgb, var(--primary) 10.5%, transparent), transparent 62%),
     radial-gradient(760px 620px at 4% 94%, rgba(138, 97, 156, 0.075), transparent 64%);
   animation: bloom-in 1.8s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
@@ -137,7 +146,7 @@ a {
   background-image:
     radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, 0.28), transparent 50%),
     radial-gradient(1px 1px at 28% 62%, rgba(255, 255, 255, 0.2), transparent 50%),
-    radial-gradient(1.2px 1.2px at 62% 8%, rgba(224, 200, 229, 0.36), transparent 50%),
+    radial-gradient(1.2px 1.2px at 62% 8%, color-mix(in srgb, var(--primary) 36%, transparent), transparent 50%),
     radial-gradient(1px 1px at 80% 48%, rgba(255, 255, 255, 0.24), transparent 50%),
     radial-gradient(1px 1px at 92% 78%, rgba(255, 255, 255, 0.18), transparent 50%);
   opacity: 0.6;
@@ -166,7 +175,7 @@ a {
   min-height: calc(100dvh - 40px);
   margin: 20px auto;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 18px;
   background: rgba(10, 9, 13, 0.68);
   box-shadow: 0 30px 100px rgba(0, 0, 0, 0.32);
@@ -178,7 +187,7 @@ a {
   min-height: 100%;
   flex-direction: column;
   padding: 22px 14px 18px;
-  border-right: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.018);
 }
 
@@ -194,7 +203,7 @@ a {
 .brand__mark {
   width: 32px;
   height: 32px;
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .brand span {
@@ -246,12 +255,12 @@ a {
 
 .account-nav__item[data-active] {
   color: var(--ink);
-  border-color: rgba(224, 200, 229, 0.13);
-  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--primary) 13%, transparent);
+  background: var(--primary-muted);
 }
 
 .account-nav__item[data-active] svg {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .account-sidebar__sign-out {
@@ -291,7 +300,7 @@ a {
 .login-state__message {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--surface-hover);
 }
@@ -300,7 +309,7 @@ a {
   height: calc(100dvh - 42px);
   overflow-y: auto;
   padding: 64px clamp(36px, 7vw, 92px) 80px;
-  scrollbar-color: #3f3f46 transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
 
@@ -315,7 +324,7 @@ a {
 
 .eyebrow {
   margin: 0 0 10px;
-  color: var(--accent);
+  color: var(--primary);
   font-size: 0.67rem;
   font-weight: 650;
   letter-spacing: 0.16em;
@@ -348,9 +357,9 @@ a {
   align-items: center;
   gap: 14px;
   padding: 18px;
-  border: 1px solid rgba(224, 200, 229, 0.13);
+  border: 1px solid color-mix(in srgb, var(--primary) 13%, transparent);
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(224, 200, 229, 0.09), rgba(255, 255, 255, 0.022));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 9%, transparent), rgba(255, 255, 255, 0.022));
 }
 
 .identity-card__avatar,
@@ -361,9 +370,9 @@ a {
   width: 44px;
   height: 44px;
   place-items: center;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 11px;
-  color: var(--accent);
+  color: var(--primary);
   background: rgba(255, 255, 255, 0.035);
 }
 
@@ -413,7 +422,7 @@ a {
 
 .settings-group {
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.018);
@@ -429,7 +438,7 @@ a {
 }
 
 .settings-row + .settings-row {
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border);
 }
 
 a.settings-row:hover {
@@ -442,9 +451,9 @@ a.settings-row:hover {
   width: 34px;
   height: 34px;
   place-items: center;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  color: var(--accent);
+  color: var(--primary);
   background: rgba(255, 255, 255, 0.025);
 }
 
@@ -497,7 +506,7 @@ a.settings-row:hover .settings-row__chevron {
   align-items: center;
   min-height: 24px;
   padding: 4px 8px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--ink-muted);
   background: rgba(255, 255, 255, 0.025);
@@ -508,13 +517,13 @@ a.settings-row:hover .settings-row__chevron {
 
 .status-badge[data-tone="positive"] {
   color: #a7f3d0;
-  border-color: rgba(52, 211, 153, 0.18);
+  border-color: color-mix(in srgb, var(--success) 18%, transparent);
   background: rgba(16, 185, 129, 0.08);
 }
 
 .status-badge[data-tone="warning"] {
   color: #fde68a;
-  border-color: rgba(251, 191, 36, 0.18);
+  border-color: color-mix(in srgb, var(--warning) 18%, transparent);
   background: rgba(245, 158, 11, 0.08);
 }
 
@@ -529,10 +538,10 @@ a.settings-row:hover .settings-row__chevron {
 .security-action {
   min-height: 32px;
   padding: 6px 10px;
-  border: 1px solid rgba(224, 200, 229, 0.2);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
   border-radius: 8px;
   color: #e9dfee;
-  background: rgba(224, 200, 229, 0.09);
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
   font-size: 0.66rem;
   font-weight: 610;
   cursor: pointer;
@@ -540,18 +549,18 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .security-action:hover {
-  border-color: rgba(224, 200, 229, 0.34);
-  background: rgba(224, 200, 229, 0.15);
+  border-color: color-mix(in srgb, var(--primary) 34%, transparent);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
 }
 
 .security-action[data-tone="danger"] {
   color: #fecaca;
-  border-color: rgba(248, 113, 113, 0.2);
+  border-color: color-mix(in srgb, var(--destructive) 20%, transparent);
   background: rgba(239, 68, 68, 0.07);
 }
 
 .security-action[data-tone="danger"]:hover {
-  border-color: rgba(248, 113, 113, 0.34);
+  border-color: color-mix(in srgb, var(--destructive) 34%, transparent);
   background: rgba(239, 68, 68, 0.12);
 }
 
@@ -561,7 +570,7 @@ a.settings-row:hover .settings-row__chevron {
   gap: 4px;
   margin: -10px 0 26px;
   padding: 13px 15px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--ink-muted);
   background: rgba(255, 255, 255, 0.025);
@@ -579,12 +588,12 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .action-notice[data-tone="positive"] {
-  border-color: rgba(52, 211, 153, 0.17);
+  border-color: color-mix(in srgb, var(--success) 17%, transparent);
   background: rgba(16, 185, 129, 0.06);
 }
 
 .action-notice[data-tone="warning"] {
-  border-color: rgba(251, 191, 36, 0.17);
+  border-color: color-mix(in srgb, var(--warning) 17%, transparent);
   background: rgba(245, 158, 11, 0.06);
 }
 
@@ -595,7 +604,7 @@ a.settings-row:hover .settings-row__chevron {
   gap: 13px;
   margin: 0 0 26px;
   padding: 16px 17px;
-  border: 1px solid rgba(251, 191, 36, 0.2);
+  border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
   border-radius: 12px;
   background: rgba(245, 158, 11, 0.06);
 }
@@ -611,7 +620,7 @@ a.settings-row:hover .settings-row__chevron {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border: 1px solid rgba(251, 191, 36, 0.22);
+  border: 1px solid color-mix(in srgb, var(--warning) 22%, transparent);
   border-radius: 10px;
   color: #fcd34d;
   background: rgba(245, 158, 11, 0.08);
@@ -657,7 +666,7 @@ a.settings-row:hover .settings-row__chevron {
 .email-nudge-dismissed {
   margin: 0 0 26px;
   padding: 12px 14px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--ink-muted);
   background: rgba(255, 255, 255, 0.025);
@@ -685,10 +694,10 @@ a.settings-row:hover .settings-row__chevron {
   gap: 11px;
   margin-top: 18px;
   padding: 14px 15px;
-  border: 1px solid rgba(224, 200, 229, 0.085);
+  border: 1px solid color-mix(in srgb, var(--primary) 8.5%, transparent);
   border-radius: 10px;
-  color: var(--accent);
-  background: rgba(224, 200, 229, 0.035);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 3.5%, transparent);
 }
 
 .security-note svg {
@@ -724,10 +733,10 @@ a.settings-row:hover .settings-row__chevron {
 .read-only-note {
   margin: 18px 2px 0;
   padding: 12px 14px;
-  border: 1px solid rgba(224, 200, 229, 0.1);
+  border: 1px solid color-mix(in srgb, var(--primary) 10%, transparent);
   border-radius: 10px;
   color: var(--ink-muted);
-  background: rgba(224, 200, 229, 0.035);
+  background: color-mix(in srgb, var(--primary) 3.5%, transparent);
   font-size: 0.72rem;
   line-height: 1.6;
 }
@@ -745,7 +754,7 @@ a.settings-row:hover .settings-row__chevron {
   flex-direction: column;
   gap: 4px;
   padding: 13px 15px;
-  border: 1px solid rgba(251, 191, 36, 0.17);
+  border: 1px solid color-mix(in srgb, var(--warning) 17%, transparent);
   border-radius: 10px;
   color: var(--ink-muted);
   background: rgba(245, 158, 11, 0.06);
@@ -760,7 +769,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .permissions-notice a {
-  color: var(--accent);
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -774,7 +783,7 @@ a.settings-row:hover .settings-row__chevron {
   flex-direction: column;
   gap: 3px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.018);
 }
 
@@ -795,7 +804,7 @@ a.settings-row:hover .settings-row__chevron {
 .permission-app__note {
   margin: 0;
   padding: 11px 16px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border);
   color: var(--ink-faint);
   font-size: 0.69rem;
   line-height: 1.5;
@@ -803,7 +812,7 @@ a.settings-row:hover .settings-row__chevron {
 
 .technical-details {
   margin-top: 32px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
 }
@@ -826,7 +835,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .technical-details summary svg:first-child {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .technical-details summary svg:last-child {
@@ -841,7 +850,7 @@ a.settings-row:hover .settings-row__chevron {
 
 .technical-details__body {
   padding: 2px 16px 16px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border);
 }
 
 .technical-details__body p {
@@ -881,11 +890,11 @@ a.settings-row:hover .settings-row__chevron {
 .technical-details__body code {
   max-width: 100%;
   padding: 3px 7px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--ink-muted);
   background: rgba(255, 255, 255, 0.03);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-family-mono);
   font-size: 0.68rem;
   overflow-wrap: anywhere;
 }
@@ -895,7 +904,7 @@ a.settings-row:hover .settings-row__chevron {
   flex-direction: column;
   align-items: center;
   padding: 44px 28px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
   text-align: center;
@@ -955,7 +964,7 @@ a.settings-row:hover .settings-row__chevron {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
 }
@@ -969,7 +978,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .session-card + .session-card {
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border);
 }
 
 .session-card__icon {
@@ -978,9 +987,9 @@ a.settings-row:hover .settings-row__chevron {
   width: 38px;
   height: 38px;
   place-items: center;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 9px;
-  color: var(--accent);
+  color: var(--primary);
   background: rgba(255, 255, 255, 0.025);
 }
 
@@ -1036,7 +1045,7 @@ a.settings-row:hover .settings-row__chevron {
   justify-content: center;
   gap: 7px;
   padding: 8px 11px;
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  border: 1px solid color-mix(in srgb, var(--destructive) 20%, transparent);
   border-radius: 8px;
   color: #f5b5b5;
   background: rgba(239, 68, 68, 0.07);
@@ -1046,7 +1055,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .quiet-danger-button:hover:not(:disabled):not([aria-disabled="true"]) {
-  border-color: rgba(248, 113, 113, 0.35);
+  border-color: color-mix(in srgb, var(--destructive) 35%, transparent);
   background: rgba(239, 68, 68, 0.12);
 }
 
@@ -1063,7 +1072,7 @@ a.settings-row:hover .settings-row__chevron {
   justify-content: space-between;
   gap: 18px;
   padding: 16px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.018);
 }
@@ -1102,7 +1111,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .session-feedback[data-tone="danger"] {
-  border-color: rgba(248, 113, 113, 0.16);
+  border-color: color-mix(in srgb, var(--destructive) 16%, transparent);
   color: #eab8b8;
   background: var(--danger-muted);
 }
@@ -1165,7 +1174,7 @@ a.settings-row:hover .settings-row__chevron {
   width: 42px;
   height: 42px;
   place-items: center;
-  border: 1px solid rgba(248, 113, 113, 0.18);
+  border: 1px solid color-mix(in srgb, var(--destructive) 18%, transparent);
   border-radius: 10px;
   color: var(--danger);
   background: var(--danger-muted);
@@ -1203,9 +1212,9 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .sudo-dialog__icon {
-  color: var(--accent);
-  border-color: rgba(224, 200, 229, 0.18);
-  background: var(--accent-muted);
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 18%, transparent);
+  background: var(--primary-muted);
 }
 
 .sudo-notice {
@@ -1217,7 +1226,7 @@ a.settings-row:hover .settings-row__chevron {
   gap: 4px;
   margin-top: 20px;
   padding: 4px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.025);
 }
@@ -1247,8 +1256,8 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .sudo-tab[aria-selected="true"] {
-  color: #161217;
-  background: var(--accent);
+  color: var(--primary-foreground);
+  background: var(--primary);
 }
 
 .sudo-tab:disabled {
@@ -1315,7 +1324,7 @@ a.settings-row:hover .settings-row__chevron {
   gap: 8px;
   margin: 14px 0 0;
   padding: 10px 12px;
-  border: 1px solid rgba(248, 113, 113, 0.16);
+  border: 1px solid color-mix(in srgb, var(--destructive) 16%, transparent);
   border-radius: 9px;
   color: #eab8b8;
   background: var(--danger-muted);
@@ -1324,7 +1333,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .sudo-dialog__feedback[data-tone="warning"] {
-  border-color: rgba(251, 191, 36, 0.2);
+  border-color: color-mix(in srgb, var(--warning) 20%, transparent);
   color: #f3d9a4;
   background: rgba(245, 158, 11, 0.07);
 }
@@ -1369,14 +1378,14 @@ a.settings-row:hover .settings-row__chevron {
   align-items: flex-start;
   gap: 16px;
   padding: 20px;
-  border: 1px solid rgba(248, 113, 113, 0.16);
+  border: 1px solid color-mix(in srgb, var(--destructive) 16%, transparent);
   border-radius: 12px;
   background: var(--danger-muted);
 }
 
 .danger-card__icon {
   color: var(--danger);
-  border-color: rgba(248, 113, 113, 0.14);
+  border-color: color-mix(in srgb, var(--destructive) 14%, transparent);
   background: rgba(239, 68, 68, 0.08);
 }
 
@@ -1416,10 +1425,10 @@ a.settings-row:hover .settings-row__chevron {
   justify-content: center;
   gap: 8px;
   padding: 10px 15px;
-  border: 1px solid rgba(224, 200, 229, 0.2);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
   border-radius: 9px;
-  color: #161217;
-  background: var(--accent);
+  color: var(--primary-foreground);
+  background: var(--primary);
   font-size: 0.74rem;
   font-weight: 620;
   cursor: pointer;
@@ -1429,7 +1438,7 @@ a.settings-row:hover .settings-row__chevron {
   width: 100%;
   margin-top: 16px;
   color: #2c1012;
-  border-color: rgba(248, 113, 113, 0.26);
+  border-color: color-mix(in srgb, var(--destructive) 26%, transparent);
   background: #fca5a5;
 }
 
@@ -1463,7 +1472,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .form-feedback[data-tone="danger"] {
-  border-color: rgba(248, 113, 113, 0.16);
+  border-color: color-mix(in srgb, var(--destructive) 16%, transparent);
   color: #eab8b8;
   background: var(--danger-muted);
 }
@@ -1486,7 +1495,7 @@ a.settings-row:hover .settings-row__chevron {
 
 .form-feedback a {
   margin-top: 4px;
-  color: var(--accent);
+  color: var(--primary);
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -1498,7 +1507,7 @@ a.settings-row:hover .settings-row__chevron {
   gap: 4px;
   margin-bottom: 18px;
   padding: 13px 15px;
-  border: 1px solid rgba(251, 191, 36, 0.17);
+  border: 1px solid color-mix(in srgb, var(--warning) 17%, transparent);
   border-radius: 10px;
   color: var(--ink-muted);
   background: rgba(245, 158, 11, 0.06);
@@ -1507,8 +1516,8 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .club-profile-notice[data-tone="neutral"] {
-  border-color: rgba(224, 200, 229, 0.12);
-  background: rgba(224, 200, 229, 0.045);
+  border-color: color-mix(in srgb, var(--primary) 12%, transparent);
+  background: color-mix(in srgb, var(--primary) 4.5%, transparent);
 }
 
 .club-profile-notice strong {
@@ -1518,7 +1527,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .club-profile-notice a {
-  color: var(--accent);
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -1528,13 +1537,13 @@ a.settings-row:hover .settings-row__chevron {
   align-items: center;
   gap: 16px;
   padding: 18px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
 }
 
 .profile-picture-card[data-preview] {
-  border-color: rgba(251, 191, 36, 0.22);
+  border-color: color-mix(in srgb, var(--warning) 22%, transparent);
 }
 
 .profile-picture-card__avatar {
@@ -1546,7 +1555,7 @@ a.settings-row:hover .settings-row__chevron {
   place-items: center;
   border: 1px solid var(--border-strong);
   border-radius: 18px;
-  color: var(--accent);
+  color: var(--primary);
   background: rgba(255, 255, 255, 0.035);
 }
 
@@ -1597,7 +1606,7 @@ a.settings-row:hover .settings-row__chevron {
   flex-direction: column;
   gap: 14px;
   padding: 16px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
 }
@@ -1642,7 +1651,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .google-wallet-button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 4px;
 }
 
@@ -1672,9 +1681,9 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .secondary-button--accent {
-  color: var(--accent);
-  border-color: rgba(224, 200, 229, 0.24);
-  background: var(--accent-muted);
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 24%, transparent);
+  background: var(--primary-muted);
 }
 
 .settings-group + .profile-form {
@@ -1686,7 +1695,7 @@ a.settings-row:hover .settings-row__chevron {
   flex-direction: column;
   gap: 16px;
   padding: 18px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
 }
@@ -1707,7 +1716,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .field label svg {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .field input {
@@ -1729,7 +1738,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .field[data-invalid] input {
-  border-color: rgba(248, 113, 113, 0.5);
+  border-color: color-mix(in srgb, var(--destructive) 50%, transparent);
 }
 
 .field__hint {
@@ -1767,13 +1776,13 @@ a.settings-row:hover .settings-row__chevron {
   gap: 13px;
   margin-top: 16px;
   padding: 18px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
 }
 
 .deletion-step[data-tone="danger"] {
-  border-color: rgba(248, 113, 113, 0.18);
+  border-color: color-mix(in srgb, var(--destructive) 18%, transparent);
 }
 
 .deletion-step[data-tone="muted"] {
@@ -1788,7 +1797,7 @@ a.settings-row:hover .settings-row__chevron {
   width: 38px;
   height: 38px;
   place-items: center;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 9px;
   color: var(--danger);
   background: var(--danger-muted);
@@ -1823,7 +1832,7 @@ a.settings-row:hover .settings-row__chevron {
   gap: 6px;
   margin: 13px 0 0;
   padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 9px;
   color: var(--ink-faint);
   font-size: 0.68rem;
@@ -1887,9 +1896,9 @@ a.settings-row:hover .settings-row__chevron {
 .deletion-status-card__note {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid rgba(224, 200, 229, 0.12);
+  border: 1px solid color-mix(in srgb, var(--primary) 12%, transparent);
   border-radius: 9px;
-  background: var(--accent-muted);
+  background: var(--primary-muted);
 }
 
 .deletion-status-card__continue {
@@ -1908,7 +1917,7 @@ a.settings-row:hover .settings-row__chevron {
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(700px 440px at 50% 15%, rgba(224, 200, 229, 0.09), transparent 65%),
+    radial-gradient(700px 440px at 50% 15%, color-mix(in srgb, var(--primary) 9%, transparent), transparent 65%),
     var(--surface-page);
 }
 
@@ -1932,15 +1941,15 @@ a.settings-row:hover .settings-row__chevron {
   position: absolute;
   inset: 12%;
   border-radius: 999px;
-  background: rgba(224, 200, 229, 0.2);
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
   filter: blur(20px);
   animation: loader-glow 2.6s ease-in-out infinite;
 }
 
 .logo-loader__mark {
   position: relative;
-  color: var(--accent);
-  filter: drop-shadow(0 8px 24px rgba(224, 200, 229, 0.14));
+  color: var(--primary);
+  filter: drop-shadow(0 8px 24px color-mix(in srgb, var(--primary) 14%, transparent));
 }
 
 .logo-loader__path {
@@ -1994,7 +2003,7 @@ a.settings-row:hover .settings-row__chevron {
 .skeleton-card {
   margin-top: 42px;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-card);
 }
@@ -2008,7 +2017,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .skeleton-row + .skeleton-row {
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border);
 }
 
 .skeleton--icon {
@@ -2038,7 +2047,7 @@ a.settings-row:hover .settings-row__chevron {
 .mobile-header__mark {
   align-self: center;
   justify-self: center;
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .mobile-header {
@@ -2087,7 +2096,7 @@ a.settings-row:hover .settings-row__chevron {
   justify-content: flex-end;
   gap: 10px;
   padding: 12px 16px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.012);
 }
 
@@ -2105,8 +2114,8 @@ a.settings-row:hover .settings-row__chevron {
   gap: 14px;
   margin: 0;
   padding: 18px 16px 16px;
-  border-top: 1px solid var(--border-subtle);
-  background: rgba(224, 200, 229, 0.028);
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--primary) 2.8%, transparent);
 }
 
 .security-panel__title {
@@ -2120,7 +2129,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .security-panel__title svg {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .security-panel__state {
@@ -2152,7 +2161,7 @@ a.settings-row:hover .settings-row__chevron {
   gap: 8px;
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid rgba(248, 113, 113, 0.16);
+  border: 1px solid color-mix(in srgb, var(--destructive) 16%, transparent);
   border-radius: 9px;
   color: #eab8b8;
   background: var(--danger-muted);
@@ -2161,7 +2170,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .security-feedback[data-tone="warning"] {
-  border-color: rgba(251, 191, 36, 0.2);
+  border-color: color-mix(in srgb, var(--warning) 20%, transparent);
   color: #f3d9a4;
   background: rgba(245, 158, 11, 0.07);
 }
@@ -2178,7 +2187,7 @@ a.settings-row:hover .settings-row__chevron {
 .security-hints {
   margin: 0;
   padding: 10px 12px 10px 28px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 9px;
   color: var(--ink-faint);
   background: rgba(255, 255, 255, 0.02);
@@ -2187,7 +2196,7 @@ a.settings-row:hover .settings-row__chevron {
 }
 
 .security-hints[data-tone="danger"] {
-  border-color: rgba(248, 113, 113, 0.18);
+  border-color: color-mix(in srgb, var(--destructive) 18%, transparent);
   color: #eab8b8;
 }
 
@@ -2208,7 +2217,7 @@ a.settings-row:hover .settings-row__chevron {
   width: 18px;
   height: 18px;
   margin: 1px 0 0;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
 }
 
 .security-checkbox span {
@@ -2258,9 +2267,9 @@ a.settings-row:hover .settings-row__chevron {
   width: 24px;
   height: 24px;
   place-items: center;
-  border: 1px solid rgba(224, 200, 229, 0.2);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
   border-radius: 999px;
-  color: var(--accent);
+  color: var(--primary);
   font-size: 0.68rem;
   font-weight: 650;
 }
@@ -2298,7 +2307,7 @@ a.settings-row:hover .settings-row__chevron {
   border-radius: 8px;
   color: var(--ink);
   background: rgba(3, 3, 5, 0.32);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-family-mono);
   font-size: 0.78rem;
   letter-spacing: 0.06em;
   overflow-wrap: anywhere;
@@ -2489,7 +2498,7 @@ a.email-link-action {
     overflow: visible;
     border: 0;
     border-radius: 0;
-    background: rgba(8, 7, 11, 0.62);
+    background: color-mix(in srgb, var(--surface-page) 62%, transparent);
     box-shadow: none;
     backdrop-filter: none;
   }
@@ -2507,8 +2516,8 @@ a.email-link-action {
     min-height: calc(62px + env(safe-area-inset-top));
     align-items: end;
     padding: env(safe-area-inset-top) 12px 9px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: rgba(8, 7, 11, 0.84);
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-page) 84%, transparent);
     backdrop-filter: blur(18px);
   }
 

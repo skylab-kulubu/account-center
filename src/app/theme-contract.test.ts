@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -19,17 +20,67 @@ function contrast(foreground: string, background: string) {
   return (bright! + 0.05) / (dark! + 0.05);
 }
 
-describe("Skyforms-derived theme contract", () => {
+/** The first block of a CSS file whose selector list starts with `selector`. */
+function block(css: string, selector: string) {
+  const start = css.indexOf(`${selector}`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const open = css.indexOf("{", start);
+  return css.slice(open + 1, css.indexOf("}", open));
+}
+
+function declaration(css: string, name: string) {
+  return css.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1]?.trim();
+}
+
+describe("skylcn-ui theme contract", () => {
   const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+  const tokensFile = createRequire(import.meta.url).resolve("@skylab-kulubu/skylcn-ui/tokens.css");
+  // The dark set is the default (`:root, [data-theme='dark']`) and the only one this app shows.
+  const skylcnDark = block(readFileSync(tokensFile, "utf8"), ":root,\n[data-theme='dark']");
+  const accountTokens = block(css, ":root {");
+
+  /** An Account Center token's value, followed through `var(--skylcn-token)` to a hex colour. */
+  function resolveHex(name: string): string {
+    const value = declaration(accountTokens, name) ?? declaration(skylcnDark, name);
+    expect(value, `--${name} is defined`).toBeDefined();
+    const reference = value!.match(/^var\(--([a-z0-9-]+)\)$/)?.[1];
+    if (reference) return resolveHex(reference);
+    expect(value, `--${name} resolves to a hex colour`).toMatch(/^#[0-9a-f]{6}$/i);
+    return value!;
+  }
+
+  it("imports the skylcn-ui theme right after Tailwind", () => {
+    expect(css).toMatch(/^@import "tailwindcss";\s*@import "@skylab-kulubu\/skylcn-ui\/theme\.css";/);
+  });
+
+  it("points its own colour tokens at skylcn-ui tokens", () => {
+    expect(declaration(accountTokens, "surface-page")).toBe("var(--sidebar)");
+    expect(declaration(accountTokens, "ink")).toBe("var(--foreground)");
+    expect(declaration(accountTokens, "ink-muted")).toBe("var(--muted-foreground)");
+    expect(declaration(accountTokens, "ink-faint")).toBe("var(--subtle-foreground)");
+    expect(declaration(accountTokens, "danger")).toBe("var(--destructive)");
+    for (const name of ["surface-card", "surface-raised", "surface-hover", "primary-muted", "danger-muted", "focus"]) {
+      expect(declaration(accountTokens, name), `--${name}`).toMatch(/var\(--[a-z0-9-]+\)/);
+      expect(declaration(accountTokens, name), `--${name} has no colour literal`).not.toMatch(/#|rgba?\(/);
+    }
+  });
+
+  it("leaves the names skylcn-ui owns to skylcn-ui", () => {
+    // skylcn's --accent is a neutral hover wash, not the lilac brand colour; its
+    // components read it, so redefining it here would repaint them.
+    for (const name of ["accent", "border", "border-subtle", "border-strong", "primary", "ring"]) {
+      expect(declaration(accountTokens, name), `--${name}`).toBeUndefined();
+    }
+    expect(css).not.toMatch(/--color-skylab-\d+:/);
+  });
 
   it("keeps primary and muted text readable on the page surface", () => {
-    const token = (name: string) => css.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`))?.[1];
-    const surface = token("surface-page");
+    const surface = resolveHex("surface-page");
 
-    expect(surface).toBeDefined();
-    expect(contrast(token("ink")!, surface!)).toBeGreaterThanOrEqual(7);
-    expect(contrast(token("ink-muted")!, surface!)).toBeGreaterThanOrEqual(4.5);
-    expect(contrast(token("ink-faint")!, surface!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(resolveHex("ink"), surface)).toBeGreaterThanOrEqual(7);
+    expect(contrast(resolveHex("ink-muted"), surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(resolveHex("ink-faint"), surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(resolveHex("danger"), surface)).toBeGreaterThanOrEqual(4.5);
   });
 
   it("never truncates critical status badge meaning", () => {
