@@ -456,6 +456,22 @@ describe("e-mail BFF routes", () => {
       expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "invalid_address", addressAction: "change_request" }));
     });
 
+    it("explains the SPI's refusal of a YTÜ address as the personal e-mail", async () => {
+      routeMocks.requestEmailChange.mockRejectedValueOnce(problem("email_school_domain", { detail: "Başka bir cümle." }));
+      const school = await change({ address: "ada@std.yildiz.edu.tr" });
+      expect(school.status).toBe(400);
+      await expect(school.json()).resolves.toEqual({
+        error: "email_school_domain",
+        detail: "Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.",
+        field: "address",
+      });
+      expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({
+        reason: "email_school_domain",
+        addressAction: "change_request",
+        outcome: "failure",
+      }));
+    });
+
     it("maps a taken, refused or unsendable address and the SPI's budgets", async () => {
       routeMocks.requestEmailChange.mockRejectedValueOnce(problem("email_taken"));
       const taken = await change({ address: "ada@example.com" });
