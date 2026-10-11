@@ -10,8 +10,10 @@ import {
   isEmailCodeAttempts,
   isEmailCodeSeconds,
   isPrimaryEmailChoice,
+  isSchoolDomainAddress,
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_EMAIL_CODE_ATTEMPTS,
+  schoolDomainAddressMessage,
   secondsLeftUntil,
 } from "@/lib/email-fields";
 
@@ -27,6 +29,18 @@ describe("e-mail address rule", () => {
       expect(checkEmailAddress(value)).toEqual({ ok: false, reason: "invalid" });
     }
     expect(emailAddressMessage).toBe("Geçerli bir e-posta adresi gir.");
+  });
+});
+
+describe("school-domain rule", () => {
+  it("knows a YTÜ address (yildiz.edu.tr and its subdomains), which can never be the personal e-mail", () => {
+    for (const address of ["ada@yildiz.edu.tr", "ada@std.yildiz.edu.tr", "ada@ce.std.yildiz.edu.tr", "a@b@std.yildiz.edu.tr", "ada@yildiz.edu.tr.", "ada@std.yildiz.edu.tr.."]) {
+      expect(isSchoolDomainAddress(address)).toBe(true);
+    }
+    for (const address of ["ada@example.com", "ada@notyildiz.edu.tr", "ada@yildiz.edu.tr.example.com", "yildiz.edu.tr@example.com", "ada@edu.tr", "ada"]) {
+      expect(isSchoolDomainAddress(address)).toBe(false);
+    }
+    expect(schoolDomainAddressMessage).toBe("Okul adresi mezun olunca kapanabilir; okul dışı bir adres gir.");
   });
 });
 

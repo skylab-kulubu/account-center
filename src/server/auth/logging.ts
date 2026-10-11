@@ -131,6 +131,7 @@ type AuthLog = {
     | "code_exhausted"
     | "no_pending_change"
     | "email_taken"
+    | "email_school_domain"
     | "email_not_verified"
     | "no_fallback_email"
     | "email_not_sent";

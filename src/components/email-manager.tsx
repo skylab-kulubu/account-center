@@ -19,8 +19,10 @@ import {
   emailAddressMessage,
   isEmailCodeAttempts,
   isEmailCodeSeconds,
+  isSchoolDomainAddress,
   MAX_EMAIL_ADDRESS_LENGTH,
   normalizeEmailAddress,
+  schoolDomainAddressMessage,
 } from "@/lib/email-fields";
 import type { PendingEmailChange, PrimaryEmailChoice } from "@/lib/email-fields";
 import { primaryEmailNudgeFor } from "@/lib/primary-email-nudge";
@@ -104,6 +106,7 @@ export const emailCopy = {
     invalid: emailAddressMessage,
     alreadyYours: "Bu adres zaten hesabında kayıtlı.",
     taken: "Bu e-posta adresi başka bir hesapta kayıtlı. Başka bir adres dene.",
+    schoolDomain: schoolDomainAddressMessage,
   },
   change: {
     title: "Kişisel e-postayı değiştir",
@@ -442,13 +445,16 @@ function PersonalEmailFlow({
       }
       if (!again && outcome.kind === "error") {
         const error = errorOf(outcome.body);
-        if (proving && (error === "invalid_address" || error === "email_taken")) {
+        const fallback = error === "email_taken"
+          ? emailCopy.add.taken
+          : error === "email_school_domain" ? emailCopy.add.schoolDomain : emailCopy.add.invalid;
+        if (proving && (error === "invalid_address" || error === "email_taken" || error === "email_school_domain")) {
           // No address field to point at: the refusal is the panel's own message.
-          setFeedback({ tone: "danger", detail: detailOf(outcome.body, error === "email_taken" ? emailCopy.add.taken : emailCopy.add.invalid) });
+          setFeedback({ tone: "danger", detail: detailOf(outcome.body, fallback) });
           return;
         }
-        if (error === "invalid_address" || error === "email_taken") {
-          const detail = detailOf(outcome.body, error === "email_taken" ? emailCopy.add.taken : emailCopy.add.invalid);
+        if (error === "invalid_address" || error === "email_taken" || error === "email_school_domain") {
+          const detail = detailOf(outcome.body, fallback);
           if (error === "email_taken") setTaken((previous) => ({ ...previous, [address]: detail }));
           focusTarget.current = "address";
           setFieldError(detail);
@@ -484,6 +490,11 @@ function PersonalEmailFlow({
     if (knownAddresses(payload).includes(address)) {
       focusTarget.current = "address";
       setFieldError(emailCopy.add.alreadyYours);
+      return;
+    }
+    if (isSchoolDomainAddress(address)) {
+      focusTarget.current = "address";
+      setFieldError(emailCopy.add.schoolDomain);
       return;
     }
     void send(address, false);
@@ -526,6 +537,21 @@ function PersonalEmailFlow({
       }
       if (response.status === 404 && error === "no_pending_change") {
         setCodeState("gone");
+        return;
+      }
+      if (response.status === 400 && error === "email_school_domain") {
+        // A code requested before the rule: the SPI dropped the change, and the address is refused locally from now on.
+        const detail = detailOf(body, emailCopy.add.schoolDomain);
+        setChange(null);
+        setCodeState("open");
+        setAttemptsLeft(null);
+        if (proving) {
+          setFeedback({ tone: "danger", detail });
+          return;
+        }
+        setValue(change.address);
+        focusTarget.current = "address";
+        setFieldError(detail);
         return;
       }
       if (response.status === 409 && error === "email_taken") {
@@ -1042,6 +1068,7 @@ export function EmailManager({ intent = null }: {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const dismissedRef = useRef<string | null>(null);
   const removeBlockedId = useId();
+  const legacySchoolId = useId();
   const trigger = useRef<HTMLElement | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const focusNotice = useRef(false);
@@ -1208,6 +1235,8 @@ export function EmailManager({ intent = null }: {
   const callbacks: FlowCallbacks = { ensureSudo, onCsrfRenewed: csrfRenewed, onAuthenticationRequired };
   const personalEmail = payload.personalEmail;
   const legacyPrimary = legacyPrimaryOf(payload);
+  // A YTÜ address can never become the personal e-mail, so its proof is not offered.
+  const legacySchool = legacyPrimary !== null && isSchoolDomainAddress(legacyPrimary);
   // Only a school address proven by the YTÜ link can take over a removed primary personal address.
   const schoolFallback = payload.schoolEmail !== null && payload.verifiedYtu;
   const removeBlocked = payload.primary === "personal" && !schoolFallback;
@@ -1296,7 +1325,9 @@ export function EmailManager({ intent = null }: {
               <span className="settings-row__icon"><Mail aria-hidden="true" size={19} /></span>
               <span className="settings-row__copy">
                 <strong className="email-address">{legacyPrimary}</strong>
-                <small>{emailCopy.legacy.detail}</small>
+                <small id={legacySchool ? legacySchoolId : undefined}>
+                  {legacySchool ? emailCopy.add.schoolDomain : emailCopy.legacy.detail}
+                </small>
               </span>
               <div className="settings-row__trailing security-row-actions">
                 <StatusBadge tone="warning">{emailCopy.legacy.badge}</StatusBadge>
@@ -1304,7 +1335,8 @@ export function EmailManager({ intent = null }: {
                   className="security-action"
                   type="button"
                   aria-label={`${legacyPrimary} — ${emailCopy.legacy.prove}`}
-                  disabled={busy}
+                  aria-describedby={legacySchool ? legacySchoolId : undefined}
+                  disabled={busy || legacySchool}
                   onClick={(event) => openFlow({ kind: "prove" }, event.currentTarget)}
                 >
                   <MailCheck aria-hidden="true" size={15} />
