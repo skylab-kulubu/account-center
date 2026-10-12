@@ -559,18 +559,25 @@ test("reduced motion removes ambient animation in the authenticated shell", asyn
   );
   expect(duration).toBeLessThanOrEqual(0.001);
 
+  // skylcn's loader, as it renders: under reduced motion its mark stands still and whole.
   await page.evaluate(() => {
+    const loader = document.createElement("span");
+    loader.className = "skylcn-loader";
+    loader.dataset.testid = "reduced-motion-loader";
+    const mark = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    mark.classList.add("skylcn-loader-mark");
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.classList.add("logo-loader__path");
-    path.dataset.logoGroup = "1";
-    document.body.append(path);
+    path.setAttribute("data-group", "1");
+    mark.append(path);
+    loader.append(mark);
+    document.body.append(loader);
   });
-  const loaderPath = page.locator(".logo-loader__path");
+  const loaderPath = page.locator("[data-testid=reduced-motion-loader] path");
   const loaderStyle = await loaderPath.evaluate((element) => {
     const style = getComputedStyle(element);
-    return { duration: Number.parseFloat(style.animationDuration), opacity: style.opacity };
+    return { animation: style.animationName, opacity: style.opacity };
   });
-  expect(loaderStyle.duration).toBeLessThanOrEqual(0.001);
+  expect(loaderStyle.animation).toBe("none");
   expect(loaderStyle.opacity).toBe("1");
   expect(errors).toEqual([]);
 });

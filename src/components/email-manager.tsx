@@ -1221,7 +1221,7 @@ export function EmailManager({ intent = null }: {
   if (loading && !payload) {
     return (
       <section className={`${framedStateCard} session-state`} aria-label={emailCopy.loading}>
-        <ActionProgress label={emailCopy.loading} />
+        <ActionProgress label={emailCopy.loading} size={72} />
       </section>
     );
   }

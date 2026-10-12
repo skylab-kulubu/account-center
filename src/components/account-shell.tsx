@@ -30,7 +30,7 @@ function DesktopNavigation({ currentRoute, csrfToken }: { currentRoute: AccountR
   return (
     <aside className="account-sidebar">
       <Link className="brand" href="/" aria-label="SKY LAB Hesap Merkezi ana sayfa">
-        <SkyLabMark animated={false} className="brand__mark" size={34} />
+        <SkyLabMark className="brand__mark" size={34} />
         <span>
           <strong>SKY LAB</strong>
           <small>Hesap Merkezi</small>
@@ -65,7 +65,7 @@ function MobileHeader({ currentRoute, csrfToken }: { currentRoute: AccountRoute 
   return (
     <header className="mobile-header">
       {currentRoute?.href === "/" ? (
-        <SkyLabMark animated={false} className="mobile-header__mark" size={30} />
+        <SkyLabMark className="mobile-header__mark" size={30} />
       ) : (
         <Link className="mobile-header__back" href="/" aria-label="Hesap Merkezi özetine dön">
           <ChevronLeft aria-hidden="true" size={22} />

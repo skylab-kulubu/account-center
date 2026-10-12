@@ -45,5 +45,6 @@ describe("shared UI states", () => {
 
     rerender(<ActionProgress label="Oturum kapatılıyor" />);
     expect(screen.getByRole("status")).toHaveTextContent("Oturum kapatılıyor");
+    expect(screen.getByRole("status").querySelector('[data-slot="skylab-loader"] svg')).toHaveAttribute("width", "20");
   });
 });

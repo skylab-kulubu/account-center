@@ -343,7 +343,7 @@ export function SecurityManager() {
   if (loading && !payload) {
     return (
       <section className={`${framedStateCard} session-state`} aria-label={securityCopy.loading}>
-        <ActionProgress label={securityCopy.loading} />
+        <ActionProgress label={securityCopy.loading} size={72} />
       </section>
     );
   }
