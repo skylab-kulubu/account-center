@@ -107,6 +107,25 @@ describe("İletişim tercihleri page", () => {
     expect(screen.getByText(/Postalar birincil e-posta adresine gider/)).toBeInTheDocument();
   });
 
+  it("keeps the mail's row in the retry and login links", async () => {
+    vi.mocked(loadCommunicationPreferencesPage).mockResolvedValue(pageData({
+      preferences: { status: "problem", problem: { type: "x", title: "Ulaşılamıyor", status: 503, detail: "Core yanıt vermedi." } },
+    }));
+    await renderPage({ kanal: "email", kategori: "team:abc:duyuru" });
+    expect(screen.getByRole("link", { name: "Yeniden dene" }))
+      .toHaveAttribute("href", "/communication-preferences?kanal=email&kategori=team%3Aabc%3Aduyuru");
+    cleanup();
+
+    vi.mocked(loadCommunicationPreferencesPage).mockResolvedValue(pageData({
+      preferences: { status: "problem", problem: { type: "x", title: "Giriş", status: 401, detail: "Yeniden giriş yap." } },
+    }));
+    await renderPage({ kanal: "email", kategori: "team:abc:duyuru" });
+    expect(screen.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute(
+      "href",
+      "/login?returnTo=%2Fcommunication-preferences%3Fkanal%3Demail%26kategori%3Dteam%253Aabc%253Aduyuru",
+    );
+  });
+
   it("server-renders without an inline style", async () => {
     vi.mocked(loadCommunicationPreferencesPage).mockResolvedValue(pageData({
       preferences: { status: "problem", problem: { type: "x", title: "Ulaşılamıyor", status: 503, detail: "x" } },

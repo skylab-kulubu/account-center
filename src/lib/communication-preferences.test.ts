@@ -4,7 +4,10 @@ import {
   isPreferenceCategory,
   parseCommunicationPreferencesView,
   preferenceFocus,
+  preferencesLoginHref,
+  preferencesPath,
 } from "@/lib/communication-preferences";
+import { normalizeReturnTo } from "@/server/auth/oidc-flow";
 import { allowedReturnQuery } from "@/lib/return-query";
 
 const groupId = "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d01";
@@ -78,6 +81,21 @@ describe("the mail link's focus", () => {
       .toBe(`?kanal=email&kategori=team%3A${groupId}%3Aduyuru`);
     expect(allowedReturnQuery("/communication-preferences", new URLSearchParams({ kanal: "sms", kategori: "x" }))).toBe("");
     expect(allowedReturnQuery("/club-profile", search)).toBe("");
+  });
+});
+
+describe("the screen's own links", () => {
+  it("keep the mail's row, and only a well-formed one", () => {
+    expect(preferencesPath(null)).toBe("/communication-preferences");
+    expect(preferencesPath("team:<x>:duyuru")).toBe("/communication-preferences");
+    expect(preferencesPath(`team:${groupId}:haber`))
+      .toBe(`/communication-preferences?kanal=email&kategori=team%3A${groupId}%3Ahaber`);
+  });
+
+  it("come back from a login unchanged", () => {
+    const path = preferencesPath("club:duyuru");
+    expect(normalizeReturnTo(path)).toBe(path);
+    expect(preferencesLoginHref("club:duyuru")).toBe(`/login?returnTo=${encodeURIComponent(path)}`);
   });
 });
 

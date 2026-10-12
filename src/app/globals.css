@@ -2296,8 +2296,16 @@ a.email-link-action {
 }
 
 .preferences-table thead th:first-child {
-  width: 56%;
   text-align: left;
+}
+
+.preferences-table thead th:nth-child(2),
+.preferences-table thead th:nth-child(3) {
+  width: 96px;
+}
+
+.preferences-table thead th.preferences-table__action {
+  width: 156px;
 }
 
 .preferences-group th {
@@ -2370,10 +2378,9 @@ a.email-link-action {
   line-height: 1.4;
 }
 
-.preferences-row__action {
-  display: block;
-  margin-top: 4px;
-  margin-left: -10px;
+.preferences-row > td.preferences-row__action {
+  padding-left: 4px;
+  text-align: right;
 }
 
 .preferences-cell {
@@ -2437,8 +2444,18 @@ a.email-link-action {
 }
 
 @media (max-width: 520px) {
-  .preferences-table thead th:first-child {
-    width: 50%;
+  .preferences-table thead th:nth-child(2),
+  .preferences-table thead th:nth-child(3) {
+    width: 66px;
+  }
+
+  .preferences-table thead th.preferences-table__action {
+    width: 48px;
+  }
+
+  /* Icon only on a phone; the button keeps its full name (aria-label) and a tooltip (title). */
+  .preferences-row__action-text {
+    display: none;
   }
 
   .preferences-row > th,
@@ -2516,7 +2533,7 @@ a.email-link-action {
 
   .mobile-header__back {
     display: grid;
-    width: 44px;
+    width: 48px;
     height: 44px;
     place-items: center;
     border-radius: 9px;
@@ -2524,7 +2541,7 @@ a.email-link-action {
   }
 
   .mobile-header__balance {
-    width: 44px;
+    width: 48px;
     height: 44px;
   }
 
