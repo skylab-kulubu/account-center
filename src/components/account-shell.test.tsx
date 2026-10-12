@@ -35,6 +35,7 @@ describe("AccountShell", () => {
       "Kimlik",
       "E-posta ve giriş",
       "Kulüp profili",
+      "İletişim tercihleri",
       "Giriş ve güvenlik",
       "Oturumlar ve cihazlar",
       "Yetkilerim",
@@ -44,6 +45,7 @@ describe("AccountShell", () => {
     expect(screen.getByRole("link", { name: "E-posta ve giriş" })).toHaveAttribute("href", "/email");
     expect(screen.getByRole("link", { name: "Yetkilerim" })).toHaveAttribute("href", "/permissions");
     expect(screen.getByRole("link", { name: "Kulüp profili" })).toHaveAttribute("href", "/club-profile");
+    expect(screen.getByRole("link", { name: "İletişim tercihleri" })).toHaveAttribute("href", "/communication-preferences");
     expect(screen.getByRole("link", { name: "Giriş ve güvenlik" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "İçeriğe geç" })).toHaveAttribute("href", "#main-content");
     expect(screen.getByText("İçerik")).toBeInTheDocument();

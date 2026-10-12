@@ -1,4 +1,5 @@
 import {
+  BellRing,
   CircleUserRound,
   IdCard,
   KeyRound,
@@ -15,6 +16,7 @@ export type AccountRoutePath =
   | "/identity"
   | "/email"
   | "/club-profile"
+  | "/communication-preferences"
   | "/security"
   | "/sessions"
   | "/permissions"
@@ -67,6 +69,15 @@ export const accountRoutes = [
     title: "Kulüp profili",
     description: "SKY numaran, öğrenci kartı durumun ve telefonun burada görünür; üniversite, fakülte, bölüm, LinkedIn bağlantını ve profil fotoğrafını buradan düzenleyebilirsin.",
     icon: IdCard,
+    tone: "default",
+  },
+  {
+    href: "/communication-preferences",
+    navigationLabel: "İletişim tercihleri",
+    documentTitle: "İletişim tercihleri",
+    title: "İletişim tercihleri",
+    description: "Kulüpten ve ekiplerinden hangi duyuru ve haber postalarını alacağını seç. Hesap postaların bu ayarlardan etkilenmez.",
+    icon: BellRing,
     tone: "default",
   },
   {

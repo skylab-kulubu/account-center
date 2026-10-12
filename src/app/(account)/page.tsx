@@ -1,4 +1,5 @@
 import {
+  BellRing,
   CircleUserRound,
   IdCard,
   KeyRound,
@@ -61,6 +62,12 @@ export default async function OverviewPage() {
           icon={<IdCard aria-hidden="true" size={19} />}
           title="Kulüp profili"
           description="SKY numaran, öğrenci kartın, kulüp bilgilerin ve profil fotoğrafın."
+        />
+        <SettingsRow
+          href="/communication-preferences"
+          icon={<BellRing aria-hidden="true" size={19} />}
+          title="İletişim tercihleri"
+          description="Kulüpten ve ekiplerinden hangi duyuru ve haber postalarını alacağını seç."
         />
         <SettingsRow
           href="/security"

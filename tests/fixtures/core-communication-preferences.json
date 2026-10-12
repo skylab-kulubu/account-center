@@ -1,0 +1,211 @@
+{
+  "channels": [
+    "email"
+  ],
+  "master": {
+    "email": {
+      "explicit": null,
+      "enabled": true,
+      "origin": "default",
+      "effective": true
+    }
+  },
+  "club": {
+    "duyuru": {
+      "email": {
+        "explicit": null,
+        "enabled": true,
+        "origin": "default",
+        "effective": true
+      }
+    },
+    "haber": {
+      "email": {
+        "explicit": false,
+        "enabled": false,
+        "origin": "explicit",
+        "effective": false
+      }
+    }
+  },
+  "teams": [
+    {
+      "groupId": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d01",
+      "code": "WEBLAB",
+      "displayName": "Web Laboratuvarı",
+      "path": "/UYELER/YAZILIM/WEBLAB",
+      "member": true,
+      "kinds": {
+        "duyuru": {
+          "email": {
+            "explicit": null,
+            "enabled": true,
+            "origin": "default",
+            "effective": true
+          }
+        },
+        "haber": {
+          "email": {
+            "explicit": null,
+            "enabled": true,
+            "origin": "default",
+            "effective": true
+          }
+        }
+      },
+      "children": [
+        {
+          "groupId": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d02",
+          "code": "FRONT",
+          "displayName": "Frontend",
+          "path": "/UYELER/YAZILIM/WEBLAB/FRONT",
+          "member": true,
+          "kinds": {
+            "duyuru": {
+              "email": {
+                "explicit": null,
+                "enabled": true,
+                "origin": "default",
+                "effective": true
+              }
+            },
+            "haber": {
+              "email": {
+                "explicit": null,
+                "enabled": true,
+                "origin": "default",
+                "effective": true
+              }
+            }
+          },
+          "children": []
+        },
+        {
+          "groupId": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d03",
+          "code": "BACK",
+          "displayName": "Backend",
+          "path": "/UYELER/YAZILIM/WEBLAB/BACK",
+          "member": false,
+          "kinds": {
+            "duyuru": {
+              "email": {
+                "explicit": null,
+                "enabled": true,
+                "origin": "default",
+                "from": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d01",
+                "effective": true
+              }
+            },
+            "haber": {
+              "email": {
+                "explicit": false,
+                "enabled": false,
+                "origin": "explicit",
+                "effective": false
+              }
+            }
+          },
+          "children": []
+        }
+      ]
+    }
+  ],
+  "following": [
+    {
+      "groupId": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d04",
+      "code": "AIRLAB",
+      "displayName": "Hava Araçları Laboratuvarı",
+      "path": "/UYELER/DONANIM/AIRLAB",
+      "member": false,
+      "kinds": {
+        "duyuru": {
+          "email": {
+            "explicit": true,
+            "enabled": true,
+            "origin": "explicit",
+            "effective": true
+          }
+        },
+        "haber": {
+          "email": {
+            "explicit": true,
+            "enabled": true,
+            "origin": "explicit",
+            "effective": true
+          }
+        }
+      },
+      "children": [
+        {
+          "groupId": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d05",
+          "code": "DRONE",
+          "displayName": "Drone",
+          "path": "/UYELER/DONANIM/AIRLAB/DRONE",
+          "member": false,
+          "kinds": {
+            "duyuru": {
+              "email": {
+                "explicit": null,
+                "enabled": true,
+                "origin": "inherited",
+                "from": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d04",
+                "effective": true
+              }
+            },
+            "haber": {
+              "email": {
+                "explicit": null,
+                "enabled": true,
+                "origin": "inherited",
+                "from": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d04",
+                "effective": true
+              }
+            }
+          },
+          "children": []
+        }
+      ]
+    },
+    {
+      "groupId": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d06",
+      "hidden": true,
+      "code": "",
+      "displayName": "Gizli ekip",
+      "path": "",
+      "member": false,
+      "kinds": {
+        "duyuru": {
+          "email": {
+            "explicit": true,
+            "enabled": false,
+            "origin": "default",
+            "effective": false
+          }
+        },
+        "haber": {
+          "email": {
+            "explicit": null,
+            "enabled": false,
+            "origin": "default",
+            "effective": false
+          }
+        }
+      },
+      "children": []
+    }
+  ],
+  "followable": [
+    {
+      "groupId": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d07",
+      "code": "ROBOLAB",
+      "displayName": "Robotik Laboratuvarı",
+      "path": "/UYELER/DONANIM/ROBOLAB"
+    },
+    {
+      "groupId": "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d08",
+      "code": "SKYSEC",
+      "displayName": "Siber Güvenlik",
+      "path": "/UYELER/YAZILIM/SKYSEC"
+    }
+  ]
+}
