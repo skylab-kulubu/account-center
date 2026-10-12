@@ -57,7 +57,7 @@ describe("CommunicationPreferencesEditor", () => {
     renderEditor();
 
     const table = screen.getByRole("table", { name: "Duyuru ve haber postası tercihlerin, kaynak kaynak" });
-    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Kaynak", "Duyurular", "Haberler"]);
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Kaynak", "Duyurular", "Haberler", "İşlem"]);
     for (const group of ["Kulüp geneli", "Ekiplerim", "Takip ettiğim ekipler"]) {
       expect(within(table).getByRole("rowheader", { name: group })).toBeInTheDocument();
     }
@@ -77,12 +77,37 @@ describe("CommunicationPreferencesEditor", () => {
     expect(screen.getByRole("switch", { name: "BACK · Haberler" })).not.toHaveAccessibleDescription();
   });
 
+  it("keeps the row actions out of the row header, so it reads as the team alone", () => {
+    renderEditor();
+
+    const reset = screen.getByRole("button", { name: "Varsayılana dön: BACK" });
+    expect(reset.closest("th")).toBeNull();
+    expect(reset.closest("td")).toHaveClass("preferences-row__action");
+    expect(screen.getByRole("button", { name: "Takibi bırak: AIRLAB" }).closest("th")).toBeNull();
+    const header = screen.getByRole("rowheader", { name: /^BACK/ });
+    expect(header).not.toHaveTextContent(/Varsayılana dön/);
+    expect(header).not.toHaveAccessibleName(/Varsayılana dön/);
+  });
+
+  it("describes the master switch with its state line", () => {
+    renderEditor();
+
+    expect(screen.getByRole("switch", { name: "Duyuru ve haber postaları" }))
+      .toHaveAccessibleDescription("Açık: aşağıda açık olan kaynaklardan duyuru ve haber postası alırsın.");
+  });
+
   it("writes one switch on its own category and shows core's answer", async () => {
     renderEditor();
+    const live = document.querySelector(".preferences-feedback__live");
+    // The polite live region is there before anything is said in it.
+    expect(live).toHaveAttribute("role", "status");
+    expect(live).toBeEmptyDOMElement();
 
     fireEvent.click(screen.getByRole("switch", { name: "BACK · Duyurular" }));
 
     await screen.findByText("BACK · Duyurular kapatıldı.");
+    expect(live).toHaveTextContent("BACK · Duyurular kapatıldı.");
+    expect(live?.querySelector("[data-slot='notice']")).not.toHaveAttribute("role");
     expect(sentItems(fetch)).toEqual([{ category: `team:${ids.back}:duyuru`, enabled: false }]);
   });
 
@@ -173,14 +198,16 @@ describe("CommunicationPreferencesEditor", () => {
     await waitFor(() => expect(document.activeElement).toHaveClass("preferences-feedback"));
   });
 
-  it("offers a fresh login when core no longer accepts the session", async () => {
+  it("offers a fresh login when core no longer accepts the session, back to the mail's row", async () => {
     fetch.mockResolvedValueOnce(respond({ title: "Yeniden giriş", detail: "x", status: 401 }, 401));
-    renderEditor();
+    renderEditor("club:haber");
 
     fireEvent.click(screen.getByRole("switch", { name: "WEBLAB · Duyurular" }));
 
-    expect(await screen.findByRole("link", { name: "Yeniden giriş yap" }))
-      .toHaveAttribute("href", "/login?returnTo=%2Fcommunication-preferences");
+    expect(await screen.findByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute(
+      "href",
+      `/login?returnTo=${encodeURIComponent("/communication-preferences?kanal=email&kategori=club%3Ahaber")}`,
+    );
   });
 
   it("fails closed on an answer that is not a screen", async () => {

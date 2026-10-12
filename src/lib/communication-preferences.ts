@@ -97,6 +97,17 @@ export function preferenceFocus(kanal: unknown, kategori: unknown) {
   return isPreferenceCategory(category) ? category : null;
 }
 
+/** The screen's address, keeping the row a mail's link named (the query `return-query.ts` lets through a login). */
+export function preferencesPath(focusCategory: string | null) {
+  if (!focusCategory || !isPreferenceCategory(focusCategory)) return "/communication-preferences";
+  return `/communication-preferences?${new URLSearchParams({ kanal: COMMUNICATION_CHANNEL, kategori: focusCategory })}`;
+}
+
+/** A fresh login that comes back to the screen, the mail's row included. */
+export function preferencesLoginHref(focusCategory: string | null) {
+  return `/login?returnTo=${encodeURIComponent(preferencesPath(focusCategory))}`;
+}
+
 const TEXT_MAX = 256;
 const MAX_TREE_DEPTH = 16;
 const MAX_ROWS = 4_000;

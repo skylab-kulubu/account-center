@@ -37,7 +37,7 @@ export default async function CommunicationPreferencesPage({
         <CommunicationPreferencesEditor csrfToken={data.csrfToken} focusCategory={focusCategory} initial={state.value} />
       ) : (
         <div className="settings-section">
-          <CommunicationPreferencesNotice problem={state.problem} />
+          <CommunicationPreferencesNotice focusCategory={focusCategory} problem={state.problem} />
         </div>
       )}
 

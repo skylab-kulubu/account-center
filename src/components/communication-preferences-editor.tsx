@@ -11,6 +11,7 @@ import {
   MASTER_CATEGORY,
   NEWS_KINDS,
   parseCommunicationPreferencesView,
+  preferencesLoginHref,
   teamCategory,
 } from "@/lib/communication-preferences";
 import type {
@@ -29,7 +30,6 @@ type Feedback =
   | { tone: "danger"; problem: SafeProblem };
 
 const ROUTE = "/api/account/communication-preferences";
-const LOGIN_HREF = "/login?returnTo=%2Fcommunication-preferences";
 
 const kindLabels: Readonly<Record<NewsKind, string>> = { duyuru: "Duyurular", haber: "Haberler" };
 
@@ -186,14 +186,6 @@ function PreferenceRow({ label, hint, depth, kinds, category, names, focused, di
             {hint ? <small>{hint}</small> : null}
           </span>
         </span>
-        {showAction ? (
-          <span className="preferences-row__action">
-            <Button aria-label={`${actionText}: ${label}`} disabled={disabled} onClick={onAction} size="sm" type="button" variant="ghost">
-              <ActionIcon aria-hidden="true" />
-              {actionText}
-            </Button>
-          </span>
-        ) : null}
       </th>
       {NEWS_KINDS.map((kind) => {
         const cell = kinds[kind];
@@ -214,6 +206,23 @@ function PreferenceRow({ label, hint, depth, kinds, category, names, focused, di
           </td>
         );
       })}
+      {/* Its own column, so a screen reader reading the row header in each cell does not read the button too. */}
+      <td className="preferences-row__action">
+        {showAction ? (
+          <Button
+            aria-label={`${actionText}: ${label}`}
+            disabled={disabled}
+            onClick={onAction}
+            size="sm"
+            title={actionText}
+            type="button"
+            variant="ghost"
+          >
+            <ActionIcon aria-hidden="true" />
+            <span className="preferences-row__action-text">{actionText}</span>
+          </Button>
+        ) : null}
+      </td>
     </tr>
   );
 }
@@ -259,10 +268,13 @@ function TeamRows({ rows, followed, focusKey: key, focusRef, names, disabled, on
   });
 }
 
+/** Kaynak, Duyurular, Haberler and the row's action. */
+const TABLE_COLUMNS = 4;
+
 function GroupHeading({ children }: { children: React.ReactNode }) {
   return (
     <tr className="preferences-group">
-      <th colSpan={3} scope="rowgroup">{children}</th>
+      <th colSpan={TABLE_COLUMNS} scope="rowgroup">{children}</th>
     </tr>
   );
 }
@@ -270,7 +282,7 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
 function EmptyRow({ children }: { children: React.ReactNode }) {
   return (
     <tr className="preferences-empty">
-      <td colSpan={3}>{children}</td>
+      <td colSpan={TABLE_COLUMNS}>{children}</td>
     </tr>
   );
 }
@@ -303,6 +315,7 @@ export function CommunicationPreferencesEditor({
   const focusedMaster = useRef<HTMLDivElement>(null);
   const moveFocusToFeedback = useRef(false);
   const masterHeadingId = useId();
+  const masterDescriptionId = useId();
   const tableHeadingId = useId();
   const followHeadingId = useId();
 
@@ -409,11 +422,14 @@ export function CommunicationPreferencesEditor({
   return (
     <>
       <div className="preferences-feedback" ref={feedbackRef} tabIndex={-1}>
-        {feedback?.tone === "success" ? <Notice tone="success">{feedback.message}</Notice> : null}
+        {/* In the DOM from the start, so a screen reader announces what is put in it; the Notice gives up its own role. */}
+        <div aria-atomic="true" className="preferences-feedback__live" role="status">
+          {feedback?.tone === "success" ? <Notice role={undefined} tone="success">{feedback.message}</Notice> : null}
+        </div>
         {feedback?.tone === "danger" ? (
           <Notice
             action={feedback.problem.status === 401 ? (
-              <Button render={<Link href={LOGIN_HREF} />} size="sm" variant="link">Yeniden giriş yap</Button>
+              <Button render={<Link href={preferencesLoginHref(focusCategory)} />} size="sm" variant="link">Yeniden giriş yap</Button>
             ) : undefined}
             title={feedback.problem.title}
             tone="danger"
@@ -435,11 +451,16 @@ export function CommunicationPreferencesEditor({
         </div>
         <div className="preferences-master" data-focused={key === "master" || undefined} ref={focusedMaster}>
           <ToggleRow
+            aria-describedby={masterDescriptionId}
             aria-label="Duyuru ve haber postaları"
             checked={masterOn}
-            description={masterOn
-              ? "Açık: aşağıda açık olan kaynaklardan duyuru ve haber postası alırsın."
-              : "Kapalı: hiçbir duyuru ve haber postası gelmez."}
+            description={(
+              <span id={masterDescriptionId}>
+                {masterOn
+                  ? "Açık: aşağıda açık olan kaynaklardan duyuru ve haber postası alırsın."
+                  : "Kapalı: hiçbir duyuru ve haber postası gelmez."}
+              </span>
+            )}
             disabled={busy}
             onCheckedChange={(checked) => toggle(MASTER_CATEGORY, "Duyuru ve haber postaları", checked)}
             title="Duyuru ve haber postaları"
@@ -468,6 +489,7 @@ export function CommunicationPreferencesEditor({
                 <th scope="col">Kaynak</th>
                 <th scope="col">Duyurular</th>
                 <th scope="col">Haberler</th>
+                <th className="preferences-table__action" scope="col"><span className="sr-only">İşlem</span></th>
               </tr>
             </thead>
             <tbody>

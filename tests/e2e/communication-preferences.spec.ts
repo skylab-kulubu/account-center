@@ -68,6 +68,8 @@ test("the preferences screen writes each switch to core under its own category",
     const back = page.getByRole("switch", { name: "BACK · Duyurular" });
     await expect(back).toBeChecked();
     await expect(back).toHaveAccessibleDescription("üst ekipten: WEBLAB");
+    // The row header names the team only; its action sits in a column of its own.
+    await expect(page.getByRole("rowheader", { name: "BACK Backend", exact: true })).toBeVisible();
 
     const accessibility = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
@@ -87,8 +89,11 @@ test("the preferences screen writes each switch to core under its own category",
 
     await test.step("the master switch closes everything and gives every choice back", async () => {
       const master = page.getByRole("switch", { name: "Duyuru ve haber postaları" });
+      await expect(master).toHaveAccessibleDescription(/^Açık:/);
       await savePreference(page, () => master.click());
       await expect(page.getByText(/Ana anahtar kapalı/)).toBeVisible();
+      await expect(master).toHaveAccessibleDescription("Kapalı: hiçbir duyuru ve haber postası gelmez.");
+      await expect(page.getByRole("status").filter({ hasText: "Duyuru ve haber postaları kapatıldı." })).toBeVisible();
       await savePreference(page, () => master.click());
       await expect(page.getByText(/Ana anahtar kapalı/)).toHaveCount(0);
       await page.reload();
