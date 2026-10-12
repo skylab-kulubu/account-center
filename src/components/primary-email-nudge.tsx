@@ -1,6 +1,7 @@
 "use client";
 
 import { GraduationCap, Plus, Star } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -120,24 +121,25 @@ export function PrimaryEmailNudgeCard({ nudge, personalEmail, csrfToken, onAct, 
         <FeedbackAlert feedback={failed ? { tone: "warning", detail: primaryEmailNudgeCopy.dismissFailed } : null} />
         <div className="email-nudge__actions">
           {onAct ? (
-            <button
-              className="primary-button"
+            <Button
               type="button"
               disabled={disabled || pending}
               onClick={(event) => onAct(nudge, event.currentTarget)}
+              size="lg"
+              variant="solid"
             >
               {icon}
               {copy.action}
-            </button>
+            </Button>
           ) : (
-            <Link className="primary-button" href={primaryEmailNudgeIntentPath(nudge)}>
+            <Button render={<Link href={primaryEmailNudgeIntentPath(nudge)} />} size="lg" variant="solid">
               {icon}
               {copy.action}
-            </Link>
+            </Button>
           )}
-          <button className="secondary-button" type="button" disabled={disabled || pending} onClick={() => void dismiss()}>
+          <Button type="button" disabled={disabled || pending} onClick={() => void dismiss()} size="lg" variant="outline">
             {pending ? <ActionProgress label={primaryEmailNudgeCopy.dismissing} /> : primaryEmailNudgeCopy.dismiss}
-          </button>
+          </Button>
         </div>
       </div>
     </section>

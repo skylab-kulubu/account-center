@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertCircle, ShieldCheck, Smartphone, WalletCards, XCircle } from "lucide-react";
+import { ShieldCheck, Smartphone, WalletCards, XCircle } from "lucide-react";
+import { Button, Notice } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { ConfirmationDialog } from "@/components/confirmation-dialog";
@@ -131,22 +132,23 @@ function openPendingTab(): Window | null {
 function FeedbackBanner({ feedback }: { feedback: Feedback }) {
   if (feedback.tone === "success") {
     return (
-      <p className="form-feedback" data-tone="success" role="status">
-        <ShieldCheck aria-hidden="true" size={17} />
+      <Notice className="mb-4" icon={ShieldCheck} tone="success">
         {feedback.message}
-      </p>
+      </Notice>
     );
   }
   const { problem } = feedback;
   return (
-    <div className="form-feedback" data-tone="danger" role="alert">
-      <AlertCircle aria-hidden="true" size={17} />
-      <span>
-        <strong>{problem.title}</strong>
-        {problem.detail}
-        {problem.status === 401 ? <Link href={LOGIN_HREF}>Yeniden giriş yap</Link> : null}
-      </span>
-    </div>
+    <Notice
+      action={problem.status === 401 ? (
+        <Button render={<Link href={LOGIN_HREF} />} size="sm" variant="link">Yeniden giriş yap</Button>
+      ) : undefined}
+      className="mb-4"
+      title={problem.title}
+      tone="danger"
+    >
+      {problem.detail}
+    </Notice>
   );
 }
 
@@ -361,16 +363,17 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
             ) : null}
             {pending === "link" ? <ActionProgress label="Bağlantı hazırlanıyor" /> : null}
             {issued ? (
-              <button
+              <Button
                 ref={revokeTrigger}
-                className="quiet-danger-button"
                 type="button"
                 disabled={pending !== null}
                 onClick={() => setConfirmRevoke(true)}
+                size="lg"
+                variant="destructive"
               >
                 <XCircle aria-hidden="true" size={16} />
                 Cüzdandan kaldır
-              </button>
+              </Button>
             ) : null}
           </span>
         )}

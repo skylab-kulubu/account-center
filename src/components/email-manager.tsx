@@ -1,10 +1,12 @@
 "use client";
 
 import { GraduationCap, Link2, Mail, MailCheck, Pencil, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { framedStateCard } from "@/components/framed-state";
 import { ModalDialog } from "@/components/modal-dialog";
 import { parsePrimaryEmailNudge, PrimaryEmailNudgeCard } from "@/components/primary-email-nudge";
 import { FeedbackAlert, feedbackFor, loginPath, sharedCopy, useWaitSeconds } from "@/components/security-shared";
@@ -594,12 +596,12 @@ function PersonalEmailFlow({
         <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
         <p id={hintId} className="email-code__lead">{emailCopy.legacy.hint(proving)}</p>
         <div className="security-panel__actions">
-          <button className="secondary-button" type="button" disabled={pending} onClick={() => onCancel()}>
+          <Button type="button" disabled={pending} onClick={() => onCancel()} size="lg" variant="outline">
             Vazgeç
-          </button>
-          <button className="primary-button" type="submit" autoFocus disabled={sendBlocked}>
+          </Button>
+          <Button type="submit" autoFocus disabled={sendBlocked} size="lg" variant="solid">
             {pending ? <ActionProgress label={emailCopy.add.sending} /> : emailCopy.add.send}
-          </button>
+          </Button>
         </div>
       </form>
     );
@@ -648,12 +650,12 @@ function PersonalEmailFlow({
           </small>
         </div>
         <div className="security-panel__actions">
-          <button className="secondary-button" type="button" disabled={pending} onClick={() => onCancel()}>
+          <Button type="button" disabled={pending} onClick={() => onCancel()} size="lg" variant="outline">
             Vazgeç
-          </button>
-          <button className="primary-button" type="submit" disabled={sendBlocked || value.trim().length === 0}>
+          </Button>
+          <Button type="submit" disabled={sendBlocked || value.trim().length === 0} size="lg" variant="solid">
             {pending ? <ActionProgress label={emailCopy.add.sending} /> : emailCopy.add.send}
-          </button>
+          </Button>
         </div>
       </form>
     );
@@ -722,25 +724,27 @@ function PersonalEmailFlow({
         <small id={codeHintId}>{emailCopy.code.hint}</small>
       </div>
       <div className="security-panel__actions">
-        <button
-          className="secondary-button"
+        <Button
           type="button"
           disabled={pending}
           onClick={() => onCancel(codeClosed ? null : change.expiresAt)}
+          size="lg"
+          variant="outline"
         >
           Vazgeç
-        </button>
-        <button className="secondary-button" type="button" disabled={sendBlocked} onClick={() => void send(change.address, true)}>
+        </Button>
+        <Button type="button" disabled={sendBlocked} onClick={() => void send(change.address, true)} size="lg" variant="outline">
           <RotateCcw aria-hidden="true" size={15} />
           {emailCopy.code.resend}
-        </button>
-        <button
-          className="primary-button"
+        </Button>
+        <Button
           type="submit"
           disabled={confirmBlocked || !checkEmailCode(code).ok}
+          size="lg"
+          variant="solid"
         >
           {pending ? <ActionProgress label={emailCopy.code.confirming} /> : emailCopy.code.confirm}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -925,14 +929,15 @@ function PrimarySelector({
       {refusedSchool ? <div className="email-primary__blocked"><YtuLink /></div> : null}
       <div className="security-panel__actions">
         <small className="email-primary__sudo">{emailCopy.primary.sudo}</small>
-        <button
+        <Button
           ref={saveButton}
-          className="primary-button"
           type="submit"
           disabled={busy || pending || waitSeconds > 0 || !chosen || selected === current}
+          size="lg"
+          variant="solid"
         >
           {pending ? <ActionProgress label={emailCopy.primary.saving} /> : emailCopy.primary.save}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -1011,19 +1016,20 @@ function RemoveDialog({
       <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
       {noFallback && !payload.verifiedYtu ? <div className="email-primary__blocked"><YtuLink /></div> : null}
       <div className="confirmation-dialog__actions">
-        <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
           Vazgeç
-        </button>
-        <button
-          className="danger-button danger-button--inline"
+        </Button>
+        <Button
           type="button"
           disabled={pending || waitSeconds > 0}
           onClick={() => void remove()}
+          size="lg"
+          variant="destructive"
         >
           {pending ? <ActionProgress label={emailCopy.remove.removing} /> : (
             <><Trash2 aria-hidden="true" size={16} />{emailCopy.remove.confirm}</>
           )}
-        </button>
+        </Button>
       </div>
     </ModalDialog>
   );
@@ -1214,7 +1220,7 @@ export function EmailManager({ intent = null }: {
 
   if (loading && !payload) {
     return (
-      <section className="state-card session-state" aria-label={emailCopy.loading}>
+      <section className={`${framedStateCard} session-state`} aria-label={emailCopy.loading}>
         <ActionProgress label={emailCopy.loading} />
       </section>
     );
@@ -1306,17 +1312,18 @@ export function EmailManager({ intent = null }: {
                 <Pencil aria-hidden="true" size={15} />
                 {emailCopy.personal.change}
               </button>
-              <button
-                className="quiet-danger-button"
+              <Button
                 type="button"
                 aria-label={`${personalEmail} — ${emailCopy.personal.remove}`}
                 aria-describedby={removeBlocked ? removeBlockedId : undefined}
                 disabled={busy || removeBlocked}
                 onClick={(event) => openFlow({ kind: "remove" }, event.currentTarget)}
+                size="lg"
+                variant="destructive"
               >
                 <Trash2 aria-hidden="true" size={15} />
                 {emailCopy.personal.remove}
-              </button>
+              </Button>
             </div>
           </div>
         ) : legacyPrimary ? (
