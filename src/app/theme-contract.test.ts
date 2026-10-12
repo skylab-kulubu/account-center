@@ -56,7 +56,7 @@ describe("skylcn-ui theme contract", () => {
     expect(css).not.toContain("@skylab-kulubu/skylcn-ui/theme.css");
     expect(css).not.toMatch(/@source not/);
     const sources = [...css.matchAll(/@import "@skylab-kulubu\/skylcn-ui\/sources\/([a-z-]+)\.css";/g)].map((match) => match[1]);
-    expect(sources).toEqual(["button", "feedback", "skylab-loader", "state-card", "task-page"]);
+    expect(sources).toEqual(["button", "feedback", "form-extra", "skylab-loader", "state-card", "switch", "task-page"]);
     for (const source of sources) {
       expect(() => createRequire(import.meta.url).resolve(`@skylab-kulubu/skylcn-ui/sources/${source}.css`)).not.toThrow();
     }

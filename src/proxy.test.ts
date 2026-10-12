@@ -75,6 +75,40 @@ describe("security proxy", () => {
     expect(response.headers.get("location")).toBe(`https://my.yildizskylab.com/login?returnTo=${returnTo}`);
   });
 
+  it("carries a mail's preference row through the login redirect, without anything else", () => {
+    const response = proxy(new NextRequest(
+      "https://my.yildizskylab.com/communication-preferences?t=token&kategori=team%3Aabc%3Aduyuru&kanal=email",
+    ));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/login?returnTo=%2Fcommunication-preferences%3Fkanal%3Demail%26kategori%3Dteam%253Aabc%253Aduyuru",
+    );
+  });
+
+  it.each([
+    ["without a session", {}],
+    ["with a session", { cookie: "__Host-sky-account=opaque-session" }],
+  ])("sends core's Account center link on the root to the preferences screen %s", (_, headers) => {
+    const response = proxy(new NextRequest(
+      "https://my.yildizskylab.com/?kanal=email&kategori=club%3Ahaber&t=leaked",
+      { headers },
+    ));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/communication-preferences?kanal=email&kategori=club%3Ahaber",
+    );
+    expect(response.headers.get("content-security-policy")).toContain("script-src 'self' 'nonce-");
+  });
+
+  it("leaves the root alone without a category", () => {
+    const response = proxy(new NextRequest("https://my.yildizskylab.com/?kanal=email", {
+      headers: { cookie: "__Host-sky-account=opaque-session" },
+    }));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("keeps the login page public", () => {
     const response = proxy(new NextRequest("https://my.yildizskylab.com/login"));
     expect(response.headers.get("x-middleware-next")).toBe("1");
