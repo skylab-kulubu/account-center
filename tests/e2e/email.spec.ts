@@ -675,11 +675,15 @@ test("an unlinked school address cannot become primary and a primary personal ad
   expect(errors).toEqual([]);
 });
 
-test("the e-mail page with its forms and dialog passes axe and fits a 320px WebView", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop", "one accessibility pass of every state is sufficient");
-  const { defaultBrowserType: _browserType, ...pixel } = devices["Pixel 7"];
-  void _browserType;
-  for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 720 }]) {
+// One test per width: each width walks every state of the page through three
+// page loads and six axe passes, and `next dev` serves each load the whole
+// client graph, so both widths in one test ran past the 30-second test
+// timeout on a CI runner.
+for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 720 }]) {
+  test(`the e-mail page with its forms and dialog passes axe and fits a ${viewport.width}px ${viewport.width === 320 ? "WebView" : "window"}`, async ({ browser }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "one accessibility pass of every state is sufficient");
+    const { defaultBrowserType: _browserType, ...pixel } = devices["Pixel 7"];
+    void _browserType;
     const context = await browser.newContext({
       ...(viewport.width === 320 ? pixel : {}),
       viewport,
@@ -758,5 +762,5 @@ test("the e-mail page with its forms and dialog passes axe and fits a 320px WebV
     } finally {
       await context.close();
     }
-  }
-});
+  });
+}
