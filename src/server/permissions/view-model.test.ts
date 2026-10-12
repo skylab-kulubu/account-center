@@ -172,6 +172,26 @@ describe("Permissions view model", () => {
       ]);
     });
 
+    it("explains SkyMail's content roles: system mails and others' bulk sends", () => {
+      const model = buildPermissionsViewModel({
+        groups: [],
+        authorization: { skymail: ["skymail:system-mails:read", "skymail:mails:write"] },
+      });
+      expect(model.applications[0]?.unlabelledCount).toBe(0);
+      expect(model.applications[0]?.permissions).toEqual([
+        {
+          code: "skymail:mails:write",
+          label: "E-posta gönderme",
+          description: expect.stringContaining("başkalarının toplu gönderimlerinin içeriğini de"),
+        },
+        {
+          code: "skymail:system-mails:read",
+          label: "Sistem postalarını okuma",
+          description: expect.stringContaining("sistem postalarının içeriğini"),
+        },
+      ]);
+    });
+
     it("folds legacy Skyforms client ids into one application", () => {
       const model = buildPermissionsViewModel({
         groups: [],
