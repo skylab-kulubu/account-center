@@ -10,10 +10,12 @@ import {
   UserRound,
   UserRoundPen,
 } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { framedStateCard } from "@/components/framed-state";
 import { ModalDialog } from "@/components/modal-dialog";
 import { FeedbackAlert, feedbackFor, loginPath, sharedCopy, useWaitSeconds } from "@/components/security-shared";
 import type { Feedback } from "@/components/security-shared";
@@ -421,16 +423,17 @@ function NameForm({ payload, onDone, onCancel, onLocked, onCsrfRenewed, onAuthen
         <li>{identityCopy.name.hint}</li>
       </ul>
       <div className="security-panel__actions">
-        <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
           Vazgeç
-        </button>
-        <button
-          className="primary-button"
+        </Button>
+        <Button
           type="submit"
           disabled={busy || values.firstName.trim().length === 0 || values.lastName.trim().length === 0}
+          size="lg"
+          variant="solid"
         >
           {pending ? <ActionProgress label={identityCopy.name.saving} /> : identityCopy.name.save}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -604,12 +607,12 @@ function UsernameForm({
           <small id={hintId}>{identityCopy.username.hint}</small>
         </div>
         <div className="security-panel__actions">
-          <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+          <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
             Vazgeç
-          </button>
-          <button className="primary-button" type="submit" disabled={busy || value.trim().length === 0}>
+          </Button>
+          <Button type="submit" disabled={busy || value.trim().length === 0} size="lg" variant="solid">
             {pending ? <ActionProgress label={identityCopy.username.changing} /> : identityCopy.username.continue}
-          </button>
+          </Button>
         </div>
       </form>
       {stage === "confirm" && candidate ? (
@@ -627,12 +630,12 @@ function UsernameForm({
           </ul>
           <p className="identity-consequences__sudo">{identityCopy.username.confirm.sudo}</p>
           <div className="confirmation-dialog__actions">
-            <button className="secondary-button" type="button" onClick={dismissConfirmation}>
+            <Button type="button" onClick={dismissConfirmation} size="lg" variant="outline">
               Vazgeç
-            </button>
-            <button className="primary-button" type="button" onClick={() => void change()}>
+            </Button>
+            <Button type="button" onClick={() => void change()} size="lg" variant="solid">
               {identityCopy.username.confirm.confirm}
-            </button>
+            </Button>
           </div>
         </ModalDialog>
       ) : null}
@@ -736,12 +739,12 @@ function YtuLinkDialog({
       <p className="identity-consequences__sudo">{identityCopy.ytu.confirm.note}</p>
       <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
       <div className="confirmation-dialog__actions">
-        <button className="secondary-button" type="button" disabled={pending} onClick={onDismiss}>
+        <Button type="button" disabled={pending} onClick={onDismiss} size="lg" variant="outline">
           Vazgeç
-        </button>
-        <button className="primary-button" type="button" disabled={busy} onClick={() => void start()}>
+        </Button>
+        <Button type="button" disabled={busy} onClick={() => void start()} size="lg" variant="solid">
           {pending ? <ActionProgress label={identityCopy.ytu.confirm.redirecting} /> : identityCopy.ytu.confirm.confirm}
-        </button>
+        </Button>
       </div>
     </ModalDialog>
   );
@@ -859,7 +862,7 @@ export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) 
 
   if (loading && !payload) {
     return (
-      <section className="state-card session-state" aria-label={identityCopy.loading}>
+      <section className={`${framedStateCard} session-state`} aria-label={identityCopy.loading}>
         <ActionProgress label={identityCopy.loading} />
       </section>
     );

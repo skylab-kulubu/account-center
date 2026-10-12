@@ -131,7 +131,7 @@ describe("ClubProfileEditor form", () => {
     fireEvent.change(screen.getByLabelText("Bölüm"), { target: { value: "Matematik Mühendisliği" } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
 
-    expect(await screen.findByText(/Bilgilerin zaten güncel/)).toHaveAttribute("role", "status");
+    expect((await screen.findByText(/Bilgilerin zaten güncel/)).closest("[role='status']")).not.toBeNull();
     expect(screen.getByLabelText("Bölüm")).toHaveValue("Matematik Mühendisliği");
     expect(screen.getByRole("button", { name: "Kaydet" })).toHaveAttribute("aria-disabled", "true");
   });

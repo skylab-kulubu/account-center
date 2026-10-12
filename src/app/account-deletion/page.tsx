@@ -7,9 +7,7 @@ export default function AccountDeletionStatusPage() {
   return (
     <div className="account-root">
       <Background />
-      <main className="full-state deletion-status-page">
-        <AccountDeletionStatus />
-      </main>
+      <AccountDeletionStatus />
     </div>
   );
 }

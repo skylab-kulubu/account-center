@@ -1,18 +1,25 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { Button, TaskPage } from "@skylab-kulubu/skylcn-ui";
+import { Background } from "@/components/background";
 
 export default function NotFound() {
   return (
-    <div className="full-state">
-      <section className="state-card">
-        <p className="eyebrow">404</p>
-        <h1>Bu sayfa bulunamadı</h1>
-        <p>Aradığın hesap ayarı taşınmış veya artık kullanılamıyor olabilir.</p>
-        <Link className="primary-button" href="/">
-          <ArrowLeft aria-hidden="true" size={16} />
-          Hesap Merkezi’ne dön
-        </Link>
-      </section>
+    <div className="account-root">
+      <Background />
+      <TaskPage
+        actions={(
+          <Button render={<Link href="/" />} size="lg" variant="solid">
+            <ArrowLeft aria-hidden="true" />
+            Hesap Merkezi’ne dön
+          </Button>
+        )}
+        align="center"
+        className="relative z-1 bg-transparent"
+        description="Aradığın hesap ayarı taşınmış veya artık kullanılamıyor olabilir."
+        eyebrow="404"
+        title="Bu sayfa bulunamadı"
+      />
     </div>
   );
 }

@@ -391,6 +391,17 @@ async function mockKeycloakAuthorization(page: Page, onArrival: () => "linked" |
   return arrivals;
 }
 
+/**
+ * The Microsoft round trip ends in a full navigation back to `/identity?ytu=…`,
+ * and the page announces the outcome only once that document has loaded. The
+ * caller starts waiting before the click that leaves the page, so a slow dev
+ * server page load counts against the test's timeout, not against the
+ * assertion that reads the announcement.
+ */
+function returnFromKeycloak(page: Page, outcome: "linked" | "cancelled" | "error") {
+  return page.waitForURL(`${baseUrl}/identity?ytu=${outcome}`);
+}
+
 async function openYtuDialog(page: Page) {
   await page.getByRole("button", { name: "YTÜ hesabımı bağla" }).click();
   const dialog = page.getByRole("dialog", { name: "YTÜ hesabın bağlansın mı?" });
@@ -441,8 +452,10 @@ test("YTÜ link: the consequences dialog, the start call, the Keycloak round tri
   expect(starts).toHaveLength(0);
 
   await openYtuDialog(page);
+  const linkedReturn = returnFromKeycloak(page, "linked");
   await dialog.getByRole("button", { name: "Onayla ve devam et" }).click();
   await completeSudoDialog(page);
+  await linkedReturn;
   const notice = page.getByRole("status").filter({ hasText: "YTÜ hesabın bağlandı" });
   await expect(notice).toContainText("Adın ve okul e-postan artık YTÜ kaydından gelir ve buradan değiştirilemez.");
   await expect(notice).toBeFocused();
@@ -486,7 +499,9 @@ test("YTÜ link: a cancelled or failed round trip is announced, stripped from th
 
   await gotoIdentity(page);
   const dialog = await openYtuDialog(page);
+  const cancelledReturn = returnFromKeycloak(page, "cancelled");
   await dialog.getByRole("button", { name: "Onayla ve devam et" }).click();
+  await cancelledReturn;
   const cancelled = page.getByRole("status").filter({ hasText: "Bağlama tamamlanmadı" });
   await expect(cancelled).toContainText("Hesabında değişiklik yapılmadı. İstediğinde yeniden deneyebilirsin.");
   await expect(cancelled).toBeFocused();
@@ -499,7 +514,9 @@ test("YTÜ link: a cancelled or failed round trip is announced, stripped from th
   // network: `next dev` keeps its HMR socket busy and never goes idle.)
   await expect(page.getByRole("button", { name: "YTÜ hesabımı bağla" })).toBeEnabled();
   const retry = await openYtuDialog(page);
+  const failedReturn = returnFromKeycloak(page, "error");
   await retry.getByRole("button", { name: "Onayla ve devam et" }).click();
+  await failedReturn;
   const failed = page.getByRole("status").filter({ hasText: "YTÜ hesabı bağlanamadı" });
   await expect(failed).toContainText("bu Microsoft hesabı başka bir SKY LAB hesabına bağlı");
   await expect(page).toHaveURL(`${baseUrl}/identity`);

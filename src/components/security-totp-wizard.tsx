@@ -1,6 +1,7 @@
 "use client";
 
 import { RotateCcw, Smartphone } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { QrCode } from "@/components/qr-code";
@@ -221,13 +222,13 @@ export function TotpSetupWizard({
         <div className="security-panel__state">
           <FeedbackAlert feedback={feedback ?? { tone: "warning", detail: totpCopy.setupFailed }} waitSeconds={waitSeconds} />
           <div className="security-panel__actions">
-            <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+            <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
               Vazgeç
-            </button>
-            <button className="primary-button" type="button" disabled={busy} onClick={() => void start()}>
+            </Button>
+            <Button type="button" disabled={busy} onClick={() => void start()} size="lg" variant="solid">
               <RotateCcw aria-hidden="true" size={16} />
               {totpCopy.restart}
-            </button>
+            </Button>
           </div>
         </div>
       ) : setup ? (
@@ -291,16 +292,17 @@ export function TotpSetupWizard({
             </li>
           </ol>
           <div className="security-panel__actions">
-            <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+            <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
               Vazgeç
-            </button>
-            <button
-              className="primary-button"
+            </Button>
+            <Button
               type="submit"
               disabled={busy || label.trim().length === 0 || !TOTP_CODE.test(code.replace(/\s+/g, ""))}
+              size="lg"
+              variant="solid"
             >
               {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula ve ekle"}
-            </button>
+            </Button>
           </div>
         </form>
       ) : null}

@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertCircle, Fingerprint, KeyRound, LockKeyhole, ShieldCheck, Smartphone, X } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
@@ -171,7 +172,8 @@ function trapFocus(event: KeyboardEvent<HTMLDialogElement>) {
   if (event.key !== "Tab") return;
   const controls = Array.from(
     event.currentTarget.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      // skylcn's Button (Base UI) keeps tabindex="0" while disabled, so [tabindex] skips disabled controls too
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])",
     ),
   );
   const first = controls.at(0);
@@ -478,9 +480,9 @@ export function SudoDialog({
             <AlertCircle aria-hidden="true" size={16} />
             <span>{loadError}</span>
           </p>
-          <button className="secondary-button sudo-dialog__retry" type="button" onClick={() => void load()}>
+          <Button className="sudo-dialog__retry" type="button" onClick={() => void load()} size="lg" variant="outline">
             Yeniden dene
-          </button>
+          </Button>
         </div>
       ) : methods && methods.methods.length === 0 ? (
         <div className="sudo-dialog__fallback">
@@ -489,10 +491,10 @@ export function SudoDialog({
           <form action="/api/account/sudo/reauthenticate" method="post">
             <input type="hidden" name="csrfToken" value={methods.csrfToken} />
             <input type="hidden" name="returnTo" value={returnTo} />
-            <button className="primary-button" type="submit">
+            <Button type="submit" size="lg" variant="solid">
               <ShieldCheck aria-hidden="true" size={16} />
               Microsoft ile yeniden doğrula
-            </button>
+            </Button>
           </form>
         </div>
       ) : methods && tab ? (
@@ -558,9 +560,9 @@ export function SudoDialog({
                     onChange={(event) => setPassword(event.currentTarget.value)}
                   />
                 </div>
-                <button className="primary-button" type="submit" disabled={busy || password.length === 0}>
+                <Button type="submit" disabled={busy || password.length === 0} size="lg" variant="solid">
                   {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
-                </button>
+                </Button>
               </form>
             ) : tab === "totp" ? (
               <form className="sudo-form" onSubmit={(event) => void submitSecret(event, "totp")}>
@@ -584,24 +586,25 @@ export function SudoDialog({
                     onChange={(event) => setCode(event.currentTarget.value)}
                   />
                 </div>
-                <button
-                  className="primary-button"
+                <Button
                   type="submit"
                   disabled={busy || !/^\d{4,10}$/.test(code.replace(/\s+/g, ""))}
+                  size="lg"
+                  variant="solid"
                 >
                   {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
-                </button>
+                </Button>
               </form>
             ) : (
               <div className="sudo-form">
                 <p className="sudo-panel__hint">
                   Passkey&rsquo;inle doğrulamak için cihazının kilidini (parmak izi, yüz tanıma ya da cihaz şifresi) kullan.
                 </p>
-                <button className="primary-button" type="button" autoFocus={autoFocusPanel} disabled={busy} onClick={() => void runPasskey()}>
+                <Button type="button" autoFocus={autoFocusPanel} disabled={busy} onClick={() => void runPasskey()} size="lg" variant="solid">
                   {pending ? <ActionProgress label="Passkey bekleniyor" /> : (
                     <><Fingerprint aria-hidden="true" size={16} />Passkey ile doğrula</>
                   )}
-                </button>
+                </Button>
               </div>
             )}
           </div>

@@ -1,2 +1,4 @@
 allowBuilds:
   unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@skylab-kulubu/skylcn-ui@0.1.8'
