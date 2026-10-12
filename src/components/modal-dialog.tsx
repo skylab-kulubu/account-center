@@ -8,7 +8,8 @@ function trapFocus(event: KeyboardEvent<HTMLDialogElement>) {
   if (event.key !== "Tab") return;
   const controls = Array.from(
     event.currentTarget.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      // skylcn's Button (Base UI) keeps tabindex="0" while disabled, so [tabindex] skips disabled controls too
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])",
     ),
   );
   const first = controls.at(0);

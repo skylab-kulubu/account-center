@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, LogIn, RefreshCw, ShieldCheck } from "lucide-react";
-import { LogoLoader } from "@/components/logo-loader";
+import { Button, Notice, TaskPage } from "@skylab-kulubu/skylcn-ui";
+import type { TaskPageProps } from "@skylab-kulubu/skylcn-ui";
 
 type DeletionStatus = "blocking" | "pending" | "processing" | "completed" | "manual_intervention";
 
@@ -59,9 +60,12 @@ function isPayload(value: unknown): value is StatusPayload {
   );
 }
 
+const subscribeToNothing = () => () => {};
+
 export function AccountDeletionStatus() {
   const [view, setView] = useState<ViewState>({ kind: "loading" });
   const [retrying, setRetrying] = useState(false);
+  const hydrated = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const pollAttempt = useRef(0);
 
   const load = useCallback(async () => {
@@ -145,80 +149,89 @@ export function AccountDeletionStatus() {
     }
   }
 
+  const recheck = () => {
+    setView({ kind: "loading" });
+    void load();
+  };
+  const recheckButton = (
+    <Button onClick={recheck} size="lg" type="button" variant="solid">
+      <RefreshCw aria-hidden="true" /> Yeniden kontrol et
+    </Button>
+  );
+
+  let page: Omit<TaskPageProps, "align" | "className" | "children"> & { body?: TaskPageProps["children"] };
   if (view.kind === "loading") {
-    return <div aria-live="polite" className="deletion-status-live"><LogoLoader label="Silme isteğinin durumu alınıyor" size={76} /></div>;
-  }
-
-  if (view.kind === "missing") {
-    return (
-      <div aria-live="polite" className="deletion-status-live">
-        <section className="state-card deletion-status-card" aria-labelledby="deletion-status-title">
-          <span className="state-card__icon" aria-hidden="true"><ShieldCheck size={24} /></span>
-          <h1 id="deletion-status-title">Silme isteği bulunamadı</h1>
-          <p>Bu tarayıcıda geçerli bir silme isteği yok veya durum bağlantısının süresi dolmuş.</p>
-        </section>
-      </div>
-    );
-  }
-
-  if (view.kind === "unknown") {
-    return (
-      <div aria-live="polite" className="deletion-status-live">
-        <section className="state-card deletion-status-card" aria-labelledby="deletion-status-title">
-          <span className="state-card__icon" aria-hidden="true"><AlertTriangle size={24} /></span>
-          <h1 id="deletion-status-title">Durum doğrulanamadı</h1>
-          <p>Silme isteğin işleme alınmış olabilir. Durumu yeniden kontrol edebilir ya da yeniden giriş yapabilirsin.</p>
-          <button className="primary-button" onClick={() => { setView({ kind: "loading" }); void load(); }} type="button">
-            <RefreshCw aria-hidden="true" size={16} /> Yeniden kontrol et
-          </button>
-          <Link className="secondary-button" href="/login">
-            <LogIn aria-hidden="true" size={16} /> Yeniden giriş yap
-          </Link>
-        </section>
-      </div>
-    );
-  }
-
-  if (view.kind === "unavailable") {
-    return (
-      <div aria-live="polite" className="deletion-status-live">
-        <section className="state-card deletion-status-card" aria-labelledby="deletion-status-title">
-          <span className="state-card__icon" aria-hidden="true"><AlertTriangle size={24} /></span>
-          <h1 id="deletion-status-title">Durum alınamadı</h1>
-          <p>Silme isteğin değişmedi. Kısa bir süre sonra yeniden kontrol edebilirsin.</p>
-          <button className="primary-button" onClick={() => { setView({ kind: "loading" }); void load(); }} type="button">
-            <RefreshCw aria-hidden="true" size={16} /> Yeniden kontrol et
-          </button>
-        </section>
-      </div>
-    );
-  }
-
-  const statusCopy = copy[view.value.status];
-  const Icon = view.value.status === "completed" ? CheckCircle2 : Clock3;
-  return (
-    <div aria-live="polite" className="deletion-status-live">
-      <section className="state-card deletion-status-card" aria-labelledby="deletion-status-title">
-      <span className="state-card__icon" aria-hidden="true"><Icon size={24} /></span>
-      <p className="eyebrow">Hesap silme durumu</p>
-      <h1 id="deletion-status-title">{statusCopy.title}</h1>
-      <p>{statusCopy.detail}</p>
-      {view.value.partial && view.value.status !== "completed" ? (
-        <p className="deletion-status-card__note">Tamamlanan adımlar korunuyor; hiçbir işlem baştan başlamayacak.</p>
-      ) : null}
-      {view.value.status !== "completed" ? (
-        <p className="deletion-status-card__continue">Bu sayfayı kapatabilirsin; işlem arka planda güvenle devam eder.</p>
-      ) : null}
-      {view.value.status === "manual_intervention" ? (
-        <button aria-busy={retrying} className="primary-button" disabled={retrying} onClick={() => void retry()} type="button">
-          <RefreshCw aria-hidden="true" size={16} />
+    // skylcn's loader sizes itself with an inline style, which this page's CSP
+    // refuses in server-rendered HTML; it appears once React runs in the browser.
+    page = { title: "Silme isteğinin durumu alınıyor", loading: hydrated };
+  } else if (view.kind === "missing") {
+    page = {
+      icon: ShieldCheck,
+      tone: "brand",
+      title: "Silme isteği bulunamadı",
+      description: "Bu tarayıcıda geçerli bir silme isteği yok veya durum bağlantısının süresi dolmuş.",
+    };
+  } else if (view.kind === "unknown") {
+    page = {
+      icon: AlertTriangle,
+      tone: "warning",
+      title: "Durum doğrulanamadı",
+      description: "Silme isteğin işleme alınmış olabilir. Durumu yeniden kontrol edebilir ya da yeniden giriş yapabilirsin.",
+      actions: (
+        <>
+          {recheckButton}
+          <Button render={<Link href="/login" />} size="lg" variant="outline">
+            <LogIn aria-hidden="true" /> Yeniden giriş yap
+          </Button>
+        </>
+      ),
+    };
+  } else if (view.kind === "unavailable") {
+    page = {
+      icon: AlertTriangle,
+      tone: "warning",
+      title: "Durum alınamadı",
+      description: "Silme isteğin değişmedi. Kısa bir süre sonra yeniden kontrol edebilirsin.",
+      actions: recheckButton,
+    };
+  } else {
+    const { status, partial, updatedAt } = view.value;
+    const completed = status === "completed";
+    page = {
+      icon: completed ? CheckCircle2 : Clock3,
+      tone: completed ? "success" : "brand",
+      eyebrow: "Hesap silme durumu",
+      title: copy[status].title,
+      description: copy[status].detail,
+      body: (
+        <>
+          {partial && !completed ? (
+            <Notice tone="info">Tamamlanan adımlar korunuyor; hiçbir işlem baştan başlamayacak.</Notice>
+          ) : null}
+          {!completed ? (
+            <p className="m-0 text-center text-xs leading-relaxed text-muted-foreground">
+              Bu sayfayı kapatabilirsin; işlem arka planda güvenle devam eder.
+            </p>
+          ) : null}
+          <small className="text-center text-2xs text-subtle-foreground">
+            Son güncelleme: {new Intl.DateTimeFormat("tr-TR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(updatedAt))}
+          </small>
+        </>
+      ),
+      actions: status === "manual_intervention" ? (
+        <Button aria-busy={retrying} disabled={retrying} onClick={() => void retry()} size="lg" type="button" variant="solid">
+          <RefreshCw aria-hidden="true" />
           {retrying ? "Yeniden deneniyor…" : "İşlemi yeniden dene"}
-        </button>
-      ) : null}
-      <small className="deletion-status-card__updated">
-        Son güncelleme: {new Intl.DateTimeFormat("tr-TR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(view.value.updatedAt))}
-      </small>
-      </section>
-    </div>
+        </Button>
+      ) : undefined,
+    };
+  }
+
+  // One TaskPage for every state, so its heading (a polite live region) reads each new state once.
+  const { body, ...task } = page;
+  return (
+    <TaskPage {...task} align="center" className="relative z-1 bg-transparent">
+      {body}
+    </TaskPage>
   );
 }
