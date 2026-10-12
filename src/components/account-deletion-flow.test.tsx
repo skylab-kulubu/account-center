@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountDeletionConfirmation } from "@/components/account-deletion-confirmation";
 import { AccountDeletionStatus } from "@/components/account-deletion-status";
@@ -185,6 +186,30 @@ describe("account deletion UI", () => {
     expect(screen.getByText("Silme akışı henüz etkin değil")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/onay metni/i)).not.toBeInTheDocument();
+  });
+
+  it("server-renders the waiting page without inline styles, which the page's CSP refuses", () => {
+    const html = renderToString(<AccountDeletionStatus />);
+
+    expect(html).toContain("Silme isteğinin durumu alınıyor");
+    expect(html).not.toMatch(/\sstyle="/);
+  });
+
+  it("shows the loader under the page's one heading until the status arrives", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
+      status: "pending",
+      partial: false,
+      updatedAt: "2026-09-20T12:00:02.000Z",
+      completedAt: null,
+      csrfToken: "c".repeat(43),
+    }));
+    render(<AccountDeletionStatus />);
+
+    const waiting = screen.getByRole("heading", { level: 1, name: "Silme isteğinin durumu alınıyor" });
+    expect(waiting.parentElement).toHaveAttribute("aria-busy", "true");
+    expect(await screen.findByRole("heading", { level: 1, name: "Silme isteğin sırada" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("main")).toBeInTheDocument();
   });
 
   it("polls status without putting the receipt in HTML, URL, or browser storage", async () => {

@@ -9,8 +9,10 @@ import {
   Smartphone,
   X,
 } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { framedStateCard } from "@/components/framed-state";
 import { StatusBadge } from "@/components/settings";
 import { ActionProgress, EmptyState, RetryableError } from "@/components/ui-states";
 import type { ManagedAccountSession } from "@/server/keycloak-account/types";
@@ -144,8 +146,7 @@ function SessionCard({
         {session.current ? (
           <StatusBadge tone="positive">Bu oturum</StatusBadge>
         ) : (
-          <button
-            className="quiet-danger-button"
+          <Button
             type="button"
             disabled={pending}
             onClick={(event) => onRevoke(
@@ -156,10 +157,12 @@ function SessionCard({
               },
               event.currentTarget,
             )}
+            size="lg"
+            variant="destructive"
           >
             <LogOut aria-hidden="true" size={16} />
             Oturumu kapat
-          </button>
+          </Button>
         )}
       </span>
     </article>
@@ -202,7 +205,7 @@ function ConfirmationDialog({
         if (event.key !== "Tab") return;
         const controls = Array.from(
           event.currentTarget.querySelectorAll<HTMLElement>(
-            "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+            "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])",
           ),
         );
         const first = controls.at(0);
@@ -244,14 +247,14 @@ function ConfirmationDialog({
           : `${confirmation.deviceName} cihazındaki hesabına erişim sona erecek. Şu an kullandığın oturum açık kalacak.`}
       </p>
       <div className="confirmation-dialog__actions">
-        <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
           Vazgeç
-        </button>
-        <button className="danger-button danger-button--inline" type="button" disabled={pending} onClick={onConfirm}>
+        </Button>
+        <Button type="button" disabled={pending} onClick={onConfirm} size="lg" variant="destructive">
           {pending ? <ActionProgress label="Kapatılıyor" /> : (
             <><LogOut aria-hidden="true" size={16} />{title}</>
           )}
-        </button>
+        </Button>
       </div>
     </dialog>
   );
@@ -384,7 +387,7 @@ export function SessionManager() {
 
   if (loading && !payload) {
     return (
-      <section className="state-card session-state" aria-label="Oturumlar yükleniyor">
+      <section className={`${framedStateCard} session-state`} aria-label="Oturumlar yükleniyor">
         <ActionProgress label="Güvenli oturumların yükleniyor" />
       </section>
     );
@@ -446,20 +449,22 @@ export function SessionManager() {
           <strong id="session-actions-title">Diğer cihazlardaki erişim</strong>
           <small>Şu an kullandığın cihazdaki oturumun açık kalır.</small>
         </span>
-        <button
-          className="quiet-danger-button"
+        <Button
           type="button"
           disabled={pending}
           aria-disabled={otherCount === 0 || pending}
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
           onClick={(event) => {
             if (otherCount > 0 && !pending) {
               openConfirmation({ kind: "all" }, event.currentTarget);
             }
           }}
+          size="lg"
+          variant="destructive"
         >
           <LogOut aria-hidden="true" size={16} />
           Diğer tüm oturumları kapat
-        </button>
+        </Button>
       </section>
       {confirmation ? (
         <ConfirmationDialog

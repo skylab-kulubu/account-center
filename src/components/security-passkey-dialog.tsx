@@ -1,6 +1,7 @@
 "use client";
 
 import { Fingerprint } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
 import { ModalDialog } from "@/components/modal-dialog";
@@ -258,14 +259,14 @@ export function PasskeyAddDialog({
             {labelError ? <small id={`${baseId}-label-error`} className="security-field-error">{labelError}</small> : null}
           </div>
           <div className="confirmation-dialog__actions">
-            <button className="secondary-button" type="button" disabled={pending} onClick={onDismiss}>
+            <Button type="button" disabled={pending} onClick={onDismiss} size="lg" variant="outline">
               Vazgeç
-            </button>
-            <button className="primary-button" type="submit" disabled={busy || label.trim().length === 0}>
+            </Button>
+            <Button type="submit" disabled={busy || label.trim().length === 0} size="lg" variant="solid">
               {pending ? <ActionProgress label={passkeyCopy.waiting} /> : (
                 <><Fingerprint aria-hidden="true" size={16} />Passkey oluştur</>
               )}
-            </button>
+            </Button>
           </div>
         </form>
       )}

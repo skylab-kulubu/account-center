@@ -17,6 +17,9 @@ export function QrCode({ value, label, size = 196 }: { value: string; label: str
   return (
     <svg
       className="qr-code"
+      // skylcn's dark token set: the modules read --primary-foreground from it,
+      // so they stay dark on the white paper even under a light page theme.
+      data-theme="dark"
       role="img"
       aria-label={label}
       viewBox={`0 0 ${extent} ${extent}`}
@@ -26,7 +29,7 @@ export function QrCode({ value, label, size = 196 }: { value: string; label: str
       data-qr-version={code.version}
     >
       <rect width={extent} height={extent} fill="#ffffff" />
-      <path d={qrPath(code, QUIET_ZONE)} fill="#08070b" />
+      <path className="qr-code__modules" d={qrPath(code, QUIET_ZONE)} />
     </svg>
   );
 }

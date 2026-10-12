@@ -1,12 +1,21 @@
-@import "tailwindcss";
-@import "@skylab-kulubu/skylcn-ui/theme.css";
+@import "tailwindcss" source(none);
 /*
- * theme.css scans the whole package so skylcn components get their classes.
- * No page renders a skylcn component yet, so the scan is off for now (about
- * 95 KB of unused CSS); the first pull request that renders one removes this
- * line. The glob is pnpm's real path of the package, whatever its version.
+ * Tailwind reads class names from `src` only. Left to detect sources itself,
+ * it scans the whole skylcn-ui package as soon as one of the component
+ * stylesheets below names a file in it (Tailwind 4.3), about 65 KB more CSS.
  */
-@source not "../../node_modules/.pnpm/@skylab-kulubu+skylcn-ui@*/**";
+@source "../";
+/*
+ * skylcn-ui's theme without its components, plus one stylesheet per skylcn
+ * component a page renders, so Tailwind generates only the classes those use.
+ * A newly rendered component adds its `sources/<file>.css` here (the file is
+ * named after the component's module: Notice lives in feedback).
+ */
+@import "@skylab-kulubu/skylcn-ui/theme-base.css";
+@import "@skylab-kulubu/skylcn-ui/sources/button.css";
+@import "@skylab-kulubu/skylcn-ui/sources/feedback.css";
+@import "@skylab-kulubu/skylcn-ui/sources/state-card.css";
+@import "@skylab-kulubu/skylcn-ui/sources/task-page.css";
 
 /*
  * Account Center's own token names, pointed at the skylcn-ui tokens (ADR 0055).
@@ -29,54 +38,62 @@
   --danger: var(--destructive);
   --danger-muted: color-mix(in srgb, var(--destructive) 9%, transparent);
   /*
-   * A 2px outline needs more than skylcn's 40% --ring to stay visible on the
-   * near-black page, so the focus ring keeps its strength in the brand colour.
+   * The outline Account Center's own rules draw. skylcn components draw their
+   * ring from skylcn's --ring instead (their `outline-hidden` utility outranks
+   * the base-layer outline below), so only one ring ever shows.
    */
   --focus: color-mix(in srgb, var(--primary) 90%, transparent);
 }
 
-* {
-  box-sizing: border-box;
-}
+/*
+ * Element rules sit in the base layer, under Tailwind's utilities: unlayered,
+ * `a { color: inherit }` or `button { font: inherit }` would override the
+ * colour and type of skylcn's link buttons and buttons.
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-html {
-  min-width: 320px;
-  background: var(--surface-page);
-  color-scheme: dark;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
+  html {
+    min-width: 320px;
+    background: var(--surface-page);
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
 
-body {
-  min-height: 100dvh;
-  margin: 0;
-  background: var(--surface-page);
-  color: var(--ink);
-  font-family: var(--font-family-sans);
-  -webkit-font-smoothing: antialiased;
-  -webkit-tap-highlight-color: transparent;
-}
+  body {
+    min-height: 100dvh;
+    margin: 0;
+    background: var(--surface-page);
+    color: var(--ink);
+    font-family: var(--font-family-sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
-}
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
 
-button,
-a {
-  -webkit-tap-highlight-color: transparent;
-}
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 3px;
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
+  }
 }
 
 .sr-only {
@@ -297,14 +314,6 @@ a {
   cursor: pointer;
 }
 
-.login-state__message {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface-hover);
-}
-
 .account-content {
   height: calc(100dvh - 42px);
   overflow-y: auto;
@@ -331,8 +340,7 @@ a {
   text-transform: uppercase;
 }
 
-.page-header h1,
-.state-card h1 {
+.page-header h1 {
   max-width: 620px;
   margin: 0;
   color: var(--ink);
@@ -363,7 +371,6 @@ a {
 }
 
 .identity-card__avatar,
-.state-card__icon,
 .danger-card__icon {
   display: grid;
   flex: 0 0 auto;
@@ -657,12 +664,6 @@ a.settings-row:hover .settings-row__chevron {
   margin-top: 8px;
 }
 
-.email-nudge__actions .primary-button {
-  min-height: 38px;
-  padding: 8px 13px;
-  text-decoration: none;
-}
-
 .email-nudge-dismissed {
   margin: 0 0 26px;
   padding: 12px 14px;
@@ -899,36 +900,11 @@ a.settings-row:hover .settings-row__chevron {
   overflow-wrap: anywhere;
 }
 
-.state-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 44px 28px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-card);
-  text-align: center;
-}
-
-.state-card h2,
-.state-card h3,
 .danger-card h2 {
   margin: 17px 0 0;
   color: var(--ink);
   font-size: 0.9rem;
   font-weight: 580;
-}
-
-.state-card p {
-  max-width: 440px;
-  margin: 8px 0 0;
-  color: var(--ink-muted);
-  font-size: 0.75rem;
-  line-height: 1.6;
-}
-
-.account-data-problem .primary-button {
-  margin-top: 20px;
 }
 
 .action-progress {
@@ -947,6 +923,13 @@ a.settings-row:hover .settings-row__chevron {
 
 .action-progress .logo-loader__glow {
   filter: blur(7px);
+}
+
+/* A section's loading state: the LogoLoader stays until skylcn's loader can render under the CSP. */
+.session-state {
+  display: flex;
+  justify-content: center;
+  padding: 44px 28px;
 }
 
 .session-state .action-progress {
@@ -1035,35 +1018,6 @@ a.settings-row:hover .settings-row__chevron {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-}
-
-.quiet-danger-button,
-.secondary-button {
-  display: inline-flex;
-  min-height: 36px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 8px 11px;
-  border: 1px solid color-mix(in srgb, var(--destructive) 20%, transparent);
-  border-radius: 8px;
-  color: #f5b5b5;
-  background: rgba(239, 68, 68, 0.07);
-  font-size: 0.68rem;
-  font-weight: 580;
-  cursor: pointer;
-}
-
-.quiet-danger-button:hover:not(:disabled):not([aria-disabled="true"]) {
-  border-color: color-mix(in srgb, var(--destructive) 35%, transparent);
-  background: rgba(239, 68, 68, 0.12);
-}
-
-.quiet-danger-button:disabled,
-.quiet-danger-button[aria-disabled="true"],
-.secondary-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.42;
 }
 
 .session-actions {
@@ -1201,12 +1155,6 @@ a.settings-row:hover .settings-row__chevron {
   margin-top: 22px;
 }
 
-.secondary-button {
-  color: var(--ink-muted);
-  border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.025);
-}
-
 .sudo-dialog {
   width: min(100%, 460px);
 }
@@ -1275,7 +1223,7 @@ a.settings-row:hover .settings-row__chevron {
   gap: 14px;
 }
 
-.sudo-form .primary-button {
+.sudo-form > [data-slot="button"] {
   align-self: flex-end;
   min-width: 132px;
 }
@@ -1369,7 +1317,7 @@ a.settings-row:hover .settings-row__chevron {
   margin-top: 16px;
 }
 
-.sudo-dialog__fallback .primary-button {
+.sudo-dialog__fallback [data-slot="button"] {
   width: 100%;
 }
 
@@ -1415,90 +1363,6 @@ a.settings-row:hover .settings-row__chevron {
   flex: 0 0 auto;
   margin-top: 2px;
   color: #fca5a5;
-}
-
-.primary-button,
-.danger-button {
-  display: inline-flex;
-  min-height: 42px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 15px;
-  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
-  border-radius: 9px;
-  color: var(--primary-foreground);
-  background: var(--primary);
-  font-size: 0.74rem;
-  font-weight: 620;
-  cursor: pointer;
-}
-
-.danger-button {
-  width: 100%;
-  margin-top: 16px;
-  color: #2c1012;
-  border-color: color-mix(in srgb, var(--destructive) 26%, transparent);
-  background: #fca5a5;
-}
-
-.danger-button:disabled,
-.primary-button:disabled {
-  cursor: not-allowed;
-  filter: saturate(0.45);
-  opacity: 0.42;
-}
-
-/* Declared after `.danger-button` so the inline variant wins the width and margin. */
-.danger-button--inline {
-  width: auto;
-  min-height: 36px;
-  margin: 0;
-  padding: 8px 12px;
-}
-
-.form-feedback {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  margin: 0 0 18px;
-  padding: 11px 13px;
-  border: 1px solid rgba(74, 222, 128, 0.14);
-  border-radius: 9px;
-  color: #bce7c9;
-  background: rgba(34, 197, 94, 0.07);
-  font-size: 0.7rem;
-  line-height: 1.5;
-}
-
-.form-feedback[data-tone="danger"] {
-  border-color: color-mix(in srgb, var(--destructive) 16%, transparent);
-  color: #eab8b8;
-  background: var(--danger-muted);
-}
-
-.form-feedback svg {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-
-.form-feedback span {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.form-feedback strong {
-  color: #f3cccc;
-  font-weight: 620;
-}
-
-.form-feedback a {
-  margin-top: 4px;
-  color: var(--primary);
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .club-profile-notice {
@@ -1680,12 +1544,6 @@ a.settings-row:hover .settings-row__chevron {
   margin-top: 2px;
 }
 
-.secondary-button--accent {
-  color: var(--primary);
-  border-color: color-mix(in srgb, var(--primary) 24%, transparent);
-  background: var(--primary-muted);
-}
-
 .settings-group + .profile-form {
   margin-top: 12px;
 }
@@ -1764,12 +1622,6 @@ a.settings-row:hover .settings-row__chevron {
   padding-top: 4px;
 }
 
-.form-actions .primary-button[aria-disabled="true"] {
-  cursor: not-allowed;
-  filter: saturate(0.45);
-  opacity: 0.42;
-}
-
 .deletion-step {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr);
@@ -1817,16 +1669,6 @@ a.settings-row:hover .settings-row__chevron {
   line-height: 1.55;
 }
 
-.deletion-step .danger-button {
-  margin-top: 15px;
-}
-
-.deletion-step__feedback {
-  padding: 9px 11px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.025);
-}
-
 .deletion-step__limits {
   display: grid;
   gap: 6px;
@@ -1862,55 +1704,6 @@ a.settings-row:hover .settings-row__chevron {
   background: rgba(3, 3, 5, 0.32);
 }
 
-.deletion-status-page {
-  position: relative;
-  z-index: 1;
-}
-
-.deletion-status-live {
-  display: flex;
-  width: min(100%, 420px);
-  justify-content: center;
-}
-
-.deletion-status-live > .deletion-status-card {
-  width: 100%;
-}
-
-.deletion-status-card .eyebrow {
-  margin-top: 17px;
-}
-
-.deletion-status-card .state-card__icon + h1 {
-  margin-top: 17px;
-}
-
-.deletion-status-card .primary-button {
-  margin-top: 20px;
-}
-
-.deletion-status-card .secondary-button {
-  margin-top: 10px;
-}
-
-.deletion-status-card__note {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--primary) 12%, transparent);
-  border-radius: 9px;
-  background: var(--primary-muted);
-}
-
-.deletion-status-card__continue {
-  color: var(--ink-faint);
-}
-
-.deletion-status-card__updated {
-  margin-top: 18px;
-  color: var(--ink-faint);
-  font-size: 0.65rem;
-}
-
 .full-state {
   display: grid;
   min-height: 100dvh;
@@ -1919,14 +1712,6 @@ a.settings-row:hover .settings-row__chevron {
   background:
     radial-gradient(700px 440px at 50% 15%, color-mix(in srgb, var(--primary) 9%, transparent), transparent 65%),
     var(--surface-page);
-}
-
-.full-state .state-card {
-  width: min(100%, 420px);
-}
-
-.full-state .primary-button {
-  margin-top: 20px;
 }
 
 .logo-loader {
@@ -2151,7 +1936,7 @@ a.settings-row:hover .settings-row__chevron {
   margin-top: 4px;
 }
 
-.security-panel__actions .primary-button {
+.security-panel__actions > [data-slot="button"]:last-child {
   min-width: 150px;
 }
 
@@ -2292,6 +2077,10 @@ a.settings-row:hover .settings-row__chevron {
   display: block;
   max-width: 100%;
   height: auto;
+}
+
+.qr-code__modules {
+  fill: var(--primary-foreground);
 }
 
 .security-totp__manual {
@@ -2464,8 +2253,7 @@ a.email-link-action {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .security-panel__actions .primary-button,
-  .security-panel__actions .secondary-button {
+  .security-panel__actions > [data-slot="button"] {
     flex: 1 1 auto;
   }
 
@@ -2611,7 +2399,7 @@ a.email-link-action {
     justify-content: flex-end;
   }
 
-  .session-card__action .quiet-danger-button {
+  .session-card__action > [data-slot="button"] {
     width: 100%;
     margin-left: 51px;
   }
@@ -2621,7 +2409,7 @@ a.email-link-action {
     flex-direction: column;
   }
 
-  .session-actions .quiet-danger-button {
+  .session-actions > [data-slot="button"] {
     width: 100%;
   }
 
@@ -2664,7 +2452,7 @@ a.email-link-action {
     flex-direction: column;
   }
 
-  .sudo-form .primary-button {
+  .sudo-form > [data-slot="button"] {
     width: 100%;
     align-self: stretch;
   }

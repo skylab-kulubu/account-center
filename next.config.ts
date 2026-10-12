@@ -18,6 +18,12 @@ const nextConfig: NextConfig = {
   // directory stays `.next`.
   ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   allowedDevOrigins: ["127.0.0.1"],
+  experimental: {
+    // skylcn-ui exports every component from one entry point; without this the
+    // client bundle carries all of them (Base UI, motion, the toast and date
+    // pickers), not only the few a page renders.
+    optimizePackageImports: ["@skylab-kulubu/skylcn-ui"],
+  },
   output: "standalone",
   poweredByHeader: false,
   async redirects() {

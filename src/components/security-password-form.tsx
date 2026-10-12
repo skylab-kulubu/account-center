@@ -1,6 +1,7 @@
 "use client";
 
 import { KeyRound } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
 import { FeedbackAlert, feedbackFor, sharedCopy, useWaitSeconds } from "@/components/security-shared";
@@ -166,16 +167,17 @@ export function PasswordForm({
         </span>
       </label>
       <div className="security-panel__actions">
-        <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
           Vazgeç
-        </button>
-        <button
-          className="primary-button"
+        </Button>
+        <Button
           type="submit"
           disabled={busy || password.length === 0 || confirmation.length === 0 || mismatch}
+          size="lg"
+          variant="solid"
         >
           {pending ? <ActionProgress label="Kaydediliyor" /> : "Parolayı kaydet"}
-        </button>
+        </Button>
       </div>
     </form>
   );
