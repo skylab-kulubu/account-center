@@ -130,11 +130,15 @@ export const applicationCatalog: readonly ApplicationDefinition[] = [
       },
       "skymail:mails:write": {
         label: "E-posta gönderme",
-        description: "Toplu ya da tekil e-posta gönderimi oluşturabilirsin.",
+        description: "Toplu ya da tekil e-posta gönderimi oluşturabilirsin; başkalarının toplu gönderimlerinin içeriğini de okursun.",
       },
       "skymail:mails:send": {
         label: "Gönderim başlatma",
         description: "Hazırlanan gönderimleri yola çıkarabilirsin.",
+      },
+      "skymail:system-mails:read": {
+        label: "Sistem postalarını okuma",
+        description: "Kişilere tek tek giden sistem postalarının içeriğini görebilirsin.",
       },
     },
   },
