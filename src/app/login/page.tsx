@@ -1,4 +1,6 @@
 import { LogIn, ShieldCheck } from "lucide-react";
+import { Button, Notice, TaskPage } from "@skylab-kulubu/skylcn-ui";
+import { Background } from "@/components/background";
 import { normalizeReturnTo } from "@/server/auth/oidc-flow";
 
 export const metadata = { title: "Oturum aç" };
@@ -18,29 +20,29 @@ export default async function LoginPage({
   const sessionEnded = parameters.sessionEnded === "1";
 
   return (
-    <div className="full-state login-state">
-      <section className="state-card" aria-labelledby="login-title">
-        <span className="state-card__icon" aria-hidden="true">
-          <ShieldCheck size={26} strokeWidth={1.6} />
-        </span>
-        <p className="eyebrow">SKY LAB</p>
-        <h1 id="login-title">Hesap Merkezi’ne giriş yap</h1>
-        <p>Kimliğini SKY LAB’ın güvenli giriş ekranında doğrulayarak devam et.</p>
+    <div className="account-root">
+      <Background />
+      <TaskPage
+        actions={(
+          <Button render={<a href={loginUrl} />} size="lg" variant="solid">
+            <LogIn aria-hidden="true" />
+            SKY LAB ile giriş yap
+          </Button>
+        )}
+        align="center"
+        className="relative z-1 bg-transparent"
+        description="Kimliğini SKY LAB’ın güvenli giriş ekranında doğrulayarak devam et."
+        icon={ShieldCheck}
+        title="Hesap Merkezi’ne giriş yap"
+        tone="brand"
+      >
         {hasError ? (
-          <p className="login-state__message" role="alert">
-            Giriş tamamlanamadı. Lütfen yeniden dene.
-          </p>
+          <Notice tone="danger">Giriş tamamlanamadı. Lütfen yeniden dene.</Notice>
         ) : null}
         {loggedOut || sessionEnded ? (
-          <p className="login-state__message" role="status">
-            Bu cihazdaki Hesap Merkezi oturumu kapatıldı.
-          </p>
+          <Notice tone="success">Bu cihazdaki Hesap Merkezi oturumu kapatıldı.</Notice>
         ) : null}
-        <a className="primary-button" href={loginUrl}>
-          <LogIn aria-hidden="true" size={17} />
-          SKY LAB ile giriş yap
-        </a>
-      </section>
+      </TaskPage>
     </div>
   );
 }

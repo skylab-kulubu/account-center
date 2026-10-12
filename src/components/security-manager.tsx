@@ -9,8 +9,10 @@ import {
   Smartphone,
   Trash2,
 } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { framedStateCard } from "@/components/framed-state";
 import { ModalDialog } from "@/components/modal-dialog";
 import { PasskeyAddDialog } from "@/components/security-passkey-dialog";
 import { PasswordForm } from "@/components/security-password-form";
@@ -123,16 +125,17 @@ function CredentialRow({
         </small>
       </span>
       <div className="settings-row__trailing">
-        <button
-          className="quiet-danger-button"
+        <Button
           type="button"
           aria-label={`${name} — ${securityCopy.remove.button}`}
           disabled={pending}
           onClick={(event) => onRemove(row, event.currentTarget)}
+          size="lg"
+          variant="destructive"
         >
           <Trash2 aria-hidden="true" size={15} />
           {securityCopy.remove.button}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -182,19 +185,20 @@ function RemoveDialog({
       ) : null}
       <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
       <div className="confirmation-dialog__actions">
-        <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
           Vazgeç
-        </button>
-        <button
-          className="danger-button danger-button--inline"
+        </Button>
+        <Button
           type="button"
           disabled={pending || waitSeconds > 0}
           onClick={onConfirm}
+          size="lg"
+          variant="destructive"
         >
           {pending ? <ActionProgress label="Kaldırılıyor" /> : (
             <><Trash2 aria-hidden="true" size={16} />{securityCopy.remove.confirm}</>
           )}
-        </button>
+        </Button>
       </div>
     </ModalDialog>
   );
@@ -338,7 +342,7 @@ export function SecurityManager() {
 
   if (loading && !payload) {
     return (
-      <section className="state-card session-state" aria-label={securityCopy.loading}>
+      <section className={`${framedStateCard} session-state`} aria-label={securityCopy.loading}>
         <ActionProgress label={securityCopy.loading} />
       </section>
     );

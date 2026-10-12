@@ -49,8 +49,25 @@ describe("skylcn-ui theme contract", () => {
     return value!;
   }
 
-  it("imports the skylcn-ui theme right after Tailwind", () => {
-    expect(css).toMatch(/^@import "tailwindcss";\s*@import "@skylab-kulubu\/skylcn-ui\/theme\.css";/);
+  it("imports the skylcn-ui base theme right after Tailwind, then only the components it renders", () => {
+    // Sources are named, never detected: detection would scan the whole skylcn-ui package
+    expect(css).toMatch(/^@import "tailwindcss" source\(none\);\s*(?:\/\*[\s\S]*?\*\/\s*)?@source "\.\.\/";\s*(?:\/\*[\s\S]*?\*\/\s*)?@import "@skylab-kulubu\/skylcn-ui\/theme-base\.css";/);
+    // theme.css scans every component (about 95 KB more CSS); one stylesheet per rendered component instead
+    expect(css).not.toContain("@skylab-kulubu/skylcn-ui/theme.css");
+    expect(css).not.toMatch(/@source not/);
+    const sources = [...css.matchAll(/@import "@skylab-kulubu\/skylcn-ui\/sources\/([a-z-]+)\.css";/g)].map((match) => match[1]);
+    expect(sources).toEqual(["button", "feedback", "state-card", "task-page"]);
+    for (const source of sources) {
+      expect(() => createRequire(import.meta.url).resolve(`@skylab-kulubu/skylcn-ui/sources/${source}.css`)).not.toThrow();
+    }
+  });
+
+  it("keeps its element rules in the base layer, so skylcn component utilities win over them", () => {
+    const unlayered = css.replace(/@layer base \{[\s\S]*?\n\}\n/, "");
+    for (const selector of ["html {", "body {", "a {", ":focus-visible {"]) {
+      expect(unlayered, selector).not.toMatch(new RegExp(`^${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "m"));
+    }
+    expect(css).toMatch(/@layer base \{[\s\S]*?\n  :focus-visible \{/);
   });
 
   it("points its own colour tokens at skylcn-ui tokens", () => {

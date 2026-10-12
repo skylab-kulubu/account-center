@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertCircle,
   BookOpen,
   Camera,
   CircleUserRound,
@@ -14,6 +13,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { Button, Notice } from "@skylab-kulubu/skylcn-ui";
 import Image from "next/image";
 import Link from "next/link";
 import type { ChangeEvent, FormEvent } from "react";
@@ -213,25 +213,26 @@ function localPictureError(file: File): string | null {
   return null;
 }
 
-function FeedbackBanner({ feedback, focusRef }: { feedback: Feedback; focusRef: React.RefObject<HTMLParagraphElement | null> }) {
+function FeedbackBanner({ feedback, focusRef }: { feedback: Feedback; focusRef: React.RefObject<HTMLDivElement | null> }) {
   if (feedback.tone === "success") {
     return (
-      <p ref={focusRef} className="form-feedback" data-tone="success" role="status" tabIndex={-1}>
-        <ShieldCheck aria-hidden="true" size={17} />
+      <Notice ref={focusRef} tabIndex={-1} className="mb-4" icon={ShieldCheck} tone="success">
         {feedback.message}
-      </p>
+      </Notice>
     );
   }
   const { problem } = feedback;
   return (
-    <div className="form-feedback" data-tone="danger" role="alert">
-      <AlertCircle aria-hidden="true" size={17} />
-      <span>
-        <strong>{problem.title}</strong>
-        {problem.detail}
-        {problem.status === 401 ? <Link href={LOGIN_HREF}>Yeniden giriş yap</Link> : null}
-      </span>
-    </div>
+    <Notice
+      action={problem.status === 401 ? (
+        <Button render={<Link href={LOGIN_HREF} />} size="sm" variant="link">Yeniden giriş yap</Button>
+      ) : undefined}
+      className="mb-4"
+      title={problem.title}
+      tone="danger"
+    >
+      {problem.detail}
+    </Notice>
   );
 }
 
@@ -246,7 +247,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const removeTrigger = useRef<HTMLButtonElement>(null);
-  const successFeedback = useRef<HTMLParagraphElement>(null);
+  const successFeedback = useRef<HTMLDivElement>(null);
   const fieldRefs = useRef<Partial<Record<ClubProfileEditableField, HTMLInputElement | null>>>({});
   const focusAfterUpdate = useRef<FocusTarget | null>(null);
   const idPrefix = useId();
@@ -494,38 +495,40 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
             />
             {selection ? (
               <>
-                <button className="primary-button" type="button" disabled={pending !== null} onClick={() => void upload()}>
+                <Button type="button" disabled={pending !== null} onClick={() => void upload()} size="lg" variant="solid">
                   {pending === "upload" ? <ActionProgress label="Yükleniyor" /> : (
                     <><Upload aria-hidden="true" size={16} />Fotoğrafı yükle</>
                   )}
-                </button>
-                <button className="secondary-button" type="button" disabled={pending !== null} onClick={clearSelection}>
+                </Button>
+                <Button type="button" disabled={pending !== null} onClick={clearSelection} size="lg" variant="outline">
                   <X aria-hidden="true" size={16} />
                   Vazgeç
-                </button>
+                </Button>
               </>
             ) : (
               <>
-                <button
-                  className="secondary-button secondary-button--accent"
+                <Button
                   type="button"
                   disabled={pending !== null}
                   onClick={() => fileInput.current?.click()}
+                  size="lg"
+                  variant="primary"
                 >
                   <Camera aria-hidden="true" size={16} />
                   {hasPicture ? "Fotoğrafı değiştir" : "Fotoğraf seç"}
-                </button>
+                </Button>
                 {hasPicture ? (
-                  <button
+                  <Button
                     ref={removeTrigger}
-                    className="quiet-danger-button"
                     type="button"
                     disabled={pending !== null}
                     onClick={() => setConfirmRemoval(true)}
+                    size="lg"
+                    variant="destructive"
                   >
                     <Trash2 aria-hidden="true" size={16} />
                     Fotoğrafı kaldır
-                  </button>
+                  </Button>
                 ) : null}
               </>
             )}
@@ -598,21 +601,23 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
           })}
           <div className="form-actions">
             {dirty && pending === null ? (
-              <button className="secondary-button" type="button" onClick={resetForm}>
+              <Button type="button" onClick={resetForm} size="lg" variant="outline">
                 <X aria-hidden="true" size={16} />
                 Değişiklikleri geri al
-              </button>
+              </Button>
             ) : null}
-            <button
-              className="primary-button"
+            <Button
               type="submit"
               aria-disabled={!dirty || pending !== null}
+              className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
               disabled={pending !== null}
+              size="lg"
+              variant="solid"
             >
               {pending === "save" ? <ActionProgress label="Kaydediliyor" /> : (
                 <><Save aria-hidden="true" size={16} />Kaydet</>
               )}
-            </button>
+            </Button>
           </div>
         </form>
       </section>

@@ -1,13 +1,16 @@
 import { request } from "@playwright/test";
 import type { FullConfig } from "@playwright/test";
+import { seedAuthenticatedSession } from "./auth-session";
 
 /**
  * Compiles every route of the dev server before the first test opens a page.
  * `next dev` builds routes on demand and a compilation that lands while a
  * browser test is mid-flow can trigger a full reload of the open page, which
- * would break multi-step flows such as the security page's ceremonies. The
- * responses themselves do not matter (most answer a redirect or 401 without
- * a session); only the compilation does.
+ * would break multi-step flows such as the security page's ceremonies. It
+ * also holds the server (and, on a two-core CI runner, the browsers) for
+ * seconds, long enough to push a page that a test is waiting for past its
+ * assertion timeout. The responses themselves do not matter (most answer a
+ * redirect or 401 without a session); only the compilation does.
  */
 const pages = [
   "/",
@@ -65,6 +68,40 @@ const mutations = [
   "/api/account/club-profile/picture",
 ];
 
+/**
+ * Without a session the proxy answers the account pages with a redirect to
+ * `/login` before Next looks at the route, so the requests above never
+ * compile them. These are requested again with a seeded session; the unknown
+ * path renders the 404 page, which the tests reach through retired routes.
+ */
+const authenticatedPages = [
+  "/",
+  "/identity",
+  "/email",
+  "/security",
+  "/sessions",
+  "/permissions",
+  "/club-profile",
+  "/delete-account",
+  "/e2e-warm-up-not-found",
+];
+
+async function warmAuthenticatedPages(baseURL: string, paths: string[]) {
+  const fixture = await seedAuthenticatedSession("warm-up");
+  const context = await request.newContext({
+    baseURL,
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: { cookie: `__Host-sky-account=${fixture.handle}` },
+  });
+  try {
+    for (const path of paths) {
+      await context.get(path, { maxRedirects: 0, timeout: 120_000 }).catch(() => undefined);
+    }
+  } finally {
+    await context.dispose();
+  }
+}
+
 /** The erasure-mode server compiles the same routes again; only the deletion flow runs there. */
 const erasurePages = ["/delete-account", "/account-deletion", "/api/account/deletion/status"];
 const erasureMutations = [
@@ -88,6 +125,7 @@ async function warmErasureServer(config: FullConfig) {
   } finally {
     await context.dispose();
   }
+  await warmAuthenticatedPages(baseURL, ["/delete-account"]);
 }
 
 export default async function globalSetup(config: FullConfig) {
@@ -107,5 +145,6 @@ export default async function globalSetup(config: FullConfig) {
   } finally {
     await context.dispose();
   }
+  await warmAuthenticatedPages(baseURL, authenticatedPages);
   await warmErasureServer(config);
 }

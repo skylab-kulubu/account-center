@@ -1,12 +1,13 @@
 "use client";
 
 import { X } from "lucide-react";
+import { Button } from "@skylab-kulubu/skylcn-ui";
 import type { ReactNode } from "react";
 import { useEffect, useId, useRef } from "react";
 import { ActionProgress } from "@/components/ui-states";
 
 const focusableControls =
-  "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+  "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])";
 
 /**
  * Native modal confirmation for a destructive action: opens with
@@ -89,12 +90,12 @@ export function ConfirmationDialog({
       <h2 id={titleId}>{title}</h2>
       <p>{description}</p>
       <div className="confirmation-dialog__actions">
-        <button className="secondary-button" type="button" disabled={pending} onClick={onCancel}>
+        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
           Vazgeç
-        </button>
-        <button className="danger-button danger-button--inline" type="button" disabled={pending} onClick={onConfirm}>
+        </Button>
+        <Button type="button" disabled={pending} onClick={onConfirm} size="lg" variant="destructive">
           {pending ? <ActionProgress label={pendingLabel} /> : confirmLabel}
-        </button>
+        </Button>
       </div>
     </dialog>
   );

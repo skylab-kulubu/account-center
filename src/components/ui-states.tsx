@@ -2,7 +2,8 @@
 
 import { AlertCircle, RotateCcw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useId } from "react";
+import { Button, StateCard } from "@skylab-kulubu/skylcn-ui";
+import { framedStateCard } from "@/components/framed-state";
 import { LogoLoader } from "@/components/logo-loader";
 
 export function PageSkeleton({
@@ -35,22 +36,15 @@ export function PageSkeleton({
 
 export function EmptyState({
   detail,
-  icon: Icon,
+  icon,
   title,
 }: {
   detail: string;
   icon: LucideIcon;
   title: string;
 }) {
-  const headingId = useId();
   return (
-    <section className="state-card" aria-labelledby={headingId}>
-      <span className="state-card__icon" aria-hidden="true">
-        <Icon size={26} strokeWidth={1.6} />
-      </span>
-      <h2 id={headingId}>{title}</h2>
-      <p>{detail}</p>
-    </section>
+    <StateCard className={framedStateCard} description={detail} icon={icon} title={title} tone="brand" />
   );
 }
 
@@ -65,25 +59,15 @@ export function RetryableError({
   pending?: boolean;
   title: string;
 }) {
-  const headingId = useId();
   return (
-    <section className="state-card account-data-problem" role="alert" aria-labelledby={headingId}>
-      <span className="state-card__icon" aria-hidden="true">
-        <AlertCircle size={26} strokeWidth={1.6} />
-      </span>
-      <h2 id={headingId}>{title}</h2>
-      <p>{detail}</p>
-      <button
-        aria-busy={pending}
-        className="primary-button"
-        disabled={pending}
-        type="button"
-        onClick={onRetry}
-      >
-        <RotateCcw aria-hidden="true" size={16} />
-        {pending ? "Yükleniyor…" : "Yeniden dene"}
-      </button>
-    </section>
+    <div role="alert">
+      <StateCard className={framedStateCard} description={detail} icon={AlertCircle} title={title} tone="danger">
+        <Button aria-busy={pending} disabled={pending} onClick={onRetry} size="lg" type="button" variant="solid">
+          <RotateCcw aria-hidden="true" />
+          {pending ? "Yükleniyor…" : "Yeniden dene"}
+        </Button>
+      </StateCard>
+    </div>
   );
 }
 

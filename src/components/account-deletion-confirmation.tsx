@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { LockKeyhole, Trash2 } from "lucide-react";
+import { Clock3, LockKeyhole, Trash2 } from "lucide-react";
+import { Button, Notice } from "@skylab-kulubu/skylcn-ui";
 import { useSudo } from "@/components/sudo-provider";
 import { ACCOUNT_DELETION_BACKUP_RETENTION_DAYS } from "@/config/account-deletion";
 import { isObject, runWithSudo } from "@/lib/security-client";
@@ -131,7 +132,7 @@ export function AccountDeletionConfirmation({
   };
 
   const feedbackNote = shownFeedback ? (
-    <p className="deletion-step__feedback" role="status">{shownFeedback}</p>
+    <Notice tone="warning">{shownFeedback}</Notice>
   ) : null;
 
   if (!enabled) {
@@ -161,15 +162,16 @@ export function AccountDeletionConfirmation({
               kanıtlaman istenir; ardından onay metnini yazarsın. Bu adımların hepsi
               tamamlanmadan hesabında hiçbir değişiklik yapılmaz.
             </p>
-            <button
+            <Button
               aria-busy={pending}
-              className="primary-button"
               disabled={pending}
               onClick={() => void start()}
               type="button"
+              size="lg"
+              variant="solid"
             >
               Hesabımı silmek istiyorum
-            </button>
+            </Button>
           </div>
         </div>
       </>
@@ -203,17 +205,19 @@ export function AccountDeletionConfirmation({
               spellCheck={false}
               value={confirmation}
             />
-            <button
-              className="danger-button"
+            <Button
+              className="mt-4 w-full"
               disabled={confirmation !== CONFIRMATION}
               type="submit"
+              size="lg"
+              variant="destructive"
             >
               Hesabımı kalıcı olarak sil
-            </button>
+            </Button>
           </form>
-          <p className="deletion-step__feedback" role="status">
+          <Notice className="mt-4" icon={Clock3} tone="info">
             Kimlik doğrulaman kısa süre geçerlidir. Süre dolarsa bu adımı yeniden başlatman gerekir.
-          </p>
+          </Notice>
         </div>
       </div>
     </>

@@ -8,6 +8,9 @@ const { keyFile, certificateFile } = ensureE2eCertificate();
 /** The default browser-test server; `start-e2e-erasure-server.mjs` runs a second one beside it. */
 const port = process.env.E2E_PORT ?? "3100";
 
+/** Keeps every compiled route for the whole run; see `onDemandEntries` in `next.config.ts`. */
+process.env.E2E_KEEP_ROUTES_COMPILED = "1";
+
 /**
  * Unless the environment points at a core of its own, the browser tests run
  * against the loopback mock core on the same self-signed certificate as the
