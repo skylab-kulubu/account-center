@@ -388,7 +388,7 @@ export function SessionManager() {
   if (loading && !payload) {
     return (
       <section className={`${framedStateCard} session-state`} aria-label="Oturumlar yükleniyor">
-        <ActionProgress label="Güvenli oturumların yükleniyor" />
+        <ActionProgress label="Güvenli oturumların yükleniyor" size={72} />
       </section>
     );
   }

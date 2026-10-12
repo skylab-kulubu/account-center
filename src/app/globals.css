@@ -14,6 +14,7 @@
 @import "@skylab-kulubu/skylcn-ui/theme-base.css";
 @import "@skylab-kulubu/skylcn-ui/sources/button.css";
 @import "@skylab-kulubu/skylcn-ui/sources/feedback.css";
+@import "@skylab-kulubu/skylcn-ui/sources/skylab-loader.css";
 @import "@skylab-kulubu/skylcn-ui/sources/state-card.css";
 @import "@skylab-kulubu/skylcn-ui/sources/task-page.css";
 
@@ -916,16 +917,7 @@ a.settings-row:hover .settings-row__chevron {
   font-size: inherit;
 }
 
-.action-progress .logo-loader {
-  width: 24px;
-  height: 24px;
-}
-
-.action-progress .logo-loader__glow {
-  filter: blur(7px);
-}
-
-/* A section's loading state: the LogoLoader stays until skylcn's loader can render under the CSP. */
+/* A section's loading state: skylcn's loader above its words. */
 .session-state {
   display: flex;
   justify-content: center;
@@ -936,11 +928,6 @@ a.settings-row:hover .settings-row__chevron {
   flex-direction: column;
   color: var(--ink-muted);
   font-size: 0.75rem;
-}
-
-.session-state .action-progress .logo-loader {
-  width: 72px;
-  height: 72px;
 }
 
 .session-list {
@@ -1078,11 +1065,6 @@ a.settings-row:hover .settings-row__chevron {
 .session-feedback strong {
   color: #f3cccc;
   font-weight: 620;
-}
-
-.session-state .logo-loader {
-  width: 72px;
-  height: 72px;
 }
 
 .confirmation-dialog::backdrop {
@@ -1714,45 +1696,6 @@ a.settings-row:hover .settings-row__chevron {
     var(--surface-page);
 }
 
-.logo-loader {
-  position: relative;
-  display: grid;
-  width: 96px;
-  height: 96px;
-  place-items: center;
-}
-
-.logo-loader__glow {
-  position: absolute;
-  inset: 12%;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--primary) 20%, transparent);
-  filter: blur(20px);
-  animation: loader-glow 2.6s ease-in-out infinite;
-}
-
-.logo-loader__mark {
-  position: relative;
-  color: var(--primary);
-  filter: drop-shadow(0 8px 24px color-mix(in srgb, var(--primary) 14%, transparent));
-}
-
-.logo-loader__path {
-  opacity: 0;
-  transform: translateY(5px);
-  transform-origin: center;
-  animation: loader-path 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-  animation-delay: calc(var(--logo-group, 0) * 100ms);
-}
-
-.logo-loader__path[data-logo-group="0"] { --logo-group: 0; }
-.logo-loader__path[data-logo-group="1"] { --logo-group: 1; }
-.logo-loader__path[data-logo-group="2"] { --logo-group: 2; }
-.logo-loader__path[data-logo-group="3"] { --logo-group: 3; }
-.logo-loader__path[data-logo-group="4"] { --logo-group: 4; }
-.logo-loader__path[data-logo-group="5"] { --logo-group: 5; }
-.logo-loader__path[data-logo-group="6"] { --logo-group: 6; }
-
 .page-skeleton {
   padding-top: 4px;
 }
@@ -1847,11 +1790,6 @@ a.settings-row:hover .settings-row__chevron {
 @keyframes stars-drift {
   from { transform: translate3d(0, 0, 0); }
   to { transform: translate3d(3%, -2%, 0); }
-}
-
-@keyframes loader-glow {
-  0%, 100% { opacity: 0.22; transform: scale(0.82); }
-  48% { opacity: 0.9; transform: scale(1.08); }
 }
 
 /* ---------- Security page (parola, doğrulama uygulaması, passkey'ler) ---------- */
@@ -2262,12 +2200,6 @@ a.email-link-action {
   }
 }
 
-@keyframes loader-path {
-  0%, 12%, 100% { opacity: 0; transform: translateY(5px); }
-  28%, 72% { opacity: 1; transform: translateY(0); }
-  86% { opacity: 0.38; transform: translateY(-2px); }
-}
-
 @keyframes skeleton-shimmer {
   from { background-position: 180% 0; }
   to { background-position: -80% 0; }
@@ -2511,8 +2443,4 @@ a.email-link-action {
     transform: none;
   }
 
-  .logo-loader__path {
-    opacity: 1;
-    transform: none;
-  }
 }

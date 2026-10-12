@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, LogIn, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button, Notice, TaskPage } from "@skylab-kulubu/skylcn-ui";
 import type { TaskPageProps } from "@skylab-kulubu/skylcn-ui";
@@ -60,12 +60,9 @@ function isPayload(value: unknown): value is StatusPayload {
   );
 }
 
-const subscribeToNothing = () => () => {};
-
 export function AccountDeletionStatus() {
   const [view, setView] = useState<ViewState>({ kind: "loading" });
   const [retrying, setRetrying] = useState(false);
-  const hydrated = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const pollAttempt = useRef(0);
 
   const load = useCallback(async () => {
@@ -161,9 +158,7 @@ export function AccountDeletionStatus() {
 
   let page: Omit<TaskPageProps, "align" | "className" | "children"> & { body?: TaskPageProps["children"] };
   if (view.kind === "loading") {
-    // skylcn's loader sizes itself with an inline style, which this page's CSP
-    // refuses in server-rendered HTML; it appears once React runs in the browser.
-    page = { title: "Silme isteğinin durumu alınıyor", loading: hydrated };
+    page = { title: "Silme isteğinin durumu alınıyor", loading: true };
   } else if (view.kind === "missing") {
     page = {
       icon: ShieldCheck,
