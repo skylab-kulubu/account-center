@@ -1,9 +1,10 @@
-import { LogoLoader } from "@/components/logo-loader";
+import { SkylabLoader } from "@skylab-kulubu/skylcn-ui";
 
 export default function Loading() {
   return (
-    <div className="full-state">
-      <LogoLoader label="Hesap Merkezi yükleniyor" size={80} />
+    <div className="full-state" role="status" aria-live="polite">
+      <SkylabLoader size={80} />
+      <span className="sr-only">Hesap Merkezi yükleniyor</span>
     </div>
   );
 }

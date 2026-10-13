@@ -140,6 +140,16 @@ describe("normalizeReturnTo", () => {
     expect(normalizeReturnTo("/email?x=1&intent=add-personal&y=2")).toBe("/email?intent=add-personal");
   });
 
+  it("keeps the preference row a mail's link names, in canonical form, and nothing else", () => {
+    const path = "/communication-preferences?kanal=email&kategori=team%3Aabc-1%3Ahaber";
+    expect(normalizeReturnTo(path)).toBe(path);
+    expect(normalizeReturnTo("/communication-preferences?kategori=team:abc-1:haber&t=x")).toBe(
+      "/communication-preferences?kategori=team%3Aabc-1%3Ahaber",
+    );
+    expect(normalizeReturnTo("/communication-preferences?kanal=push&kategori=all")).toBe("/communication-preferences?kategori=all");
+    expect(normalizeReturnTo("/communication-preferences?kategori=team%3A..%3Aduyuru")).toBe("/communication-preferences");
+  });
+
   it("drops every query it does not know: other parameters, other values, other pages, repeated intents", () => {
     for (const [value, expected] of [
       ["/email?intent=unknown", "/email"],

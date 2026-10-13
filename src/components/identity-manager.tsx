@@ -863,7 +863,7 @@ export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) 
   if (loading && !payload) {
     return (
       <section className={`${framedStateCard} session-state`} aria-label={identityCopy.loading}>
-        <ActionProgress label={identityCopy.loading} />
+        <ActionProgress label={identityCopy.loading} size={72} />
       </section>
     );
   }

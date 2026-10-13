@@ -188,10 +188,11 @@ describe("account deletion UI", () => {
     expect(screen.queryByLabelText(/onay metni/i)).not.toBeInTheDocument();
   });
 
-  it("server-renders the waiting page without inline styles, which the page's CSP refuses", () => {
+  it("server-renders the waiting page with its loader and without inline styles, which the page's CSP refuses", () => {
     const html = renderToString(<AccountDeletionStatus />);
 
     expect(html).toContain("Silme isteğinin durumu alınıyor");
+    expect(html).toContain('data-slot="skylab-loader"');
     expect(html).not.toMatch(/\sstyle="/);
   });
 
