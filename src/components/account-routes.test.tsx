@@ -9,12 +9,13 @@ import {
 } from "@/config/account-routes";
 
 describe("account route metadata", () => {
-  it("defines the eight live product routes once and in navigation order", () => {
+  it("defines the nine live product routes once and in navigation order", () => {
     expect(accountRoutes.map(({ href }) => href)).toEqual([
       "/",
       "/identity",
       "/email",
       "/club-profile",
+      "/communication-preferences",
       "/security",
       "/sessions",
       "/permissions",
@@ -26,7 +27,15 @@ describe("account route metadata", () => {
   it("keeps exact page lookup inside the AccountRoutePath domain", () => {
     expect(accountRoute("/security").href).toBe("/security");
     expectTypeOf(accountRoute).parameter(0).toEqualTypeOf<
-      "/" | "/identity" | "/email" | "/club-profile" | "/security" | "/sessions" | "/permissions" | "/delete-account"
+      | "/"
+      | "/identity"
+      | "/email"
+      | "/club-profile"
+      | "/communication-preferences"
+      | "/security"
+      | "/sessions"
+      | "/permissions"
+      | "/delete-account"
     >();
   });
 
@@ -35,6 +44,7 @@ describe("account route metadata", () => {
     expect(matchAccountRoute("/security/")).toBe(accountRoute("/security"));
     expect(matchAccountRoute("/security/result")).toBe(accountRoute("/security"));
     expect(matchAccountRoute("/club-profile")).toBe(accountRoute("/club-profile"));
+    expect(matchAccountRoute("/communication-preferences")).toBe(accountRoute("/communication-preferences"));
     expect(matchAccountRoute("/identity")).toBe(accountRoute("/identity"));
     expect(matchAccountRoute("/identity-card")).toBeNull();
     expect(matchAccountRoute("/email")).toBe(accountRoute("/email"));

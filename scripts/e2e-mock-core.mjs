@@ -23,6 +23,17 @@ import { join } from "node:path";
  * calls core received and the save links it handed out. Wallet calls are
  * kept apart from the profile `requests`.
  *
+ * Communication preferences (`/v1/users/me/communication-preferences`)
+ * follow core's rules (`internal/commpref`) on a fixed team tree the
+ * person is in through WEBLAB/FRONT: explicit choices per subject, the most
+ * specific choice up the tree wins, own teams and the teams below them are
+ * on by default, a hidden team is off and shown masked. The tree and the
+ * first screen match `tests/fixtures/core-communication-preferences.json`.
+ * `PUT /__e2e/communication-preferences/{sub}` sets `off` (core without its
+ * key: every call `503 communication_preferences_unavailable`);
+ * `GET /__e2e/communication-preferences/{sub}` shows the choices and the
+ * PUT bodies core received.
+ *
  * The same server also stands in for the realm's sky-account
  * `GET identity` (`tests/fixtures/sky-account-v1-identity.json`, the
  * bearer's own `sub`), which the Sudo mode gate reads to list the person's
@@ -169,6 +180,121 @@ function sniff(bytes) {
   return null;
 }
 
+/** Core's team tree for the preference screen; the person is in FRONT (and so in WEBLAB). */
+const preferenceTeams = [
+  { id: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d01", code: "WEBLAB", displayName: "Web Laboratuvarı", path: "/UYELER/YAZILIM/WEBLAB", parent: null, listed: true },
+  { id: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d02", code: "FRONT", displayName: "Frontend", path: "/UYELER/YAZILIM/WEBLAB/FRONT", parent: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d01", listed: true, own: true },
+  { id: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d03", code: "BACK", displayName: "Backend", path: "/UYELER/YAZILIM/WEBLAB/BACK", parent: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d01", listed: true },
+  { id: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d04", code: "AIRLAB", displayName: "Hava Araçları Laboratuvarı", path: "/UYELER/DONANIM/AIRLAB", parent: null, listed: true },
+  { id: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d05", code: "DRONE", displayName: "Drone", path: "/UYELER/DONANIM/AIRLAB/DRONE", parent: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d04", listed: true },
+  { id: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d06", code: "GIZLI", displayName: "Gizli Proje", path: "/UYELER/DONANIM/GIZLI", parent: null, listed: false },
+  { id: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d07", code: "ROBOLAB", displayName: "Robotik Laboratuvarı", path: "/UYELER/DONANIM/ROBOLAB", parent: null, listed: true },
+  { id: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d08", code: "SKYSEC", displayName: "Siber Güvenlik", path: "/UYELER/YAZILIM/SKYSEC", parent: null, listed: true },
+];
+const preferenceTeamById = new Map(preferenceTeams.map((team) => [team.id, team]));
+/** The choices every seeded subject starts with: the fixture's screen. */
+const initialPreferenceChoices = [
+  ["club:haber", false],
+  ["team:0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d03:haber", false],
+  ["team:0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d04:duyuru", true],
+  ["team:0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d04:haber", true],
+  ["team:0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d06:duyuru", true],
+];
+const PREFERENCE_CATEGORY = /^(?:all|club:(?:duyuru|haber)|team:([A-Za-z0-9][A-Za-z0-9._-]{0,63}):(?:duyuru|haber))$/;
+
+function preferenceChain(id) {
+  const chain = [];
+  for (let team = preferenceTeamById.get(id); team; team = team.parent ? preferenceTeamById.get(team.parent) : undefined) {
+    chain.push(team.id);
+  }
+  return chain;
+}
+
+/** In the team or in a team below it (`TeamOf`'s subtree rule). */
+function preferenceMember(id) {
+  return preferenceTeams.some((team) => team.own && preferenceChain(team.id).includes(id));
+}
+
+/** Listed by itself or by the nearest team above that says; or one of the person's own. */
+function preferenceSeen(id) {
+  if (preferenceMember(id)) return true;
+  return preferenceChain(id).some((teamId) => preferenceTeamById.get(teamId).listed === true) &&
+    preferenceTeamById.get(id).listed !== false;
+}
+
+function preferenceScreen(choices) {
+  const master = choices.has("all") ? choices.get("all") : true;
+  const cell = (category, enabled, origin, from) => {
+    const value = { explicit: choices.has(category) ? choices.get(category) : null, enabled, origin };
+    if (from) value.from = from;
+    value.effective = master && enabled;
+    return { email: value };
+  };
+  const teamCell = (id, kind) => {
+    const category = `team:${id}:${kind}`;
+    if (!preferenceSeen(id)) return cell(category, false, "default");
+    const chain = preferenceChain(id);
+    for (const [index, teamId] of chain.entries()) {
+      const key = `team:${teamId}:${kind}`;
+      if (choices.has(key)) return cell(category, choices.get(key), index === 0 ? "explicit" : "inherited", index === 0 ? undefined : teamId);
+    }
+    const nearest = chain.findIndex((teamId) => preferenceMember(teamId));
+    return nearest === -1 ? cell(category, false, "default") : cell(category, true, "default", nearest === 0 ? undefined : chain[nearest]);
+  };
+  const shown = new Set();
+  const row = (id) => {
+    const team = preferenceTeamById.get(id);
+    shown.add(id);
+    return {
+      groupId: id, code: team.code, displayName: team.displayName, path: team.path, member: preferenceMember(id),
+      kinds: { duyuru: teamCell(id, "duyuru"), haber: teamCell(id, "haber") },
+      children: preferenceTeams.filter((child) => child.parent === id && preferenceSeen(child.id)).map((child) => row(child.id)),
+    };
+  };
+  const teams = preferenceTeams.filter((team) => !team.parent && preferenceMember(team.id)).map((team) => row(team.id));
+  const chosen = [...new Set([...choices.keys()].map((key) => PREFERENCE_CATEGORY.exec(key)?.[1]).filter(Boolean))]
+    .filter((id) => preferenceTeamById.has(id))
+    .sort((a, b) => preferenceTeamById.get(a).path.localeCompare(preferenceTeamById.get(b).path));
+  const following = [];
+  for (const id of chosen) {
+    if (shown.has(id)) continue;
+    if (!preferenceSeen(id)) {
+      shown.add(id);
+      following.push({
+        groupId: id, hidden: true, code: "", displayName: "Gizli ekip", path: "", member: false,
+        kinds: { duyuru: teamCell(id, "duyuru"), haber: teamCell(id, "haber") }, children: [],
+      });
+      continue;
+    }
+    following.push(row(id));
+  }
+  const followable = preferenceTeams
+    .filter((team) => team.listed === true && !shown.has(team.id))
+    .sort((a, b) => a.path.localeCompare(b.path))
+    .map(({ id, code, displayName, path }) => ({ groupId: id, code, displayName, path }));
+  return {
+    channels: ["email"],
+    master: cell("all", master, choices.has("all") ? "explicit" : "default"),
+    club: {
+      duyuru: cell("club:duyuru", choices.has("club:duyuru") ? choices.get("club:duyuru") : true, choices.has("club:duyuru") ? "explicit" : "default"),
+      haber: cell("club:haber", choices.has("club:haber") ? choices.get("club:haber") : true, choices.has("club:haber") ? "explicit" : "default"),
+    },
+    teams,
+    following,
+    followable,
+  };
+}
+
+/** The screen a freshly seeded subject sees; `tests/fixtures/core-communication-preferences.json` pins it. */
+export function initialPreferenceScreen() {
+  return preferenceScreen(new Map(initialPreferenceChoices));
+}
+
+function preferenceProblem(response, status, code, headers = {}) {
+  response.writeHead(status, { "content-type": "application/problem+json", "cache-control": "no-store", ...headers });
+  response.end(JSON.stringify({ type: "about:blank", title: "x", status, code }));
+}
+
 export function startMockCore({
   port,
   host = "127.0.0.1",
@@ -187,6 +313,16 @@ export function startMockCore({
   const deletionIntakes = new Map();
   /** subject → SkyPass Google Wallet state; off until a test turns it on. */
   const wallets = new Map();
+  /** subject → communication preference choices, the PUT bodies received and whether core runs without its key. */
+  const preferences = new Map();
+  const preferencesFor = (sub) => {
+    let state = preferences.get(sub);
+    if (!state) {
+      state = { choices: new Map(initialPreferenceChoices), off: false, puts: [] };
+      preferences.set(sub, state);
+    }
+    return state;
+  };
   const pictureUrl = (id) => `${pictureBase}/skylab.svg?picture=${encodeURIComponent(id)}`;
 
   function userFor(sub) {
@@ -236,6 +372,47 @@ export function startMockCore({
     const saveUrl = `https://pay.google.com/gp/v/save/${segment()}.${segment()}.${segment()}`;
     wallet.saveUrls.push(saveUrl);
     return json(response, 200, { saveUrl });
+  }
+
+  function communicationPreferences(request, response, sub, body) {
+    const state = preferencesFor(sub);
+    if (state.off) return preferenceProblem(response, 503, "communication_preferences_unavailable");
+    const answer = () => {
+      response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      response.end(JSON.stringify(preferenceScreen(state.choices)));
+    };
+    if (request.method === "GET") return answer();
+    if (request.method !== "PUT") return problem(response, 405, "Method Not Allowed");
+    let parsed;
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      return preferenceProblem(response, 400, "communication_preference_invalid");
+    }
+    state.puts.push(parsed);
+    const items = parsed?.items;
+    if (!Array.isArray(items) || items.length === 0 || items.length > 200 || Object.keys(parsed).length !== 1) {
+      return preferenceProblem(response, 400, "communication_preference_invalid");
+    }
+    const seen = new Set();
+    for (const item of items) {
+      const match = PREFERENCE_CATEGORY.exec(item?.category ?? "");
+      if (
+        !match || item.channel !== "email" || seen.has(item.category) ||
+        !Object.hasOwn(item, "enabled") || (item.enabled !== null && typeof item.enabled !== "boolean")
+      ) {
+        return preferenceProblem(response, 400, "communication_preference_invalid");
+      }
+      seen.add(item.category);
+      if (match[1] && item.enabled !== null && (!preferenceTeamById.has(match[1]) || !preferenceSeen(match[1]))) {
+        return preferenceProblem(response, 400, "communication_preference_team_unknown");
+      }
+    }
+    for (const item of items) {
+      if (item.enabled === null) state.choices.delete(item.category);
+      else state.choices.set(item.category, item.enabled);
+    }
+    return answer();
   }
 
   function accountDeletion(request, response, url, body) {
@@ -318,6 +495,22 @@ export function startMockCore({
       if (walletInspection && request.method === "GET") {
         return json(response, 200, walletFor(decodeURIComponent(walletInspection[1])));
       }
+      const preferenceInspection = /^\/__e2e\/communication-preferences\/([^/]+)$/.exec(url.pathname);
+      if (preferenceInspection && request.method === "PUT") {
+        let overrides;
+        try {
+          overrides = JSON.parse((await readBody(request)).toString("utf8"));
+        } catch {
+          return problem(response, 400, "Bad Request");
+        }
+        const state = preferencesFor(decodeURIComponent(preferenceInspection[1]));
+        if (typeof overrides?.off === "boolean") state.off = overrides.off;
+        return json(response, 200, { off: state.off });
+      }
+      if (preferenceInspection && request.method === "GET") {
+        const state = preferencesFor(decodeURIComponent(preferenceInspection[1]));
+        return json(response, 200, { off: state.off, choices: Object.fromEntries(state.choices), puts: state.puts });
+      }
       const inspection = /^\/__e2e\/users\/([^/]+)$/.exec(url.pathname);
       if (inspection && request.method === "PUT") {
         let overrides;
@@ -354,6 +547,9 @@ export function startMockCore({
       const claims = decodeBearer(request.headers.authorization);
       if (!claims) return problem(response, 401, "Unauthorized");
       if (url.pathname.startsWith("/v1/skypass/wallet")) return skyPassWallet(request, response, url, claims.sub);
+      if (url.pathname === "/v1/users/me/communication-preferences") {
+        return communicationPreferences(request, response, claims.sub, await readBody(request));
+      }
       const user = userFor(claims.sub);
       const body = await readBody(request);
       const record = (extra = {}) => user.requests.push({ method: request.method, path: url.pathname, ...extra });

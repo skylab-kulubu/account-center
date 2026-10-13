@@ -2,9 +2,8 @@
 
 import { AlertCircle, RotateCcw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Button, StateCard } from "@skylab-kulubu/skylcn-ui";
+import { Button, SkylabLoader, StateCard } from "@skylab-kulubu/skylcn-ui";
 import { framedStateCard } from "@/components/framed-state";
-import { LogoLoader } from "@/components/logo-loader";
 
 export function PageSkeleton({
   label = "Sayfa yükleniyor",
@@ -71,10 +70,11 @@ export function RetryableError({
   );
 }
 
-export function ActionProgress({ label }: { label: string }) {
+/** A wait said in words beside skylcn's loader: 20 px inside a button, 72 px for a section's loading state. */
+export function ActionProgress({ label, size = 20 }: { label: string; size?: 20 | 72 }) {
   return (
     <span className="action-progress" role="status" aria-live="polite">
-      <LogoLoader announce={false} label={label} size={20} />
+      <SkylabLoader className="text-current" size={size} />
       <span>{label}</span>
     </span>
   );

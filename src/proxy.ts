@@ -8,6 +8,7 @@ const sessionCookie = "__Host-sky-account";
 /** Read once per process; an invalid value fails the proxy at startup instead of shipping a broken policy. */
 const profilePictureOrigin = parseProfilePictureOrigin(process.env.PROFILE_PICTURE_ORIGIN);
 const publicPages = new Set(["/login", "/account-deletion"]);
+const PREFERENCES_PATH = "/communication-preferences";
 /**
  * The retired native handoff endpoints (ADR-0048). No route answers them any
  * more; skipping the login redirect lets the router say 404, so an old SkyApp
@@ -71,12 +72,22 @@ export function proxy(request: NextRequest) {
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", policy);
 
+  // Core's unsubscribe page links to the Account center's root with the
+  // mail's category (its COMMUNICATION_PREFERENCE_ACCOUNT_CENTER_URL default):
+  // that row lives on the preferences screen, signed in or not.
+  if (pathname === "/" && searchParams.has("kategori")) {
+    const target = PREFERENCES_PATH + allowedReturnQuery(PREFERENCES_PATH, searchParams);
+    const response = NextResponse.redirect(new URL(target, request.url));
+    response.headers.set("Content-Security-Policy", policy);
+    return response;
+  }
+
   const needsLogin =
     !publicPages.has(pathname) &&
     !isWellKnownPath(pathname) &&
     !retiredNativeHandoffPaths.has(pathname) &&
     !request.cookies.has(sessionCookie);
-  // Only an allow-listed query (the e-mail page's nudge intent) survives the login round trip.
+  // Only an allow-listed query (`return-query.ts`) survives the login round trip.
   const returnTo = pathname + allowedReturnQuery(pathname, searchParams);
   const response = needsLogin
     ? NextResponse.redirect(

@@ -1,7 +1,3 @@
-"use client";
-
-import { useId } from "react";
-
 const svgPaths: Record<string, string> = {
   p12f85900: "M202.27 271.08C202.27 271.42 202.14 277.72 201.97 285.09C201.8 292.46 201.87 298.27 202.13 298.01C202.39 297.75 204.01 292.65 205.72 286.69L208.83 275.84L205.55 273.15C203.74 271.67 202.27 270.74 202.28 271.07L202.27 271.08Z",
   p15984f0: "M254.51 96.18C259.05 97.81 261.03 102.32 261.5 112.09L261.86 119.63L263.66 115.21C264.03 114.13 264.4 113.05 264.78 111.97C264.94 108.59 265.16 103.34 265.27 96.87C265.45 86.64 265.03 83.81 266.57 79.93C268.03 76.25 270.98 73.18 276.83 67.09L285.42 58.14L289.06 47.76C290.39 43.98 291.67 40.79 292.48 39.15C292.81 38.48 293.06 38.08 293.21 38C293.35 38.07 293.61 38.48 293.94 39.15C294.75 40.79 296.03 43.98 297.36 47.76L301 58.14L309.59 67.09C315.44 73.18 318.39 76.25 319.85 79.93C321.39 83.81 320.97 86.63 321.15 96.87C321.26 103.34 321.48 108.59 321.64 111.97C322.01 113.05 322.38 114.13 322.76 115.21L324.56 119.63L324.92 112.09C325.39 102.32 327.37 97.81 331.91 96.18C333.56 95.59 335 95.05 335.11 94.98C335.35 94.83 320.48 53.26 314.4 37.09C303.07 6.93 301.53 3.78 296.83 1.27C295.42 0.52 294.65 0.12 293.94 0.02C293.66 9.31323e-10 293.46 -0.01 293.2 0C292.95 0 292.75 9.31323e-10 292.48 0.02C291.77 0.12 291 0.52 289.59 1.27C284.89 3.77 283.35 6.93 272.02 37.09C265.95 53.26 251.08 94.83 251.31 94.98C251.41 95.04 252.85 95.58 254.51 96.18Z",
@@ -26,33 +22,12 @@ const svgPaths: Record<string, string> = {
 
 const pathKeys = Object.keys(svgPaths);
 
-const pathGroups = [
-  ["p20f79d00"],
-  ["p15984f0", "p1a20d600"],
-  ["p2cc72200", "p543f872", "p4c50c00", "p36c88b00"],
-  ["p1cd4e100", "p3097fa00", "p12f85900", "p3cad3800"],
-  ["p28bb8280", "p1dae6200", "p7800", "p5ee5d00"],
-  ["p9522b80", "p3b5dc900"],
-  ["p596f400", "pe3cee00"],
-];
-
-function getGroupIndex(key: string) {
-  for (let g = 0; g < pathGroups.length; g++) {
-    if (pathGroups[g]?.includes(key)) return g;
-  }
-  return pathGroups.length;
-}
-
-
 type SkyLabMarkProps = {
-  animated?: boolean;
   className?: string;
   size?: number;
 };
 
-export function SkyLabMark({ animated = true, className, size = 72 }: SkyLabMarkProps) {
-  const gradientId = useId().replaceAll(":", "");
-
+export function SkyLabMark({ className, size = 72 }: SkyLabMarkProps) {
   return (
     <svg
       aria-hidden="true"
@@ -63,27 +38,9 @@ export function SkyLabMark({ animated = true, className, size = 72 }: SkyLabMark
       viewBox="0 0 586 554"
       width={size}
     >
-      <defs>
-        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1="-100" x2="100" y1="0" y2="554">
-          <stop offset="0" stopColor="currentColor" stopOpacity="0.38" />
-          <stop offset="0.5" stopColor="currentColor" stopOpacity="1" />
-          <stop offset="1" stopColor="currentColor" stopOpacity="0.38" />
-        </linearGradient>
-      </defs>
-      {pathKeys.map((key) => {
-        const group = getGroupIndex(key);
-        return (
-          <path
-            key={key}
-            className={animated ? "logo-loader__path" : undefined}
-            clipRule="evenodd"
-            d={svgPaths[key]}
-            data-logo-group={animated ? group : undefined}
-            fill={animated ? `url(#${gradientId})` : "currentColor"}
-            fillRule="evenodd"
-          />
-        );
-      })}
+      {pathKeys.map((key) => (
+        <path key={key} clipRule="evenodd" d={svgPaths[key]} fill="currentColor" fillRule="evenodd" />
+      ))}
     </svg>
   );
 }

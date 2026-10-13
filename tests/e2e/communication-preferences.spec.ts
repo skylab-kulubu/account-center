@@ -1,0 +1,152 @@
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+import type { APIRequestContext, BrowserContext, Page } from "@playwright/test";
+import { seedAuthenticatedSession } from "./auth-session";
+
+const baseUrl = "https://127.0.0.1:3100";
+const mockCoreUrl = `https://127.0.0.1:${process.env.E2E_MOCK_CORE_PORT ?? "3101"}`;
+const sessionCookieName = "__Host-sky-account";
+
+/** The mock core's team tree (`scripts/e2e-mock-core.mjs`, `tests/fixtures/core-communication-preferences.json`). */
+const teams = {
+  back: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d03",
+  airlab: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d04",
+  robolab: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d07",
+};
+
+type PreferenceState = { off: boolean; choices: Record<string, boolean>; puts: Array<{ items: unknown[] }> };
+
+function collectPageErrors(page: Page) {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  return errors;
+}
+
+async function installSession(context: BrowserContext, label: string) {
+  const fixture = await seedAuthenticatedSession(label, { contractToken: true });
+  await context.addCookies([{
+    name: sessionCookieName,
+    value: fixture.handle,
+    url: baseUrl,
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    expires: Math.floor(Date.now() / 1_000) + 8 * 60 * 60,
+  }]);
+  return fixture;
+}
+
+async function preferenceState(request: APIRequestContext, subject: string): Promise<PreferenceState> {
+  const response = await request.get(`${mockCoreUrl}/__e2e/communication-preferences/${encodeURIComponent(subject)}`);
+  expect(response.status()).toBe(200);
+  return response.json() as Promise<PreferenceState>;
+}
+
+async function savePreference(page: Page, action: () => Promise<void>) {
+  const response = page.waitForResponse((candidate) =>
+    candidate.url().endsWith("/api/account/communication-preferences") && candidate.request().method() === "PUT");
+  await action();
+  expect((await response).status()).toBe(200);
+}
+
+test("the preferences screen writes each switch to core under its own category", async ({ context, page, playwright }, testInfo) => {
+  test.setTimeout(90_000);
+  const fixture = await installSession(context, `preferences-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  const errors = collectPageErrors(page);
+
+  try {
+    await page.goto("/communication-preferences");
+    await expect(page.getByRole("heading", { level: 1, name: "İletişim tercihleri" })).toBeVisible();
+    await expect(page.getByText("Giriş kodu, bilet, sertifika gibi hesap postaların bu ayarlardan etkilenmez.")).toBeVisible();
+    await expect(page.getByText(/Postalar birincil adresine gider/)).toBeVisible();
+    const table = page.getByRole("table", { name: "Duyuru ve haber postası tercihlerin, kaynak kaynak" });
+    await expect(table).toBeVisible();
+    const back = page.getByRole("switch", { name: "BACK · Duyurular" });
+    await expect(back).toBeChecked();
+    await expect(back).toHaveAccessibleDescription("üst ekipten: WEBLAB");
+    // The row header names the team only; its action sits in a column of its own.
+    await expect(page.getByRole("rowheader", { name: "BACK Backend", exact: true })).toBeVisible();
+
+    const accessibility = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([]);
+
+    await test.step("a sub-team turned off on its own", async () => {
+      await savePreference(page, () => back.click());
+      await expect(back).not.toBeChecked();
+      await expect(page.getByText("BACK · Duyurular kapatıldı.")).toBeVisible();
+      const state = await preferenceState(inspector, fixture.subject);
+      expect(state.choices[`team:${teams.back}:duyuru`]).toBe(false);
+      expect(state.puts.at(-1)).toEqual({ items: [{ category: `team:${teams.back}:duyuru`, channel: "email", enabled: false }] });
+      // The team above keeps its value: only the sub-team changed.
+      await expect(page.getByRole("switch", { name: "WEBLAB · Duyurular" })).toBeChecked();
+    });
+
+    await test.step("the master switch closes everything and gives every choice back", async () => {
+      const master = page.getByRole("switch", { name: "Duyuru ve haber postaları" });
+      await expect(master).toHaveAccessibleDescription(/^Açık:/);
+      await savePreference(page, () => master.click());
+      await expect(page.getByText(/Ana anahtar kapalı/)).toBeVisible();
+      await expect(master).toHaveAccessibleDescription("Kapalı: hiçbir duyuru ve haber postası gelmez.");
+      await expect(page.getByRole("status").filter({ hasText: "Duyuru ve haber postaları kapatıldı." })).toBeVisible();
+      await savePreference(page, () => master.click());
+      await expect(page.getByText(/Ana anahtar kapalı/)).toHaveCount(0);
+      await page.reload();
+      await expect(page.getByRole("switch", { name: "BACK · Duyurular" })).not.toBeChecked();
+      await expect(page.getByRole("switch", { name: "Kulüp geneli · Duyurular" })).toBeChecked();
+    });
+
+    await test.step("unfollow a team and follow another", async () => {
+      await savePreference(page, () => page.getByRole("button", { name: "Takibi bırak: AIRLAB" }).click());
+      await expect(page.getByRole("switch", { name: "AIRLAB · Duyurular" })).toHaveCount(0);
+
+      await page.getByRole("combobox", { name: "Takip edilecek ekip" }).fill("ROBO");
+      await page.getByRole("option", { name: /ROBOLAB/ }).click();
+      await savePreference(page, () => page.getByRole("button", { name: "Takip et" }).click());
+      await expect(page.getByRole("switch", { name: "ROBOLAB · Duyurular" })).toBeChecked();
+      const state = await preferenceState(inspector, fixture.subject);
+      expect(state.choices[`team:${teams.robolab}:duyuru`]).toBe(true);
+      expect(state.choices[`team:${teams.robolab}:haber`]).toBe(true);
+      expect(Object.keys(state.choices).some((key) => key.includes(teams.airlab))).toBe(false);
+    });
+
+    expect(errors).toEqual([]);
+  } finally {
+    await inspector.dispose();
+  }
+});
+
+test("a mail's link opens the screen on its row, through the root address core links to", async ({ context, page }, testInfo) => {
+  await installSession(context, `preferences-link-${testInfo.project.name}-${testInfo.retry}`);
+
+  await page.goto(`/?kanal=email&kategori=team%3A${teams.airlab}%3Aduyuru`);
+
+  await expect(page).toHaveURL(`${baseUrl}/communication-preferences?kanal=email&kategori=team%3A${teams.airlab}%3Aduyuru`);
+  await expect(page.getByText("“AIRLAB · Duyurular” satırı aşağıda vurgulandı.", { exact: false })).toBeVisible();
+  await expect(page.locator("tr[data-focused]")).toContainText("AIRLAB");
+});
+
+test("the screen says the preferences are not on yet while core has no key", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `preferences-off-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const response = await inspector.put(
+      `${mockCoreUrl}/__e2e/communication-preferences/${encodeURIComponent(fixture.subject)}`,
+      { data: { off: true } },
+    );
+    expect(response.status()).toBe(200);
+
+    await page.goto("/communication-preferences");
+
+    await expect(page.getByText("İletişim tercihleri şu an kullanılamıyor")).toBeVisible();
+    await expect(page.getByRole("switch")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "E-posta ayarları" })).toBeVisible();
+  } finally {
+    await inspector.dispose();
+  }
+});
