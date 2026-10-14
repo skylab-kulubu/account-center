@@ -3,8 +3,7 @@
 import { BellOff, CornerDownRight, EyeOff, Plus, RotateCcw, UserMinus } from "lucide-react";
 import { Button, Combobox, Notice, Switch, ToggleRow } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ActionProgress } from "@/components/ui-states";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   categoryGroupId,
   clubCategory,
@@ -63,19 +62,6 @@ function parseProblem(value: unknown, status: number): SafeProblem {
     detail: typeof value.detail === "string" && value.detail.length <= 512 ? value.detail : fallbackProblem.detail,
     status,
   };
-}
-
-const subscribeToNothing = () => () => {};
-
-/**
- * skylcn's Switch and Combobox (Base UI) render a hidden form input with an
- * inline style, which this app's CSP refuses in server-rendered HTML. In the
- * browser React sets that style through the CSSOM, which the CSP allows, so
- * the controls render once React runs, as the deletion page's loader did
- * before skylcn 0.1.9.
- */
-function useHydrated() {
-  return useSyncExternalStore(subscribeToNothing, () => true, () => false);
 }
 
 type FlatRow = { row: PreferenceTeamRow; depth: number; topLevel: boolean };
@@ -305,7 +291,6 @@ export function CommunicationPreferencesEditor({
   csrfToken: string;
   focusCategory: string | null;
 }) {
-  const hydrated = useHydrated();
   const [view, setView] = useState(initial);
   const [pending, setPending] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -325,10 +310,10 @@ export function CommunicationPreferencesEditor({
   const masterOn = view.master.enabled;
 
   useEffect(() => {
-    if (!hydrated || !key) return;
+    if (!key) return;
     const target = key === "master" ? focusedMaster.current : focusedRow.current;
     target?.scrollIntoView({ block: "center" });
-  }, [hydrated, key]);
+  }, [key]);
 
   useEffect(() => {
     if (!moveFocusToFeedback.current || pending) return;
@@ -408,14 +393,6 @@ export function CommunicationPreferencesEditor({
       row.hidden ? "Gizli ekip için kalan ayar silindi." : `${rowLabel(row)} artık takip edilmiyor.`,
       { focusFeedback: true },
     );
-
-  if (!hydrated) {
-    return (
-      <div className="settings-section session-state">
-        <ActionProgress label="Tercihlerin hazırlanıyor" size={72} />
-      </div>
-    );
-  }
 
   const busy = pending !== null;
 

@@ -14,8 +14,26 @@ describe("security proxy", () => {
 
     expect(firstPolicy).toContain("'strict-dynamic'");
     expect(firstPolicy).toContain("script-src 'self' 'nonce-");
-    expect(firstPolicy).not.toContain("'unsafe-inline'");
     expect(firstPolicy).not.toEqual(secondPolicy);
+  });
+
+  it("allows inline style attributes only: scripts and style elements keep the nonce", () => {
+    const policy = proxy(new NextRequest("https://my.yildizskylab.com/communication-preferences", {
+      headers: { cookie: "__Host-sky-account=opaque-session" },
+    })).headers.get("content-security-policy")!;
+    const directives = new Map(policy.split("; ").map((directive) => {
+      const [name, ...sources] = directive.split(" ");
+      return [name, sources] as const;
+    }));
+
+    // Base UI's hidden form inputs (skylcn Switch, Checkbox, Combobox) carry a "visually hidden" style attribute.
+    expect(directives.get("style-src-attr")).toEqual(["'unsafe-inline'"]);
+    expect(directives.get("style-src")).toEqual(["'self'", expect.stringMatching(/^'nonce-[A-Za-z0-9+/=]+'$/)]);
+    // <style> elements fall back to style-src; scripts never run inline, not even from an attribute.
+    expect(directives.has("style-src-elem")).toBe(false);
+    expect(directives.has("script-src-attr")).toBe(false);
+    expect(directives.get("script-src")).not.toContain("'unsafe-inline'");
+    expect(policy.match(/'unsafe-inline'/g)).toHaveLength(1);
   });
 
   it("allows images only from the same origin, inline data and the profile picture origin", () => {

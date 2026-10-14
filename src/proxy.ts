@@ -48,6 +48,11 @@ function contentSecurityPolicy(nonce: string) {
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDevelopment ? " 'unsafe-eval'" : ""}`,
     isDevelopment ? "style-src 'self' 'unsafe-inline'" : `style-src 'self' 'nonce-${nonce}'`,
+    // Base UI (skylcn's Switch, Checkbox, Combobox) server-renders its hidden
+    // form input with a "visually hidden" style attribute. Only attributes run
+    // inline: <style> elements fall back to style-src and keep the nonce, so
+    // injected markup still cannot add a selector (CSS exfiltration needs one).
+    "style-src-attr 'unsafe-inline'",
     `connect-src 'self'${isDevelopment ? " ws:" : ""}`,
     `img-src 'self' data: blob: ${profilePictureOrigin}`,
     "font-src 'self'",

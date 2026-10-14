@@ -221,11 +221,22 @@ describe("CommunicationPreferencesEditor", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri güvenle durduruldu");
   });
 
-  it("renders no inline style on the server, where the CSP would refuse it", () => {
+  it("server-renders the switches and the follow picker, with inline styles only on their hidden form inputs", () => {
     const html = renderToString(
       <CommunicationPreferencesEditor csrfToken="csrf-proof" focusCategory={null} initial={view} />,
     );
-    expect(html).not.toMatch(/\sstyle=/);
-    expect(html).toContain("Tercihlerin hazırlanıyor");
+    const page = new DOMParser().parseFromString(html, "text/html");
+
+    expect(html).not.toContain("Tercihlerin hazırlanıyor");
+    expect(page.querySelectorAll('[role="switch"]').length).toBeGreaterThan(0);
+    expect(page.querySelector('[role="combobox"]')).not.toBeNull();
+    // The page CSP lets style attributes through (style-src-attr) and nothing else inline.
+    const styled = [...page.querySelectorAll("[style]")];
+    expect(styled.length).toBeGreaterThan(0);
+    for (const element of styled) {
+      expect(element.tagName).toBe("INPUT");
+      expect(element.getAttribute("aria-hidden")).toBe("true");
+    }
+    expect(page.querySelector("style")).toBeNull();
   });
 });
