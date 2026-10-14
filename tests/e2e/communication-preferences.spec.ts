@@ -25,6 +25,22 @@ function collectPageErrors(page: Page) {
   return errors;
 }
 
+/**
+ * Records every Content Security Policy violation on the page, from the first
+ * byte of the HTML on: the switches and the follow picker are server-rendered,
+ * and their hidden form inputs carry a style attribute (`style-src-attr`).
+ */
+async function collectCspViolations(page: Page) {
+  await page.addInitScript(() => {
+    const violations: string[] = [];
+    Object.assign(window, { __cspViolations: violations });
+    document.addEventListener("securitypolicyviolation", (event) => {
+      violations.push(`${event.effectiveDirective} ${event.blockedURI || "inline"} ${event.sample}`);
+    });
+  });
+  return () => page.evaluate(() => (window as unknown as { __cspViolations: string[] }).__cspViolations);
+}
+
 async function installSession(context: BrowserContext, label: string) {
   const fixture = await seedAuthenticatedSession(label, { contractToken: true });
   await context.addCookies([{
@@ -57,6 +73,7 @@ test("the preferences screen writes each switch to core under its own category",
   const fixture = await installSession(context, `preferences-${testInfo.project.name}-${testInfo.retry}`);
   const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
   const errors = collectPageErrors(page);
+  const cspViolations = await collectCspViolations(page);
 
   try {
     await page.goto("/communication-preferences");
@@ -70,6 +87,8 @@ test("the preferences screen writes each switch to core under its own category",
     await expect(back).toHaveAccessibleDescription("üst ekipten: WEBLAB");
     // The row header names the team only; its action sits in a column of its own.
     await expect(page.getByRole("rowheader", { name: "BACK Backend", exact: true })).toBeVisible();
+    // Each load starts a fresh list: this one covers the first, the end of the test the reload.
+    expect(await cspViolations()).toEqual([]);
 
     const accessibility = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
@@ -116,6 +135,7 @@ test("the preferences screen writes each switch to core under its own category",
     });
 
     expect(errors).toEqual([]);
+    expect(await cspViolations()).toEqual([]);
   } finally {
     await inspector.dispose();
   }
