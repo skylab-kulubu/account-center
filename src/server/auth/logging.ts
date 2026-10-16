@@ -60,7 +60,7 @@ type AuthLog = {
    */
   oauthError?: OAuthCallbackError;
   /** Proof kind of a sudo attempt; never the material itself. */
-  sudoMethod?: "password" | "totp" | "passkey" | "reauth";
+  sudoMethod?: "password" | "totp" | "passkey" | "email-code" | "reauth";
   /** Which security-page action ran; never a label, secret, code, attestation or credential id. */
   securityAction?:
     | "password"

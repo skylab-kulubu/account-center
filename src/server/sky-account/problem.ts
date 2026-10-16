@@ -37,6 +37,10 @@ export const skyAccountProblemStatuses = {
   credential_not_found: [404],
   /** `email/confirm`: the code is wrong; `attemptsLeft` says how many tries remain (`0`: the code is dead). */
   invalid_email_code: [400],
+  invalid_sudo_email_code: [400],
+  no_pending_sudo_email_code: [404],
+  sudo_email_not_allowed: [403],
+  sudo_email_unavailable: [409],
   /** `email/confirm`: nothing is waiting (never requested, used, expired or out of attempts). */
   no_pending_email_change: [404],
   duplicate_label: [409],
