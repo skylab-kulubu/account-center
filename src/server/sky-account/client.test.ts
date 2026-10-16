@@ -636,7 +636,7 @@ describe("SkyAccountHttpClient", () => {
     }]);
     expect(Object.keys(identity).sort()).toEqual([
       "credentials", "email", "emailVerified", "firstName", "lastName", "nameLocked", "personalEmail",
-      "personalEmailVerified", "primary", "schoolEmail", "sub", "username", "usernameChangeAvailableAt", "verifiedYtu",
+      "personalEmailVerified", "primary", "schoolEmail", "sub", "sudoEmailCodeAvailable", "username", "usernameChangeAvailableAt", "verifiedYtu",
     ]);
     expect(Object.keys(identity.credentials).sort()).toEqual(["passkeys", "password", "totp"]);
     expect(JSON.stringify(identity)).not.toContain("aaguid");
@@ -918,5 +918,28 @@ describe("SkyAccountHttpClient", () => {
     expect(error.message).toBe("sky-account v1 answered 403 name_locked.");
     expect(error.name).toBe("SkyAccountProblem");
     expect(error.code).toBe("name_locked");
+  });
+});
+
+
+describe("sudo e-mail code contract", () => {
+  it("sends without an address override and verifies exactly six string digits", async () => {
+    const { client, calls } = transport((call) => call.url.endsWith("/send")
+      ? json({ expiresAt: "2026-10-16T14:10:00Z" }, 202) : json(sudoGrantFixture));
+    await expect(client.sudoEmailCodeSend(bearer)).resolves.toEqual({ expiresAt: "2026-10-16T14:10:00.000Z" });
+    await expect(client.sudoEmailCodeVerify(bearer, { code: "008 271" })).resolves.toMatchObject({ sudoToken: sudoGrantFixture.sudoToken });
+    expect(calls.map(call => [call.url.slice(base.length), call.body])).toEqual([
+      ["/sudo/email-code/send", "{}"], ["/sudo/email-code/verify", JSON.stringify({ code: "008271" })],
+    ]);
+    expect(calls.every(call => call.headers.get("x-sky-sudo") === null)).toBe(true);
+    await expect(client.sudoEmailCodeVerify(bearer, { code: "12345678" })).rejects.toBeInstanceOf(SkyAccountInvalidInputError);
+  });
+  it("defaults absent capabilities to false and rejects malformed capabilities", async () => {
+    const old = transport(() => json(identityFixture));
+    expect((await old.client.identity(bearer)).sudoEmailCodeAvailable).toBe(false);
+    const newer = transport(() => json({ ...identityFixture, sudoEmailCodeAvailable: true }));
+    expect((await newer.client.identity(bearer)).sudoEmailCodeAvailable).toBe(true);
+    const malformed = transport(() => json({ ...identityFixture, sudoEmailCodeAvailable: "true" }));
+    await expect(malformed.client.identity(bearer)).rejects.toBeInstanceOf(SkyAccountContractError);
   });
 });

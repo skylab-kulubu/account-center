@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Fingerprint, KeyRound, LockKeyhole, ShieldCheck, Smartphone, X } from "lucide-react";
+import { AlertCircle, Fingerprint, KeyRound, LockKeyhole, ShieldCheck, Smartphone, Mail, X } from "lucide-react";
 import { Button } from "@skylab-kulubu/skylcn-ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -13,7 +13,7 @@ import {
 } from "@/lib/webauthn";
 import type { AssertionOptionsJson } from "@/lib/webauthn";
 
-export type SudoMethod = "password" | "passkey" | "totp";
+export type SudoMethod = "password" | "passkey" | "totp" | "email-code";
 export type SudoProofMethod = SudoMethod | "reauth";
 
 /** What the dialog reports when the server accepted a proof. */
@@ -36,11 +36,12 @@ type Feedback = {
   retryAfter?: number;
 };
 
-const methodOrder: SudoMethod[] = ["password", "passkey", "totp"];
+const methodOrder: SudoMethod[] = ["password", "passkey", "totp", "email-code"];
 const tabLabels: Record<SudoMethod, string> = {
   password: "Parola",
   passkey: "Passkey",
   totp: "Doğrulama kodu",
+  "email-code": "E-posta kodu",
 };
 
 const copy = {
@@ -225,6 +226,9 @@ export function SudoDialog({
   const [waitSeconds, setWaitSeconds] = useState(0);
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [emailSent, setEmailSent] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const emailInput = useRef<HTMLInputElement>(null);
   const loadStarted = useRef(false);
   const verified = useRef(false);
   /** The first panel focuses its control; after a tab switch focus stays on the tab list. */
@@ -296,6 +300,16 @@ export function SudoDialog({
     return () => window.clearTimeout(timer);
   }, [waitSeconds]);
 
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setTimeout(() => setResendSeconds((current) => Math.max(0, current - 1)), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
+
+  useEffect(() => {
+    if (emailSent && !pending) emailInput.current?.focus();
+  }, [emailSent, pending]);
+
   const fail = useCallback((next: Feedback) => {
     setFeedback(next);
     if (next.retryAfter) setWaitSeconds(next.retryAfter);
@@ -336,7 +350,9 @@ export function SudoDialog({
       fail({ tone: "warning", detail: detailOf(body, copy.tooMany), retryAfter: retryAfterOf(body, response) });
       return;
     }
+    if (error === "challenge_expired" && method === "email-code") setEmailSent(false);
     if (response.status === 400 && error === "method_unavailable") {
+      setEmailSent(false);
       fail({ tone: "warning", detail: detailOf(body, copy.unexpected) });
       await load();
       return;
@@ -355,22 +371,41 @@ export function SudoDialog({
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   }), []);
 
-  const submitSecret = async (event: FormEvent<HTMLFormElement>, method: "password" | "totp") => {
+  const submitSecret = async (event: FormEvent<HTMLFormElement>, method: "password" | "totp" | "email-code") => {
     event.preventDefault();
     if (!methods || pending || waitSeconds > 0) return;
     const payload = method === "password"
       ? { password }
       : { code: code.replace(/\s+/g, "") };
-    if ((method === "password" && payload.password === "") || (method === "totp" && !/^\d{4,10}$/.test(String(payload.code)))) {
+    if ((method === "password" && payload.password === "") || (method === "totp" && !/^\d{4,10}$/.test(String(payload.code))) || (method === "email-code" && !/^\d{6}$/.test(String(payload.code)))) {
       return;
     }
     setPending(true);
     setFeedback(null);
     try {
-      const response = await post(`/api/account/sudo/${method}`, methods.csrfToken, payload);
+      const response = await post(`/api/account/sudo/${method === "email-code" ? "email-code/verify" : method}`, methods.csrfToken, payload);
       setPassword("");
       setCode("");
       await handleProofResponse(response, method);
+    } catch {
+      fail({ tone: "warning", detail: copy.network });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const sendEmailCode = async () => {
+    if (!methods || pending || waitSeconds > 0 || resendSeconds > 0) return;
+    setPending(true);
+    setFeedback(null);
+    try {
+      const response = await post("/api/account/sudo/email-code/send", methods.csrfToken, {});
+      if (!response.ok) { await handleProofResponse(response, "email-code"); return; }
+      const body = await responseJson(response);
+      if (!isObject(body) || !validIsoDate(body.expiresAt)) { fail({ tone: "warning", detail: copy.unexpected }); return; }
+      setEmailSent(true);
+      setCode("");
+      setResendSeconds(60);
     } catch {
       fail({ tone: "warning", detail: copy.network });
     } finally {
@@ -487,22 +522,22 @@ export function SudoDialog({
       ) : methods && methods.methods.length === 0 ? (
         <div className="sudo-dialog__fallback">
           <p><strong>{copy.fallbackLead}</strong></p>
-          <p>{copy.fallbackDetail}</p>
-          <form action="/api/account/sudo/reauthenticate" method="post">
+          <p>{methods.fallback === "microsoft" ? copy.fallbackDetail : "Kullanabileceğin bir doğrulama yöntemi bulunamadı. Yönetim ekibiyle iletişime geç."}</p>
+          {methods.fallback === "microsoft" ? <form action="/api/account/sudo/reauthenticate" method="post">
             <input type="hidden" name="csrfToken" value={methods.csrfToken} />
             <input type="hidden" name="returnTo" value={returnTo} />
             <Button type="submit" size="lg" variant="solid">
               <ShieldCheck aria-hidden="true" size={16} />
               Microsoft ile yeniden doğrula
             </Button>
-          </form>
+          </form> : null}
         </div>
       ) : methods && tab ? (
         <>
           <div className="sudo-tabs" role="tablist" aria-label="Doğrulama yöntemi">
             {methods.methods.map((method) => {
               const selected = method === tab;
-              const Icon = method === "password" ? KeyRound : method === "passkey" ? Fingerprint : Smartphone;
+              const Icon = method === "password" ? KeyRound : method === "passkey" ? Fingerprint : method === "email-code" ? Mail : Smartphone;
               return (
                 <button
                   key={method}
@@ -595,6 +630,31 @@ export function SudoDialog({
                   {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
                 </Button>
               </form>
+            ) : tab === "email-code" ? (
+              <div className="sudo-form">
+                <p className="sudo-panel__hint">Kod, şu anki birincil e-posta adresine gönderilir ve 10 dakika geçerlidir.</p>
+                {emailSent ? (
+                  <>
+                    <p role="status">Kod birincil e-posta adresine gönderildi. Açık olan bu pencereye yaz.</p>
+                    <form className="sudo-form" onSubmit={(event) => void submitSecret(event, "email-code")}>
+                      <div className="sudo-field">
+                        <label htmlFor={`${baseId}-email-code`}>E-posta doğrulama kodu</label>
+                        <small id={`${baseId}-email-hint`}>E-postandaki 6 haneli kodu gir. Kodu kimseyle paylaşma.</small>
+                        <input ref={emailInput} id={`${baseId}-email-code`} name="code" type="text" inputMode="numeric"
+                          autoComplete="one-time-code" aria-describedby={`${baseId}-email-hint`} maxLength={20}
+                          required disabled={busy} value={code} onChange={(event) => setCode(event.currentTarget.value)} />
+                      </div>
+                      <Button type="submit" disabled={busy || !/^\d{6}$/.test(code.replace(/\s+/g, ""))} size="lg" variant="solid">
+                        {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
+                      </Button>
+                    </form>
+                  </>
+                ) : null}
+                <Button type="button" disabled={busy || resendSeconds > 0} onClick={() => void sendEmailCode()} size="lg" variant={emailSent ? "outline" : "solid"}>
+                  {pending ? <ActionProgress label="Kod gönderiliyor" /> : emailSent
+                    ? `Yeniden kod gönder${resendSeconds > 0 ? ` (${resendSeconds} saniye)` : ""}` : "E-postama kod gönder"}
+                </Button>
+              </div>
             ) : (
               <div className="sudo-form">
                 <p className="sudo-panel__hint">
@@ -608,6 +668,15 @@ export function SudoDialog({
               </div>
             )}
           </div>
+          {methods.fallback === "microsoft" ? (
+            <form className="sudo-form sudo-dialog__fallback" action="/api/account/sudo/reauthenticate" method="post">
+              <input type="hidden" name="csrfToken" value={methods.csrfToken} />
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <Button type="submit" disabled={pending} size="lg" variant="outline">
+                <ShieldCheck aria-hidden="true" size={16} />Microsoft ile yeniden doğrula
+              </Button>
+            </form>
+          ) : null}
         </>
       ) : null}
     </dialog>

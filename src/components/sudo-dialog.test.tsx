@@ -346,3 +346,31 @@ describe("SudoDialog", () => {
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
 });
+
+
+describe("SudoDialog e-mail code", () => {
+  it("sends, announces the code field, preserves leading zeroes and verifies", async () => {
+    const request = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(methods({ methods: ["email-code"] }))
+      .mockResolvedValueOnce(json({ expiresAt: "2026-10-16T14:10:00Z" }, 202))
+      .mockResolvedValueOnce(json({ method: "email-code", expiresAt: "2026-10-16T14:05:00Z" }));
+    const onVerified = vi.fn();
+    render(<SudoDialog returnTo="/security" onVerified={onVerified} onDismiss={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "E-postama kod gönder" }));
+    const input = await screen.findByLabelText("E-posta doğrulama kodu");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(input).toHaveAttribute("autocomplete", "one-time-code");
+    expect(screen.getByRole("status")).toHaveTextContent("birincil e-posta");
+    fireEvent.change(input, { target: { value: "008 271" } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(onVerified).toHaveBeenCalledWith({ method: "email-code", expiresAt: "2026-10-16T14:05:00Z" }));
+    expect(requestOf(request.mock.calls[1]!).body).toEqual({});
+    expect(requestOf(request.mock.calls[2]!).body).toEqual({ code: "008271" });
+  });
+  it("offers Microsoft together with e-mail only when the backend says it is available", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(methods({ methods: ["email-code"], fallback: "microsoft" }));
+    render(<SudoDialog returnTo="/security" onVerified={vi.fn()} onDismiss={vi.fn()} />);
+    expect(await screen.findByRole("tab", { name: "E-posta kodu" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Microsoft ile yeniden doğrula" })).toBeVisible();
+  });
+});

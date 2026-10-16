@@ -43,6 +43,8 @@ export type SkyAccountIdentity = {
   primary: SkyAccountPrimaryEmail;
   verifiedYtu: boolean;
   nameLocked: boolean;
+  /** SPI capability; absent on older releases is parsed as false. */
+  sudoEmailCodeAvailable: boolean;
   usernameChangeAvailableAt: string | null;
   credentials: {
     password: boolean;
@@ -203,6 +205,8 @@ export interface SkyAccountClient {
   patchName(auth: BearerAuthorization, input: PatchNameInput): Promise<SkyAccountIdentity>;
   changeUsername(auth: SudoAuthorization, input: ChangeUsernameInput): Promise<SkyAccountIdentity>;
   sudoPassword(auth: BearerAuthorization, input: SudoPasswordInput): Promise<SudoGrant>;
+  sudoEmailCodeSend(auth: BearerAuthorization): Promise<EmailChangeRequest>;
+  sudoEmailCodeVerify(auth: BearerAuthorization, input: EmailConfirmInput): Promise<SudoGrant>;
   sudoTotp(auth: BearerAuthorization, input: SudoTotpInput): Promise<SudoGrant>;
   sudoWebauthnOptions(auth: BearerAuthorization): Promise<WebauthnAssertionOptions>;
   sudoWebauthnVerify(auth: BearerAuthorization, assertion: WebauthnAssertion): Promise<SudoGrant>;

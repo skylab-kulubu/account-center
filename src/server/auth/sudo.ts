@@ -20,7 +20,7 @@ export const SUDO_REAUTHENTICATION_LIFETIME_SECONDS = 5 * 60;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A proof method the person completes inside `my.` against the sky-account SPI. */
-export type SudoMethod = "password" | "totp" | "passkey";
+export type SudoMethod = "password" | "totp" | "passkey" | "email-code";
 /**
  * Every proof kind the vault records. `reauth` is the Microsoft fallback: the
  * callback turns the fresh ID token into a sky-account token with
@@ -31,7 +31,7 @@ export type SudoMethod = "password" | "totp" | "passkey";
 export type SudoProofMethod = SudoMethod | "reauth";
 export type SudoRequirementReason = "missing" | "expired";
 
-export const sudoMethods: readonly SudoMethod[] = ["password", "passkey", "totp"];
+export const sudoMethods: readonly SudoMethod[] = ["password", "passkey", "totp", "email-code"];
 const sudoProofMethods: ReadonlySet<string> = new Set<SudoProofMethod>([...sudoMethods, "reauth"]);
 
 export function isSudoMethod(value: unknown): value is SudoMethod {
