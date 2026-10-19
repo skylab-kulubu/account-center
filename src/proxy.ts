@@ -2,6 +2,11 @@ import { Buffer } from "node:buffer";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { parseProfilePictureOrigin } from "@/config/club-profile";
+import {
+  automaticLoginTarget,
+  LOGIN_REDIRECT_COOKIE,
+  LOGIN_REDIRECT_COOKIE_SECONDS,
+} from "@/lib/login-redirect";
 import { allowedReturnQuery } from "@/lib/return-query";
 
 const sessionCookie = "__Host-sky-account";
@@ -39,6 +44,16 @@ function isInternalPath(pathname: string) {
  */
 function isWellKnownPath(pathname: string) {
   return pathname === "/.well-known" || pathname.startsWith("/.well-known/");
+}
+
+/**
+ * A request the browser made ahead of a navigation the person may never
+ * take: Speculation Rules / address-bar prefetch and prerender send
+ * `Sec-Purpose: prefetch` (`prefetch;prerender`); older ones `Purpose: prefetch`.
+ */
+function isSpeculativeRequest(request: NextRequest) {
+  return [request.headers.get("sec-purpose"), request.headers.get("purpose")]
+    .some((value) => value?.split(";").some((token) => token.trim().toLowerCase() === "prefetch") ?? false);
 }
 
 function contentSecurityPolicy(nonce: string) {
@@ -83,6 +98,41 @@ export function proxy(request: NextRequest) {
   if (pathname === "/" && searchParams.has("kategori")) {
     const target = PREFERENCES_PATH + allowedReturnQuery(PREFERENCES_PATH, searchParams);
     const response = NextResponse.redirect(new URL(target, request.url));
+    response.headers.set("Content-Security-Policy", policy);
+    return response;
+  }
+
+  // `/login` is a stop only when it has something to say (`login-redirect.ts`);
+  // otherwise the person goes straight on to Keycloak with the same returnTo.
+  const loginTarget = pathname === "/login"
+    ? automaticLoginTarget(searchParams, request.cookies.has(LOGIN_REDIRECT_COOKIE))
+    : null;
+  if (loginTarget) {
+    // A client-side navigation (`<Link>`, `router.replace`) asks for an RSC
+    // payload with `fetch`: a redirect would run the login route inside that
+    // fetch, set the loop guard there and then fail on Keycloak's cross-origin
+    // hop. An empty answer instead makes Next load `/login` as a document,
+    // which comes back here without the RSC header.
+    // A browser's speculative prefetch or prerender (`Sec-Purpose: prefetch`,
+    // `prefetch;prerender`) gets the same empty answer: it must not start a
+    // login (transaction, Keycloak session, login budget) or arm the loop
+    // guard, which would show the page instead of the hop once the person
+    // really navigates. A 204 cancels the prerender; the real navigation then
+    // comes back here without the header.
+    if (request.headers.has("rsc") || isSpeculativeRequest(request)) {
+      const response = new NextResponse(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+      response.headers.set("Content-Security-Policy", policy);
+      return response;
+    }
+    const response = NextResponse.redirect(new URL(loginTarget, request.url));
+    response.cookies.set(LOGIN_REDIRECT_COOKIE, "1", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: LOGIN_REDIRECT_COOKIE_SECONDS,
+    });
+    response.headers.set("Cache-Control", "no-store");
     response.headers.set("Content-Security-Policy", policy);
     return response;
   }
