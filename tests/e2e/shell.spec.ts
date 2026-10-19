@@ -149,9 +149,78 @@ async function installAuthenticatedSession(
   return fixture;
 }
 
-test("desktop protected pages require OIDC login without a session", async ({ page }, testInfo) => {
+/**
+ * The proxy's one automatic `/login` hop (`src/lib/login-redirect.ts`) sets
+ * this; while it lives `/login` renders its page instead of hopping again.
+ */
+const loginHopCookieName = "__Host-sky-account-login-hop";
+
+async function armLoginHopGuard(context: BrowserContext) {
+  await context.addCookies([{
+    name: loginHopCookieName,
+    value: "1",
+    domain: "127.0.0.1",
+    path: "/",
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+  }]);
+}
+
+test("a protected page without a session goes through /login straight to the login route, once", async ({ playwright }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one assembled-server assertion is sufficient");
+  // The login route itself would talk to the production realm; the hops before it are what this asserts.
+  const request = await playwright.request.newContext({ baseURL: baseUrl, ignoreHTTPSErrors: true });
+
+  try {
+    const protectedPage = await request.get("/sessions", { maxRedirects: 0 });
+    expect(protectedPage.status()).toBe(307);
+    expect(protectedPage.headers().location).toMatch(/\/login\?returnTo=%2Fsessions$/);
+
+    const loginPage = await request.get("/login?returnTo=%2Fsessions", { maxRedirects: 0 });
+    expect(loginPage.status()).toBe(307);
+    expect(loginPage.headers().location).toMatch(/\/api\/auth\/login\?returnTo=%2Fsessions$/);
+    expect(loginPage.headers()["set-cookie"]).toContain(`${loginHopCookieName}=1`);
+
+    // Back on /login within the guard's lifetime (a loop would be): the page, not another hop.
+    const again = await request.get("/login?returnTo=%2Fsessions", { maxRedirects: 0 });
+    expect(again.status()).toBe(200);
+    expect(again.headers().location).toBeUndefined();
+    expect(await again.text()).toContain("SKY LAB ile giriş yap");
+
+    // A fresh browser: no guard cookie.
+    const fresh = await playwright.request.newContext({ baseURL: baseUrl, ignoreHTTPSErrors: true });
+    try {
+      const hostile = await fresh.get(`/login?returnTo=${encodeURIComponent("https://attacker.invalid/")}`, {
+        maxRedirects: 0,
+      });
+      expect(hostile.status()).toBe(307);
+      expect(hostile.headers().location).toMatch(/\/api\/auth\/login\?returnTo=%2F$/);
+    } finally {
+      await fresh.dispose();
+    }
+
+    // The notices are what the page is for: they render without any guard.
+    for (const notice of ["/login?loggedOut=1", "/login?sessionEnded=1", "/login?error=unavailable"]) {
+      const unguarded = await playwright.request.newContext({ baseURL: baseUrl, ignoreHTTPSErrors: true });
+      try {
+        const response = await unguarded.get(notice, { maxRedirects: 0 });
+        expect(response.status(), notice).toBe(200);
+        expect(response.headers().location, notice).toBeUndefined();
+      } finally {
+        await unguarded.dispose();
+      }
+    }
+  } finally {
+    await request.dispose();
+  }
+});
+
+test("desktop protected pages require OIDC login without a session", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   const errors = failOnPageErrors(page);
+  // With the guard armed the page renders, so its markup can be asserted without leaving for Keycloak.
+  await armLoginHopGuard(context);
   await page.goto("/");
 
   await expect(page).toHaveURL(/\/login\?returnTo=%2F$/);
@@ -279,8 +348,9 @@ test("native deletion errors return to branded actionable recovery UI", async ({
   expect(await page.content()).not.toContain("provider unavailable");
 });
 
-test("mobile protected pages preserve the safe return path without a session", async ({ page }, testInfo) => {
+test("mobile protected pages preserve the safe return path without a session", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "mobile-only assertion");
+  await armLoginHopGuard(context);
   await page.goto("/sessions");
 
   await expect(page).toHaveURL(/\/login\?returnTo=%2Fsessions$/);
