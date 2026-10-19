@@ -17,18 +17,24 @@ function job(name) {
 
 test("publishes only the single candidate image that passed every test and the container smoke test", () => {
   const image = job("image");
+  const publish = job("publish");
   assert.equal(workflow.match(/docker\/build-push-action@v7/g)?.length, 1);
   assert.match(image, /docker\/build-push-action@v7/);
   assert.match(image, /load: true/);
   assert.match(image, /push: false/);
-  assert.match(image, /needs: \[scope, verify, browser, migration-compatibility\]/);
-  assert.match(image, /!contains\(needs\.\*\.result, 'failure'\)/);
-  assert.ok(workflow.indexOf("pnpm test:e2e") < workflow.indexOf("docker/build-push-action@v7"));
-  assert.ok(image.indexOf("Smoke-test candidate image") < image.indexOf("docker push \"$target\""));
   assert.match(image, /EXPECTED_IMAGE_ID: \$\{\{ steps\.candidate\.outputs\.imageid \}\}/);
-  assert.match(image, /source_image_id=.*docker image inspect/);
+  assert.ok(image.indexOf("Smoke-test candidate image") < image.indexOf("docker save"));
   assert.ok(image.indexOf("assert-retired-handoff.mjs") > image.indexOf("Smoke-test candidate image"));
-  assert.ok(image.indexOf("assert-retired-handoff.mjs") < image.indexOf("docker push \"$target\""));
+  assert.ok(image.indexOf("assert-retired-handoff.mjs") < image.indexOf("docker save"));
+  assert.doesNotMatch(image, /docker push/);
+
+  assert.match(publish, /needs: \[scope, verify, browser, migration-compatibility, image\]/);
+  assert.doesNotMatch(publish, /always\(\)/);
+  assert.doesNotMatch(publish, /build-push-action/);
+  assert.match(publish, /sha256sum --check --strict/);
+  assert.match(publish, /= "\$EXPECTED_IMAGE_ID"/);
+  assert.match(publish, /source_image_id=.*docker image inspect/);
+  assert.ok(publish.indexOf("docker load") < publish.indexOf('docker push "$target"'));
 });
 
 test("promotes the tested main image to production without rebuilding it", () => {
@@ -43,7 +49,7 @@ test("promotes the tested main image to production without rebuilding it", () =>
 test("triggers the production Dokploy deployment only after the gate passed", () => {
   const gate = job("gate");
   const deploy = job("deploy");
-  assert.match(gate, /needs: \[scope, verify, browser, migration-compatibility, image, promote\]/);
+  assert.match(gate, /needs: \[scope, verify, browser, migration-compatibility, image, publish, promote\]/);
   assert.match(deploy, /needs: gate/);
   assert.match(deploy, /github\.ref == 'refs\/heads\/production'/);
   assert.match(deploy, /DOKPLOY_DEPLOY_HOOK: \$\{\{ secrets\.DOKPLOY_DEPLOY_HOOK \}\}/);

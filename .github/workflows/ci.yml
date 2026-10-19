@@ -10,7 +10,7 @@ name: CI
 #   already tested green (production is a squash of main, so the tree is compared, not the commit).
 #   No test runs again and the image is not rebuilt: the main image of that tree is promoted to the
 #   production tags (promote), then Dokploy deploys it (deploy).
-# A push to main publishes the image only after every test passed (image needs them). One required
+# A push to main publishes the image only after every test passed (publish needs them). One required
 # check: gate.
 on:
   pull_request:
@@ -29,6 +29,8 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/skylab-kulubu/account-center
+  # A push, or a manual run on main or production (the way back when a promotion cannot run).
+  PUBLISH: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production') }}
 
 jobs:
   scope:
@@ -74,7 +76,7 @@ jobs:
               [[ $(gh api "repos/$GITHUB_REPOSITORY/git/commits/$head_sha" --jq .tree.sha) == "$tree" ]] || continue
               jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
                 --jq '.jobs[] | "\(.conclusion) \(.name)"')
-              if grep -qxF 'success gate' <<<"$jobs" && grep -qxF 'success image' <<<"$jobs"; then
+              if grep -qxF 'success gate' <<<"$jobs" && grep -qxF 'success publish' <<<"$jobs"; then
                 echo "$head_sha"
                 return 0
               fi
@@ -202,8 +204,10 @@ jobs:
 
   # Playwright in four parallel jobs. The account-ui-matrix project depends on desktop, mobile and
   # reduced-motion, and Playwright runs a dependency project whole in every shard that needs it, so
-  # --shard splits only the four projects without dependencies; account-ui-matrix runs alone after
-  # global-setup has compiled every route (the reason for that dependency, playwright.config.ts).
+  # it runs alone with --no-deps (global-setup has compiled every route, the reason for that
+  # dependency, playwright.config.ts). Most tests run on desktop only (the others skip them), so
+  # desktop is split in two and the other three projects share one job (2026-10-19: a --shard=1/3
+  # of all four took 239 s, 3/3 85 s).
   browser:
     name: browser (${{ matrix.shard }})
     needs: scope
@@ -214,12 +218,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: 1/3
-            args: --project=desktop --project=mobile --project=reduced-motion --project=account-deletion-enforce --shard=1/3
-          - shard: 2/3
-            args: --project=desktop --project=mobile --project=reduced-motion --project=account-deletion-enforce --shard=2/3
-          - shard: 3/3
-            args: --project=desktop --project=mobile --project=reduced-motion --project=account-deletion-enforce --shard=3/3
+          - shard: desktop 1/2
+            args: --project=desktop --shard=1/2
+          - shard: desktop 2/2
+            args: --project=desktop --shard=2/2
+          - shard: mobile, reduced-motion, account-deletion-enforce
+            args: --project=mobile --project=reduced-motion --project=account-deletion-enforce
           - shard: account-ui-matrix
             args: --project=account-ui-matrix --no-deps
     services:
@@ -321,20 +325,16 @@ jobs:
           pnpm db:migrate
           pnpm db:migrate
 
-  # Builds the one candidate image and smoke-tests it. On a push to main, a production commit whose
-  # tree main has not tested, or a manual run on either branch, it waits for every test and publishes
-  # exactly those bytes as <branch> and <branch>-<sha7>; otherwise it only builds and smoke-tests.
+  # Builds the one candidate image and smoke-tests it, in parallel with the tests. When it will be
+  # published it also saves those bytes for publish.
   image:
-    needs: [scope, verify, browser, migration-compatibility]
-    if: >-
-      always() && !cancelled() && needs.scope.result == 'success'
-      && !contains(needs.*.result, 'failure')
-      && (needs.scope.outputs.mode == 'full' || needs.scope.outputs.docker == 'true')
+    needs: scope
+    if: needs.scope.outputs.mode == 'full' || needs.scope.outputs.docker == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: read
-      packages: write
+    outputs:
+      image-id: ${{ steps.candidate.outputs.imageid }}
+      archive-sha256: ${{ steps.save.outputs.sha256 }}
     services:
       postgres:
         image: postgres:18
@@ -352,8 +352,6 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
       CANDIDATE_IMAGE: ghcr.io/skylab-kulubu/account-center:candidate-${{ github.sha }}
-      # A push, or a manual run on main or production (the way back when a promotion cannot run).
-      PUBLISH: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production') }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -403,14 +401,57 @@ jobs:
             --retry-delay 1 http://127.0.0.1:33100/api/ready
           RETIRED_HANDOFF_TEST_ORIGIN=http://127.0.0.1:33100 node scripts/assert-retired-handoff.mjs
           EDGE_PATHS_TEST_ORIGIN=http://127.0.0.1:33100 node scripts/assert-edge-paths.mjs
-      - uses: docker/login-action@v4
+      - name: Save the verified candidate for publish
+        id: save
         if: env.PUBLISH == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate"
+          docker save "$CANDIDATE_IMAGE" | gzip -1 > "$RUNNER_TEMP/candidate/image.tar.gz"
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/candidate/image.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: env.PUBLISH == 'true'
+        with:
+          name: account-center-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate
+          if-no-files-found: error
+          retention-days: 1
+          # The tarball is gzip already.
+          compression-level: 0
+
+  # On a push to main, a production commit whose tree main has not tested, or a manual run on
+  # either branch: once every test and the smoke test passed, publishes exactly the bytes image
+  # tested (same archive hash, same image ID) as <branch> and <branch>-<sha7>. No rebuild.
+  publish:
+    needs: [scope, verify, browser, migration-compatibility, image]
+    if: needs.image.result == 'success' && needs.image.outputs.archive-sha256 != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      CANDIDATE_IMAGE: ghcr.io/skylab-kulubu/account-center:candidate-${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: account-center-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate
+      - name: Load the verified candidate
+        env:
+          ARCHIVE_SHA256: ${{ needs.image.outputs.archive-sha256 }}
+          EXPECTED_IMAGE_ID: ${{ needs.image.outputs.image-id }}
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/candidate/image.tar.gz" | sha256sum --check --strict
+          gzip -dc "$RUNNER_TEMP/candidate/image.tar.gz" | docker load
+          test "$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")" = "$EXPECTED_IMAGE_ID"
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish the verified image without rebuilding
-        if: env.PUBLISH == 'true'
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
@@ -460,10 +501,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The one required check. Fails when a job failed or was cancelled; in full mode every test job
-  # and the image must have passed, in tested mode the push to production must have promoted.
+  # and the image (and publish, when it publishes) must have passed, in tested mode the push to
+  # production must have promoted.
   gate:
     if: always()
-    needs: [scope, verify, browser, migration-compatibility, image, promote]
+    needs: [scope, verify, browser, migration-compatibility, image, publish, promote]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -486,7 +528,10 @@ jobs:
             full)
               for job in verify browser migration-compatibility image; do
                 test "$(result "$job")" = success || { echo "full mode: $job did not pass" >&2; exit 1; }
-              done ;;
+              done
+              if [[ $PUBLISH == true ]]; then
+                test "$(result publish)" = success || { echo 'full mode: publish did not pass' >&2; exit 1; }
+              fi ;;
             tested)
               if [[ $PRODUCTION_PUSH == true ]]; then
                 test "$(result promote)" = success || { echo 'the production push was not promoted' >&2; exit 1; }
