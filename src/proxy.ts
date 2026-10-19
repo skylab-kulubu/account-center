@@ -46,6 +46,16 @@ function isWellKnownPath(pathname: string) {
   return pathname === "/.well-known" || pathname.startsWith("/.well-known/");
 }
 
+/**
+ * A request the browser made ahead of a navigation the person may never
+ * take: Speculation Rules / address-bar prefetch and prerender send
+ * `Sec-Purpose: prefetch` (`prefetch;prerender`); older ones `Purpose: prefetch`.
+ */
+function isSpeculativeRequest(request: NextRequest) {
+  return [request.headers.get("sec-purpose"), request.headers.get("purpose")]
+    .some((value) => value?.split(";").some((token) => token.trim().toLowerCase() === "prefetch") ?? false);
+}
+
 function contentSecurityPolicy(nonce: string) {
   const isDevelopment = process.env.NODE_ENV === "development";
 
@@ -103,7 +113,13 @@ export function proxy(request: NextRequest) {
     // fetch, set the loop guard there and then fail on Keycloak's cross-origin
     // hop. An empty answer instead makes Next load `/login` as a document,
     // which comes back here without the RSC header.
-    if (request.headers.has("rsc")) {
+    // A browser's speculative prefetch or prerender (`Sec-Purpose: prefetch`,
+    // `prefetch;prerender`) gets the same empty answer: it must not start a
+    // login (transaction, Keycloak session, login budget) or arm the loop
+    // guard, which would show the page instead of the hop once the person
+    // really navigates. A 204 cancels the prerender; the real navigation then
+    // comes back here without the header.
+    if (request.headers.has("rsc") || isSpeculativeRequest(request)) {
       const response = new NextResponse(null, { status: 204, headers: { "Cache-Control": "no-store" } });
       response.headers.set("Content-Security-Policy", policy);
       return response;

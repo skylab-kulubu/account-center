@@ -324,6 +324,35 @@ describe("automatic login", () => {
   });
 
   it.each([
+    ["Sec-Purpose", "prefetch;prerender"],
+    ["Sec-Purpose", "prefetch"],
+    ["Sec-Purpose", "Prefetch; anonymous-client-ip"],
+    ["Purpose", "prefetch"],
+  ])("never starts a login for a speculative %s: %s request", async (name, value) => {
+    const response = login("/login?returnTo=%2Fsessions", { [name]: value });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("");
+
+    // The real navigation afterwards still hops once.
+    const navigation = login("/login?returnTo=%2Fsessions");
+    expect(navigation.status).toBe(307);
+    expect(navigation.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/api/auth/login?returnTo=%2Fsessions",
+    );
+  });
+
+  it("keeps a prerendered notice page: only the automatic hop is held back", () => {
+    const response = login("/login?loggedOut=1", { "Sec-Purpose": "prefetch;prerender" });
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it.each([
     ["/login", {}],
     ["/login?returnTo=%2Fsessions", {}],
   ])("runs for %s", (url, headers) => {
