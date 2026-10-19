@@ -60,7 +60,7 @@ export function securityView(
   reference: ReferenceSource,
   active: { method: SudoProofMethod; expiresAt: Date } | null,
 ): SecurityView {
-  const availability = sudoMethodAvailability(identity.credentials);
+  const availability = sudoMethodAvailability(identity);
   const usable = (credential: SkyAccountCredential) => CREDENTIAL_ID.test(credential.id);
   return {
     password: identity.credentials.password,

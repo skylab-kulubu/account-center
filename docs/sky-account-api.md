@@ -1,5 +1,3 @@
-<!-- Sürüm sabiti: Account Center sky-account istemcisi (`src/server/sky-account/client.ts`) bu belgenin v1 sözleşmesine yazılmıştır. Kanonik kopya sky-account SPI ile birlikte e-skylab-keycloak deposundadır; buradaki kopya istemcinin ve `tests/fixtures/sky-account-v1-*.json` fixture'larının bağlı olduğu sürümü sabitler. Kanonik kopyadaki "core için introspection sözleşmesi" bölümü core'u ilgilendirir ve burada yoktur; Account Center'ın kendi davranışına ilişkin düzeltmeler (BFF notları) yalnız bu kopyadadır. -->
-
 # sky-account API v1 — Account Center BFF sözleşmesi
 
 `sky-account`, SKY LAB Keycloak imajının içinde çalışan bir `RealmResourceProvider`
@@ -52,9 +50,11 @@ Hassas işlemler (`credentials/*`, `identity/username`, `email/change-request`,
 `email/confirm` sudo istemez: postadaki kod adresi, kişinin kendi oturumu da kişiyi
 kanıtlar (bkz. `POST email/confirm`). Kişi parolasını, doğrulama uygulaması kodunu ya da passkey'ini
 `POST sudo/password` / `POST sudo/totp` / `POST sudo/webauthn/verify` ile kanıtlar;
-yanıt bir sudo token verir. Bunların hiçbiri olmayan kişi (bugün çoğu YTÜ hesabı)
-Keycloak'ta yeniden giriş yapar (Microsoft) ve BFF, callback'te aldığı taze ID
-token'ı `POST sudo/authentication` ile kanıt olarak sunar. BFF sudo token'ı
+yanıt bir sudo token verir. Bunların hiçbiri olmayan kişi, o anki doğrulanmış
+birincil e-postasına `POST sudo/email-code/send` ile altı haneli kod alır ve
+`POST sudo/email-code/verify` ile kanıtlar. YTÜ bağlantısı varsa Microsoft ile
+tekrar giriş de sunulur; BFF callback'te aldığı taze ID token'ı
+`POST sudo/authentication` ile kanıt olarak sunar. BFF sudo token'ı
 sonraki isteklerde `X-Sky-Sudo: <sudoToken>` başlığıyla gönderir.
 
 Sudo token, Keycloak'ın **iç** token'ları gibi realm HMAC anahtarıyla
@@ -69,7 +69,7 @@ opak bir dize olarak saklar ve geri gönderir; içeriğine güvenmez.
 | `sub` | kişinin Keycloak id'si (bearer `sub`) |
 | `sid` | kanıtı üreten Hesap Merkezi oturumu (bearer `sid`) |
 | `azp` | `account-center` |
-| `aud` | `["sky-account","core"]` (her zaman dizi; K3e) |
+| `aud` | `["sky-account","core"]` (her zaman dizi) |
 | `amr` | `["pwd"]`, `["otp"]`, passkey için `["hwk","user"]`, taze giriş kanıtı için `["idp"]` (ID token kendi `amr` claim'ini taşıyorsa o değerler) |
 | `jti`, `iat`, `nbf`, `exp` | `exp = iat + 300`; taze giriş kanıtında `exp = auth_time + 300` (hiçbir zaman `iat + 300`'den geç değil) |
 
@@ -78,15 +78,16 @@ Keycloak'ın iç algoritması `HS512`), `typ`, `iss`, `aud` içinde `sky-account
 `azp`, `jti`, `sub` ve `sid` bearer'ın değerleriyle eşit, `iat`/`nbf` gelecekte
 değil (10 sn tolerans), `exp` geçmemiş.
 
-`aud` içindeki `core` (K3e), core'un hesap silmede (A7b, `X-Sky-Sudo`) sudo
+`aud` içindeki `core` (K3e) core'un hesap silmede (A7b, `X-Sky-Sudo`) sudo
 kanıtını doğrulayabilmesi içindir: token Keycloak'ın iç HMAC anahtarıyla
 imzalandığı için core onu kendisi doğrulayamaz, Keycloak'ın introspection
-ucuna kendi gizli `core` istemcisiyle sorar. Keycloak introspection'ı yalnız
-token'ın `aud` değerinde adı geçen istemciye yanıtlar; bu yüzden audience
-kontrolü hiçbir yerde gevşetilmeden `core` ikinci audience olarak eklendi.
-Introspection yanıtında `account-center` mapper'ları `account`'u da ekler;
-core `aud` için eşitlik değil içerme (`sky-account` ve `core`) arar. BFF
-token'ı opak tuttuğu için bu değişiklik istemciyi etkilemez.
+ucuna kendi gizli `core` istemcisiyle sorar. Keycloak 26.7 introspection'ı
+yalnız token'ın `aud` değerinde adı geçen istemciye yanıtlar; bu yüzden
+audience kontrolü hiçbir yerde gevşetilmeden `core` ikinci audience olarak
+eklendi. `sky-account` kendi kontrolünde yalnız `sky-account`'u arar; yalnız
+`core` taşıyan bir token reddedilir, bu sürümden önce yalnız `sky-account` ile
+verilmiş (beş dakikalık) token'lar geçerliliğini korur.
+
 Token **tek kullanımlık değildir**: beş dakikalık pencere içinde aynı oturumun
 tüm hassas işlemlerini karşılar. Başka bir oturumun (`sid`) bearer'ıyla
 kullanılamaz; süresi geçince `401 sudo_expired`, diğer her ret `401 sudo_required`
@@ -94,7 +95,7 @@ döner. BFF token'ı yalnız şifreli oturum kaydında tutar, tarayıcıya verme
 
 Her başarılı kanıt bir denetim olayı bırakır: `CUSTOM_REQUIRED_ACTION`
 (`client=account-center`, kişi, oturum) ve ayrıntılar
-`action=sky-sudo`, `method=password|totp|passkey|authentication` (passkey için
+`action=sky-sudo`, `method=password|totp|passkey|email-code|authentication` (passkey için
 ayrıca imzalayan kimlik bilgisinin `public_key_credential_id` değeri; taze giriş
 kanıtı için doğrulanan ID token'ın `auth_time` değeri).
 
@@ -114,6 +115,63 @@ sıfırlama, kalıcı kilit yok) ve parola politikasını
 (`length(8) and notUsername and notEmail`) her koşuda açık tutar; bu API o
 ayarları olduğu gibi kullanır.
 
+### core için introspection sözleşmesi
+
+`POST /realms/{realm}/protocol/openid-connect/token/introspect`, HTTP Basic
+`core:<core istemci sırrı>`, gövde `token=<sudo token>`. Gerçek Keycloak
+26.7.4'te bir sudo token için dönen yanıtın biçimi (değerler gizlendi;
+`tests/sky-account-contract.sh` → `sky-account sudo token introspection by core`
+aşaması doğrular):
+
+```json
+{
+  "exp": 0,
+  "iat": 0,
+  "auth_time": 0,
+  "jti": "<uuid>",
+  "iss": "https://e.yildizskylab.com/realms/e-skylab",
+  "aud": ["sky-account", "core", "account"],
+  "sub": "<kişinin Keycloak id'si>",
+  "typ": "sky-sudo",
+  "azp": "account-center",
+  "sid": "<Hesap Merkezi oturum id'si>",
+  "resource_access": { "account": { "roles": ["manage-account", "manage-account-links", "view-profile"] } },
+  "sky_session_expires": 0,
+  "sky_authorization": { "<istemci>": { "roles": ["<rol>"] } },
+  "sky_session_started": 0,
+  "client_id": "account-center",
+  "username": "<kullanıcı adı>",
+  "token_type": "sky-sudo",
+  "active": true
+}
+```
+
+- `typ`, `token_type`, `azp`, `client_id`, `sub`, `sid`, `iss`, `jti`, `iat`,
+  `exp` ve `aud` token'dan kopyalanır. `aud` her zaman **dizidir** ve
+  `account-center`'ın introspection mapper'ları onu genişletir (bugün
+  `account` eklenir): core `aud` için eşitlik değil **içerme** (`sky-account`
+  ve `core`) kontrol etmelidir.
+- `amr` ve `nbf` introspection yanıtında **yoktur** (Keycloak yalnız temel
+  claim'leri kopyalar). Kanıt yöntemi gerekiyorsa core onu buradan okuyamaz.
+- `auth_time`, `resource_access`, `sky_authorization`, `sky_session_*` ve
+  `username` token'dan değil, `account-center` istemcisinin oturumdan
+  ürettiği introspection mapper'larından gelir. Buradaki `auth_time` oturumun
+  **giriş** zamanıdır, sudo kanıtının zamanı değildir; sudo yolunda
+  tazelik yalnız token'ın kendi `exp` değerinden gelir.
+- Bir Hesap Merkezi access token'ı da core'a `active:true` döner
+  (`typ=Bearer`, `aud` içinde `sky-account` yok). Core sudo kanıtını
+  `typ == "sky-sudo"` **ve** `aud ∋ "sky-account"` ile ayırt etmelidir;
+  ayrıca `azp == "account-center"`, `sub` bearer'ın `sub` değerine, `sid`
+  bearer'ın `sid` değerine eşit olmalı, `iss` realm issuer olmalı ve `exp`
+  geçmemiş olmalıdır (Keycloak da `exp`'i kontrol eder, ama core yanıtı
+  kendisi de doğrulamalıdır).
+- Keycloak `active:false` döner (başka alan yok) eğer: çağıran istemci
+  `aud`'da değilse (ör. `account-center`), token'ın `sid` oturumu kapanmışsa
+  ya da `account-center` istemci oturumu yoksa, kişi devre dışıysa/yoksa,
+  `exp` geçmişse, `azp` istemcisi devre dışıysa, `iss` realm issuer'ı değilse
+  ya da imza realm anahtarıyla doğrulanmazsa. Keycloak introspection'da `typ`
+  kontrol etmez; o core'un işidir.
+
 ## Hız sınırları
 
 Kullanıcı başına, sabit 15 dakikalık pencere, Keycloak'ın single-use object
@@ -125,7 +183,8 @@ yuvasını tutar. Yuvalar pencere sonunda kendiliğinden düşer.
 
 | Bütçe | Uç noktalar | Sınır |
 | --- | --- | --- |
-| `sudo` | `sudo/password`, `sudo/totp`, `sudo/authentication` | 10 / 15 dk |
+| `sudo` | `sudo/password`, `sudo/totp`, `sudo/authentication`, `sudo/email-code/verify` | 10 / 15 dk |
+| `sudo-email-send` | `sudo/email-code/send` | 3 / 1 saat |
 | `sudo-passkey` | `sudo/webauthn/verify` | 10 / 15 dk |
 | `sudo-options` | `sudo/webauthn/options` | 30 / 15 dk |
 | `totp-confirm` | `credentials/totp/confirm` | 10 / 15 dk |
@@ -187,6 +246,10 @@ temasındaki Türkçe mesaj paketinden üretilir.
 | 401 | `user_temporarily_locked` | — | Brute-force geçici kilidi |
 | 401 | `user_disabled` | — | Kalıcı kilit / devre dışı hesap |
 | 400 | `invalid_request` | `field?` | Gövde JSON değil, bilinmeyen alan, tip/uzunluk hatası, eksik alan |
+| 403 | `sudo_email_not_allowed` | — | Parola, passkey veya TOTP var; e-posta Sudo kapalı |
+| 409 | `sudo_email_unavailable` | — | Geçerli ve doğrulanmış current-primary yok |
+| 400 | `invalid_sudo_email_code` | `attemptsLeft` | Yanlış Sudo kodu; 0'da ölür |
+| 404 | `no_pending_sudo_email_code` | — | Sudo kodu yok, kullanılmış, süresi dolmuş veya primary değişmiş |
 | 400 | `password_not_configured` | — | Hesapta parola yok (sudo/password) |
 | 400 | `totp_not_configured` | — | Hesapta OTP yok (sudo/totp) |
 | 400 | `passkey_not_registered` | — | Hesapta passkey yok (sudo/webauthn) |
@@ -201,7 +264,6 @@ temasındaki Türkçe mesaj paketinden üretilir.
 | 400 | `invalid_username` | `field` | `^[a-z0-9._]{3,30}$` desenine uymuyor |
 | 403 | `name_locked` | — | Doğrulanmış YTÜ hesabı adını değiştiremez |
 | 404 | `credential_not_found` | — | Kimlik bilgisi yok, kişiye ait değil ya da silinemez türde (parola) |
-| 400 | `email_school_domain` | `field` | Adres YTÜ alan adında (`yildiz.edu.tr` ya da alt alan adı, ör. `std.yildiz.edu.tr`); kişisel e-posta olamaz |
 | 400 | `invalid_email_code` | `attemptsLeft` | E-posta doğrulama kodu yanlış; `attemptsLeft` 0 ise kod öldü, yeni kod istenmeli |
 | 404 | `no_pending_email_change` | — | Kişinin bekleyen bir e-posta değişikliği yok: hiç istenmedi, kullanıldı, süresi doldu ya da deneme hakkı bitti |
 | 409 | `duplicate_label` | — | Aynı adda OTP ya da passkey zaten var |
@@ -240,8 +302,8 @@ WebAuthn ceremony'si `my.` origin'inde tarayıcıda çalışır; SPI hiçbir zam
    `navigator.credentials.create({publicKey})` ya da `.get({publicKey})` çalıştırır.
 3. Tarayıcı sonucu (`PublicKeyCredential`) base64url alanlarla JSON'a çevirip
    (örn. `PublicKeyCredential.toJSON()` ya da alanları elle) BFF'ye verir; BFF
-   yalnız bu sözleşmenin üyelerini `POST credentials/webauthn/register` (etiket ekleyerek) ya da
-   `POST sudo/webauthn/verify`'e iletir: `authenticatorAttachment` yalnız kayıt gövdesinde gider, `clientExtensionResults` (SPI kabul etse de) hiçbir gövdede gönderilmez.
+   olduğu gibi `POST credentials/webauthn/register` (etiket ekleyerek) ya da
+   `POST sudo/webauthn/verify`'e iletir.
 
 Tüm ikili alanlar **base64url** (RFC 4648 §5, padding'siz üretilir, padding'li de
 kabul edilir). `id` ile `rawId` eşit olmalıdır. SPI'nin CORS'u yoktur; seçenekleri
@@ -263,6 +325,7 @@ tarayıcıya ve sonucu SPI'ye taşıyan BFF'dir.
   "primary": "school",
   "verifiedYtu": true,
   "nameLocked": true,
+  "sudoEmailCodeAvailable": false,
   "usernameChangeAvailableAt": null,
   "credentials": {
     "password": true,
@@ -284,15 +347,18 @@ tarayıcıya ve sonucu SPI'ye taşıyan BFF'dir.
   bağlantısı var. `nameLocked == verifiedYtu`.
 - `usernameChangeAvailableAt`: kullanıcı adı en son 14 günden kısa süre önce
   değiştiyse bir sonraki izinli an; değilse `null`.
-- Üçü de boşsa (`password == false`, `totp == []`, `passkeys == []`) kişi
-  `my.` içinde kanıt veremez; BFF Microsoft ile yeniden girişe yönlendirir ve
-  callback'ten sonra `POST sudo/authentication` ile sudo token alır.
+- `sudoEmailCodeAvailable`: parola, passkey ve TOTP yok **ve** Keycloak `email`
+  alanı geçerli, boş olmayan, `emailVerified=true` birincil adres. BFF yalnız bu
+  capability `true` ise e-posta yöntemini sunar; eski SPI yanıtında alan yoksa
+  `false` kabul eder. `verifiedYtu=true` ise Microsoft yedeği de birlikte sunulur.
+  Passkey/parola/TOTP eklenince capability bir sonraki okumada `false` olur;
+  BFF yöntemleri cache'lemez, pencere her açılışta yeniden okur.
 - `credentials.password`: Keycloak'ın `isConfiguredFor("password")` sonucu.
   `totp`: `otp` türündeki, `passkeys`: yalnız `webauthn-passwordless` türündeki
   saklı kimlik bilgileri (tek credential akışından süzülür; etiket kullanıcı
   etiketi, `createdAt` Keycloak oluşturma zamanı). Her passkey ayrıca, kayıt
   sırasında tarayıcının bildirdiği taşıyıcıları (`transports`, sıralı;
-  bilinmiyorsa boş dizi; BFF alanın yokluğunu da boş dizi sayar) taşır. Eski iki-faktör `webauthn` kimlik bilgileri
+  bilinmiyorsa boş dizi) taşır. Eski iki-faktör `webauthn` kimlik bilgileri
   passkey değildir: listelenmez, sudo'da ve `excludeCredentials`/`allowCredentials`
   listelerinde kullanılmaz; yalnız `DELETE credentials/{id}` ile silinebilir.
 
@@ -319,6 +385,50 @@ günden yeni ise `409 username_cooldown`. Başarıda `200` + güncel `identity`,
 (`previous_username`, `updated_username`). Realm `editUsernameAllowed=false`
 kalır: Account REST ve Admin REST kullanıcı adını değiştiremez, yalnız bu uç
 nokta değiştirir.
+
+### `POST sudo/email-code/send` / `POST sudo/email-code/verify`
+
+Gönderim isteği `{}`; adres alanı kabul edilmez. Yalnız parola, passkey ve TOTP'si
+olmayan, o anki doğrulanmış birincil adresine kod alabilen kişiye `202` +
+`{"expiresAt":"…"}` döner. `emailVerified=false`, eksik veya geçersiz birincil
+adres `409 sudo_email_unavailable`; faktörlerden biri varsa
+`403 sudo_email_not_allowed`. School e-mail yedeği veya bekleyen yeni kişisel
+adres hiçbir zaman hedef seçilmez. `email/change-request` için Sudo kanıtı böylece
+eski, o anki birincil posta kutusundan alınır.
+
+Doğrulama isteği `{"code":"008271"}`; kod **string** olarak altı ASCII rakam,
+kopyalanan boşluklar kabul edilir. On dakika yaşar, tam son anda geçersizdir,
+beş yanlışta ölür, tek kullanımlıdır. Yeniden gönderim aynı oturumun önceki
+kodunu değiştirir. Kayıt yalnız tuzlu SHA-256 özeti ve kısa ömürlü payload tutar;
+`sky-account:sudo-email-code:` namespace'i login/signup/link ve personal-email
+kodlarından ayrıdır. Realm + `sub` + bearer `sid` anahtar bağı active-handle pointer
+tutar; her gönderimin kod kaydı rastgele ayrı handle taşır. Pointer yalnız
+başarılı teslimden sonra yayınlanır; eski gönderimin hatası yeni teslimin
+kodunu silemez. Consume sonrası pointer yeniden kontrol edilir; yeniden
+gönderim sırasında emekli edilen eski kod grant vermez. Hedef o anki
+birincile bağlanır. Gönderim ve doğrulama faktör/primary uygunluğunu yeniden
+kontrol eder; arada faktör eklenirse kod silinir, primary değişirse eski kod
+geçersizdir. Başka kullanıcı veya oturumun kodu kullanılamaz.
+
+Yanlış kod `400 invalid_sudo_email_code` (`attemptsLeft: 0..4`); olmayan,
+kullanılmış, süresi dolmuş veya primary'si değişmiş kod
+`404 no_pending_sudo_email_code`. Her doğrulama `sudo` bütçesinden düşer;
+gönderim `sudo-email-send` ile kullanıcı başına 3/saat. Mevcut brute-force kilidi
+iki uçta kontrol edilir. Yanlış kod Keycloak 26.7.4'ün saydığı `password`
+kategorisinden `failedLogin` olur; bu bir parola kontrolü değildir. Başarılı
+kanıt standart 5 dakikalık `sub` + `sid` bağlı HMAC Sudo token'ı verir,
+`amr=["otp"]`, audit `method=email-code`. Kod ve adres loglara girmez.
+
+Posta SkyMail `keycloak.login-code` anahtarına **`purpose=sudo`** ile gider;
+konu kod içermez. SMTP yedeği `sky-sudo-code.ftl` ile aynı işlem-onayı metnini
+kullanır. Gönderim başarısızsa kod silinir ve `503 email_not_sent` döner.
+
+Yayın bağımlılığı: önce SkyMail'in `purpose=sudo` şablonu seed edilip hazır
+olmalı; ardından Keycloak, sonra account-center. Bu uçların imaja eklenmesi,
+uygun mevcut kullanıcıların e-posta Sudo yolunu API üzerinden açar; bağımsız
+bir feature flag yoktur. Kayıt akışını veya canlı realm ayarını kendiliğinden
+açmaz. #106 kayıt yayını öncesinde sandbox yürüyüşü ve bağımsız güvenlik
+incelemesi tamamlanmalıdır.
 
 ### `POST sudo/password`
 
@@ -422,14 +532,14 @@ Kişinin ayrıca parolası/TOTP'si/passkey'i olması bu ucu kapatmaz: taze bir
 Keycloak girişi en az onlar kadar güçlü bir kanıttır; "yalnız hiçbiri olmayanlar
 Microsoft ile yeniden doğrular" kuralı ürün kararıdır ve BFF'de uygulanır.
 
-Hesap Merkezi akışı: `GET identity` üç kimlik bilgisini de boş gösterir → BFF
-`prompt=login&max_age=0` ile Keycloak'a yönlendirir (Keycloak oturumu
-genellikle korunur, `auth_time` yenilenir) → callback `auth_time`'ın işlemi
-başlatma anından eski olmadığını, `sub` eşleşmesini ve `sid` varlığını doğrular
-(BFF yeni bir `sid`'i de kabul eder) ve yeni token'ları saklar → BFF `POST sudo/authentication {idToken}` çağırır →
+Hesap Merkezi Microsoft yedeği: `GET identity` üç kimlik bilgisini de boş ve
+`verifiedYtu=true` gösterir → BFF
+`prompt=login&max_age=0` ile Keycloak'a yönlendirir (oturum `sid` korunur,
+`auth_time` yenilenir) → callback `auth_time`, `sid`, `sub` bağını doğrular ve
+yeni token'ları saklar → BFF `POST sudo/authentication {idToken}` çağırır →
 dönen sudo token oturum kaydına `method=reauth` ile yazılır ve sonraki
-`credentials/*`, `identity/username`, `email/*` isteklerinde ve hesap silmede
-core'un self-delete intake'ine `X-Sky-Sudo` ile gönderilir. `POST sudo/authentication` başarısız olursa BFF token'sız bir `reauth` kanıtı yazar (`auth_time + 300`); o yalnız `my.` içindeki yerel kapıları karşılar, `X-Sky-Sudo` isteyen uçlar onu `428 spi_token_required` ile reddeder ve siler.
+`credentials/*`, `identity/username`, `email/*` isteklerinde `X-Sky-Sudo` ile
+gönderilir. Token'sız `reauth` kanıtı yalnız geçiş dönemi için bir yedektir.
 
 ### `POST credentials/password` — sudo gerekir
 
@@ -584,7 +694,7 @@ Kişisel e-posta iki yoldan doğar:
    kalır ve `primary` `personal` okunur. `yildiz.edu.tr` ya da alt alan adlarındaki
    adresler, başka birinde (`email`, `schoolEmail`, `personalEmail`) olan adresler ve
    iki kişiye birden düşecek adresler devralınmaz, yalnız sayılır. Doğrulanmamış eski
-   birincil olduğu gibi kalır; kişi onu `my./email`'de kodla kanıtlar (aşağıda). Operatör adımları: e-skylab-keycloak `docs/v2-identity-reconcile-runbook.md` §10.
+   birincil olduğu gibi kalır; kişi onu `my./email`'de kodla kanıtlar (aşağıda). Runbook §10.
 
 #### `POST email/change-request` — sudo gerekir
 
@@ -598,9 +708,6 @@ e-posta doğrulayıcısından (`EmailValidator`, realm SMTP ayarıyla birlikte) 
   sayılmaz: birincil adres bu ikisinden biridir, ikisi de olmayan bir birincil (v2'den
   önce konmuş eski birincil) tam da kişinin kodla kanıtlayıp kişisel e-postası yapacağı
   adrestir (A1c). Kişinin kendi `email`'i olduğu için tekliği de engellemez.
-- Adres YTÜ alan adındaysa (`@` sonrası `yildiz.edu.tr` ya da bir alt alan adı, ör.
-  `std.yildiz.edu.tr`) `400 email_school_domain` (`field: "address"`): okul adresi
-  mezun olunca kapanabilir, kişisel e-posta olamaz.
 - Adres başka kişideyse `409 email_taken`. Denetim üç yerde yapılır: Keycloak'ın
   kendi `getUserByEmail` araması (büyük/küçük harf duyarsız; realm
   `duplicateEmailsAllowed=false` olduğu sürece belirleyici) ve `schoolEmail` ile
@@ -755,7 +862,9 @@ SMTP ayarına ihtiyaç duyar; SMTP tanımlı değilse `email/change-request`
   değiştirebilirdi) `503 unmanaged_attributes_enabled` döner, okumalar sürer.
   Yapılandırma okunamıyorsa da aynı yanıt verilir.
 - Sudo token tek kullanımlık değildir (5 dakikalık pencere, `sid` bağlı) ve
-  Keycloak dışında doğrulanamaz (iç HMAC anahtarı).
+  Keycloak dışında doğrulanamaz (iç HMAC anahtarı); core onu Keycloak
+  introspection'ına sorar (`aud` içinde `core`; bkz. core için introspection
+  sözleşmesi).
 - Taze giriş kanıtı (`sudo/authentication`) ID token'ı Keycloak'ın kendi
   `TokenVerifier` yolu ve realm anahtarlarıyla doğrular; yalnız bearer
   oturumunun (`sid`) ve kişisinin (`sub`) `account-center`'a verilmiş ID token'ı

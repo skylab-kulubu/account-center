@@ -277,6 +277,19 @@ export class SkyAccountHttpClient implements SkyAccountClient {
     }));
   }
 
+  async sudoEmailCodeSend(auth: BearerAuthorization) {
+    return parseEmailChangeRequest(await this.#call({
+      method: "POST", path: "sudo/email-code/send", auth, body: {}, expectedStatus: 202,
+    }));
+  }
+
+  async sudoEmailCodeVerify(auth: BearerAuthorization, input: EmailConfirmInput) {
+    return parseSudoGrant(await this.#call({
+      method: "POST", path: "sudo/email-code/verify", auth,
+      body: { code: requireEmailCode(input.code) }, expectedStatus: 200,
+    }));
+  }
+
   async sudoTotp(auth: BearerAuthorization, input: SudoTotpInput) {
     return parseSudoGrant(await this.#call({
       method: "POST",

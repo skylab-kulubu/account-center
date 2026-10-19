@@ -159,6 +159,7 @@ async function failureResponse(
   }
   if (error instanceof SkyAccountProblem) {
     switch (error.code) {
+      case "invalid_sudo_email_code":
       case "invalid_credentials":
       case "webauthn_invalid":
       case "webauthn_origin_not_allowed":
@@ -177,14 +178,18 @@ async function failureResponse(
           detail: error.detail,
           ...(error.retryAfter !== null ? { retryAfter: error.retryAfter } : {}),
         }, retryAfterHeaders(error.retryAfter));
+      case "sudo_email_not_allowed":
+      case "sudo_email_unavailable":
       case "password_not_configured":
       case "totp_not_configured":
       case "passkey_not_registered":
         return problemResponse(400, { error: "method_unavailable", detail: error.detail });
+      case "no_pending_sudo_email_code":
       case "webauthn_challenge_expired":
         return problemResponse(400, { error: "challenge_expired", detail: error.detail });
       case "invalid_request":
         return problemResponse(400, { error: "invalid_request", detail: error.detail });
+      case "email_not_sent":
       case "webauthn_not_configured":
       case "unmanaged_attributes_enabled":
         return problemResponse(503, { error: "unavailable", detail: error.detail }, { "Retry-After": "60" });
@@ -207,6 +212,7 @@ async function failureResponse(
 function failureReason(error: unknown): NonNullable<Parameters<typeof logAuthEvent>[0]["reason"]> {
   if (error instanceof SkyAccountProblem) {
     switch (error.code) {
+      case "invalid_sudo_email_code":
       case "invalid_credentials":
       case "webauthn_invalid":
       case "webauthn_origin_not_allowed":
@@ -216,6 +222,8 @@ function failureReason(error: unknown): NonNullable<Parameters<typeof logAuthEve
         return "user_locked";
       case "rate_limited":
         return "rate_limited";
+      case "sudo_email_not_allowed":
+      case "sudo_email_unavailable":
       case "password_not_configured":
       case "totp_not_configured":
       case "passkey_not_registered":
@@ -349,8 +357,25 @@ export async function sudoWebauthnOptionsRoute(request: NextRequest) {
   }
 }
 
+/** Authenticated same-origin send; the SPI alone chooses the current primary and enforces 3/hour. */
+export async function sudoEmailCodeSendRoute(request: NextRequest) {
+  const services = getAuthServices();
+  const authorization = await authenticateSudoMutation(request, services);
+  if (!authorization.ok) return authorization.response;
+  const session = authorization.value.session;
+  try {
+    const body = await readJsonBody(request, MAX_PROOF_BODY_BYTES);
+    if (Object.keys(body).length !== 0) throw new SudoRequestError(400);
+    const accessToken = await services.account.accessToken(session);
+    const sent = await services.skyAccount.sudoEmailCodeSend({ accessToken });
+    return finish(noStore(NextResponse.json(sent, { status: 202 })), authorization.value);
+  } catch (error) {
+    return finish(await failureResponse(request, services, session, error), authorization.value, isReauthenticationRequired(error));
+  }
+}
+
 type SudoProver = (
-  client: Pick<SkyAccountClient, "sudoPassword" | "sudoTotp" | "sudoWebauthnVerify">,
+  client: Pick<SkyAccountClient, "sudoPassword" | "sudoTotp" | "sudoWebauthnVerify" | "sudoEmailCodeVerify">,
   auth: BearerAuthorization,
   body: Record<string, unknown>,
 ) => Promise<SudoGrant>;
@@ -383,6 +408,16 @@ const provers: Record<SudoMethod, { budget: "sudo" | "sudo_passkey"; maxBytes: n
     budget: "sudo",
     maxBytes: MAX_PROOF_BODY_BYTES,
     prove: (client, auth, body) => client.sudoTotp(auth, { code: requireCode(body) }),
+  },
+  "email-code": {
+    budget: "sudo",
+    maxBytes: MAX_PROOF_BODY_BYTES,
+    prove: (client, auth, body) => {
+      if (typeof body.code !== "string" || body.code.length > 20 || !/^[0-9]{6}$/.test(body.code.replace(/ /g, "").trim())) {
+        throw new SudoRequestError(400);
+      }
+      return client.sudoEmailCodeVerify(auth, { code: body.code });
+    },
   },
   passkey: {
     budget: "sudo_passkey",

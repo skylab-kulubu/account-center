@@ -144,10 +144,10 @@ describe("POST /api/account/identity/ytu-link", () => {
       error: "sudo_required",
       reason: "spi_token_required",
       methods: [],
-      fallback: "microsoft",
+      fallback: null,
     });
     expect(routeMocks.beginYtuLink).not.toHaveBeenCalled();
-    // The proof is useless for the SPI, so it is dropped and the next attempt offers the fallback again.
+    // The proof is useless for the SPI, so it is dropped and the next attempt reloads the current capability; this identity has no YTÜ link.
     expect(routeMocks.clearSudo).toHaveBeenCalledWith(activeSession.id);
     expect(logAuthEvent).toHaveBeenCalledWith(expect.objectContaining({ reason: "spi_token_required" }));
   });
