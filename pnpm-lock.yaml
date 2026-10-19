@@ -110,8 +110,8 @@ importers:
   .:
     dependencies:
       '@skylab-kulubu/skylcn-ui':
-        specifier: 0.1.9
-        version: 0.1.9(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(redux@5.0.1)
+        specifier: 0.1.10
+        version: 0.1.10(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(redux@5.0.1)
       ioredis:
         specifier: 5.9.2
         version: 5.9.2(supports-color@7.2.0)
@@ -835,8 +835,8 @@ packages:
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
 
-  '@skylab-kulubu/skylcn-ui@0.1.9':
-    resolution: {integrity: sha512-eB6QOwDiUA4Tq4OZTIXoEPnSHesPv/HeOkpNJVO3vOnwYj+PnhTwUdxHOK2v6okxbtzJqqFk3Re78j1eMj1oyQ==}
+  '@skylab-kulubu/skylcn-ui@0.1.10':
+    resolution: {integrity: sha512-so/iclUE6QXKzQ+0uJFRhZcJ/mmg/C5fuuI4TIS9yet6WSzIEWEhTW1PR/0bEdUZ/Zzb/Q9KWM44nReShJp2Ow==}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -3710,7 +3710,7 @@ snapshots:
 
   '@rtsao/scc@1.1.0': {}
 
-  '@skylab-kulubu/skylcn-ui@0.1.9(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(redux@5.0.1)':
+  '@skylab-kulubu/skylcn-ui@0.1.10(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(redux@5.0.1)':
     dependencies:
       '@base-ui/react': 1.9.0(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@tanstack/react-table': 9.2.8(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
