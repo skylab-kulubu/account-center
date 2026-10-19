@@ -27,12 +27,22 @@ function respond(body: unknown, status = 200) {
   });
 }
 
-function sentItems(fetch: ReturnType<typeof vi.fn>, call = 0) {
+function sentBody(fetch: ReturnType<typeof vi.fn>, call = 0) {
   const [url, init] = fetch.mock.calls[call] as [string, RequestInit];
   expect(url).toBe("/api/account/communication-preferences");
   expect(init.method).toBe("PUT");
   expect(init.headers).toMatchObject({ "x-csrf-token": "csrf-proof", "content-type": "application/json" });
-  return (JSON.parse(init.body as string) as { items: unknown[] }).items;
+  return JSON.parse(init.body as string) as { items?: unknown[]; tracking?: unknown };
+}
+
+function sentItems(fetch: ReturnType<typeof vi.fn>, call = 0) {
+  return sentBody(fetch, call).items;
+}
+
+const TRACKING_LABEL = "Postalarımın açılmasını ve tıklamalarımı izleme";
+
+function withTracking(tracking: CommunicationPreferencesView["tracking"]): CommunicationPreferencesView {
+  return { ...structuredClone(view), tracking };
 }
 
 function renderEditor(focusCategory: string | null = null, initial = view) {
@@ -219,6 +229,91 @@ describe("CommunicationPreferencesEditor", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri güvenle durduruldu");
+  });
+
+  it("shows the tracking switch reversed: unchecked while the person's mail is tracked", () => {
+    renderEditor();
+
+    const section = screen.getByRole("region", { name: "Postalarımın açılma ve tıklama bilgisi" });
+    const tracking = within(section).getByRole("switch", { name: TRACKING_LABEL });
+    expect(tracking).not.toBeChecked();
+    // Only the label and one link to the privacy notice: no explanation.
+    expect(within(section).getByRole("link", { name: "KVKK aydınlatma metni" }))
+      .toHaveAttribute("href", "https://yildizskylab.com/kvkk-metni.pdf");
+    expect(section.querySelectorAll("p")).toHaveLength(1);
+    expect(section).toHaveTextContent(/^Postalarımın açılma ve tıklama bilgisiKVKK aydınlatma metniPostalarımın açılmasını ve tıklamalarımı izleme$/);
+  });
+
+  it("checking the tracking switch turns tracking off, and unchecking it on again", async () => {
+    fetch.mockResolvedValueOnce(respond({ preferences: withTracking({ enabled: false, effective: false }) }));
+    renderEditor();
+
+    fireEvent.click(screen.getByRole("switch", { name: TRACKING_LABEL }));
+
+    await screen.findByText("Açılma ve tıklama izlemesi kapatıldı.");
+    expect(sentBody(fetch)).toEqual({ tracking: { enabled: false } });
+    expect(screen.getByRole("switch", { name: TRACKING_LABEL })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("switch", { name: TRACKING_LABEL }));
+    await screen.findByText("Açılma ve tıklama izlemesi açıldı.");
+    expect(sentBody(fetch, 1)).toEqual({ tracking: { enabled: true } });
+  });
+
+  it("takes a partial answer (Keycloak down) as the switch alone and keeps the rest of the screen", async () => {
+    fetch.mockResolvedValueOnce(respond({ partial: true, tracking: { enabled: false } }));
+    renderEditor();
+
+    fireEvent.click(screen.getByRole("switch", { name: TRACKING_LABEL }));
+
+    await screen.findByText("Açılma ve tıklama izlemesi kapatıldı.");
+    expect(screen.getByRole("switch", { name: TRACKING_LABEL })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "WEBLAB · Haberler" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Duyuru ve haber postaları" })).toBeChecked();
+
+    // Turned back on: still in sight although core cannot say yet whether it tracks.
+    fetch.mockResolvedValueOnce(respond({ partial: true, tracking: { enabled: true } }));
+    fireEvent.click(screen.getByRole("switch", { name: TRACKING_LABEL }));
+    await screen.findByText("Açılma ve tıklama izlemesi açıldı.");
+    expect(screen.getByRole("switch", { name: TRACKING_LABEL })).not.toBeChecked();
+  });
+
+  it("fails closed on a partial answer to a team change", async () => {
+    fetch.mockResolvedValueOnce(respond({ partial: true, tracking: { enabled: false } }));
+    renderEditor();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("switch", { name: "WEBLAB · Duyurular" }));
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri güvenle durduruldu");
+    expect(screen.getByRole("switch", { name: "WEBLAB · Duyurular" })).toBeChecked();
+  });
+
+  it("does not dim the tracking switch under a closed master switch", () => {
+    const off = withTracking({ enabled: true, effective: true });
+    off.master = { ...off.master, explicit: false, enabled: false, origin: "explicit", effective: false };
+    renderEditor(null, off);
+
+    const tracking = screen.getByRole("switch", { name: TRACKING_LABEL });
+    expect(tracking).not.toHaveAttribute("aria-disabled");
+    expect(tracking.closest("[data-dimmed]")).toBeNull();
+  });
+
+  it.each([
+    ["a core without the switch", null],
+    ["someone core never tracks (no Member) who has not turned it off", { enabled: true, effective: false }],
+  ])("leaves the tracking switch out for %s", (_, tracking) => {
+    renderEditor(null, withTracking(tracking));
+
+    expect(screen.queryByRole("switch", { name: TRACKING_LABEL })).toBeNull();
+    expect(screen.queryByText("Postalarımın açılma ve tıklama bilgisi")).toBeNull();
+    expect(screen.getByRole("switch", { name: "Duyuru ve haber postaları" })).toBeInTheDocument();
+  });
+
+  it("keeps a turned-off tracking switch in sight for someone who is no Member", () => {
+    renderEditor(null, withTracking({ enabled: false, effective: false }));
+
+    expect(screen.getByRole("switch", { name: TRACKING_LABEL })).toBeChecked();
   });
 
   it("server-renders the switches and the follow picker, with inline styles only on their hidden form inputs", () => {

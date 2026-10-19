@@ -6,6 +6,7 @@ import {
   preferenceFocus,
   preferencesLoginHref,
   preferencesPath,
+  showsTrackingSwitch,
 } from "@/lib/communication-preferences";
 import { normalizeReturnTo } from "@/server/auth/oidc-flow";
 import { allowedReturnQuery } from "@/lib/return-query";
@@ -118,9 +119,36 @@ describe("the browser's view parser", () => {
     expect(parseCommunicationPreferencesView(view(overrides))).toBeNull();
   });
 
+  it("reads the tracking switch, and a core without it as none", () => {
+    expect(parseCommunicationPreferencesView(view({ tracking: { enabled: false, effective: false } }))?.tracking)
+      .toEqual({ enabled: false, effective: false });
+    expect(parseCommunicationPreferencesView(view())?.tracking).toBeNull();
+    expect(parseCommunicationPreferencesView(view({ tracking: null }))?.tracking).toBeNull();
+  });
+
+  it.each([
+    ["a tracking switch without effective", { tracking: { enabled: true } }],
+    ["a tracking value that is not a choice", { tracking: { enabled: "no", effective: false } }],
+    ["a tracking switch that is not an object", { tracking: true }],
+  ])("fails closed on %s", (_, overrides) => {
+    expect(parseCommunicationPreferencesView(view(overrides))).toBeNull();
+  });
+
   it("refuses a tree deeper than any team tree", () => {
     let row: Record<string, unknown> = { ...view().teams[0], children: [] };
     for (let depth = 0; depth < 20; depth += 1) row = { ...view().teams[0], children: [row] };
     expect(parseCommunicationPreferencesView(view({ teams: [row] }))).toBeNull();
+  });
+});
+
+describe("the tracking switch", () => {
+  it("shows while the person is tracked or has turned it off", () => {
+    expect(showsTrackingSwitch({ enabled: true, effective: true })).toBe(true);
+    expect(showsTrackingSwitch({ enabled: false, effective: false })).toBe(true);
+  });
+
+  it("hides when core tracks nobody it could turn off (no Member) or does not serve it", () => {
+    expect(showsTrackingSwitch({ enabled: true, effective: false })).toBe(false);
+    expect(showsTrackingSwitch(null)).toBe(false);
   });
 });

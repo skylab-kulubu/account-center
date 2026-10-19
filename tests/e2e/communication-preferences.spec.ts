@@ -14,7 +14,14 @@ const teams = {
   robolab: "0b5c8a51-6f0e-4c1a-9d8e-1f2a3b4c5d07",
 };
 
-type PreferenceState = { off: boolean; choices: Record<string, boolean>; puts: Array<{ items: unknown[] }> };
+type PreferenceState = {
+  off: boolean;
+  choices: Record<string, boolean>;
+  tracking: boolean | null;
+  puts: Array<{ items?: unknown[]; tracking?: unknown }>;
+};
+
+const trackingLabel = "Postalarımın açılmasını ve tıklamalarımı izleme";
 
 function collectPageErrors(page: Page) {
   const errors: string[] = [];
@@ -132,6 +139,21 @@ test("the preferences screen writes each switch to core under its own category",
       expect(state.choices[`team:${teams.robolab}:duyuru`]).toBe(true);
       expect(state.choices[`team:${teams.robolab}:haber`]).toBe(true);
       expect(Object.keys(state.choices).some((key) => key.includes(teams.airlab))).toBe(false);
+    });
+
+    await test.step("checking the tracking switch turns tracking off", async () => {
+      const tracking = page.getByRole("switch", { name: trackingLabel });
+      await expect(tracking).not.toBeChecked();
+      await expect(page.getByRole("link", { name: "KVKK aydınlatma metni" }))
+        .toHaveAttribute("href", "https://yildizskylab.com/kvkk-metni.pdf");
+      await savePreference(page, () => tracking.click());
+      await expect(tracking).toBeChecked();
+      await expect(page.getByRole("status").filter({ hasText: "Açılma ve tıklama izlemesi kapatıldı." })).toBeVisible();
+      const state = await preferenceState(inspector, fixture.subject);
+      expect(state.tracking).toBe(false);
+      expect(state.puts.at(-1)).toEqual({ tracking: { enabled: false } });
+      await page.reload();
+      await expect(page.getByRole("switch", { name: trackingLabel })).toBeChecked();
     });
 
     expect(errors).toEqual([]);
