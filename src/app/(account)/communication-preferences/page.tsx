@@ -41,12 +41,6 @@ export default async function CommunicationPreferencesPage({
         </div>
       )}
 
-      {/*
-        SkyMail open/click tracking opt-out (iletişim servisi 14–20) belongs on
-        this page as its own section once core serves the setting; until then
-        nothing is shown.
-      */}
-
       <section className="settings-section" aria-labelledby="preferences-address-heading">
         <div className="settings-section__heading">
           <h2 id="preferences-address-heading">Postaların gittiği adres</h2>

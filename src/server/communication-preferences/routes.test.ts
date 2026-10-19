@@ -34,6 +34,7 @@ const screen: CommunicationPreferencesView = {
   teams: [],
   following: [],
   followable: [],
+  tracking: { enabled: true, effective: true },
 };
 
 function buildServices(options: { coreEnabled?: boolean } = {}) {
@@ -105,10 +106,24 @@ describe("communication preference BFF routes", () => {
       "session-bound-csrf",
       { allowRotation: true },
     );
-    expect(routeMocks.update).toHaveBeenCalledWith("server-held-user-token", [
-      { category: "team:abc:duyuru", enabled: null },
-      { category: "all", enabled: false },
-    ]);
+    expect(routeMocks.update).toHaveBeenCalledWith("server-held-user-token", {
+      items: [
+        { category: "team:abc:duyuru", enabled: null },
+        { category: "all", enabled: false },
+      ],
+    });
+  });
+
+  it("writes the tracking switch alone or with items", async () => {
+    expect((await PUT(request("PUT", { body: JSON.stringify({ tracking: { enabled: false } }) }))).status).toBe(200);
+    expect(routeMocks.update).toHaveBeenLastCalledWith("server-held-user-token", { items: [], tracking: false });
+
+    const both = JSON.stringify({ items: [{ category: "all", enabled: true }], tracking: { enabled: true } });
+    expect((await PUT(request("PUT", { body: both }))).status).toBe(200);
+    expect(routeMocks.update).toHaveBeenLastCalledWith("server-held-user-token", {
+      items: [{ category: "all", enabled: true }],
+      tracking: true,
+    });
   });
 
   it("retries once with a refreshed token when core refuses the bearer", async () => {
@@ -119,7 +134,7 @@ describe("communication preference BFF routes", () => {
 
     expect((await PUT(request("PUT"))).status).toBe(200);
     expect(routeMocks.accessToken).toHaveBeenLastCalledWith(activeSession, { forceRefresh: true });
-    expect(routeMocks.update).toHaveBeenLastCalledWith("fresh-token", expect.any(Array));
+    expect(routeMocks.update).toHaveBeenLastCalledWith("fresh-token", { items: expect.any(Array) });
   });
 
   it("refuses another origin and a wrong CSRF proof before core", async () => {
@@ -137,6 +152,11 @@ describe("communication preference BFF routes", () => {
     ["a missing value", JSON.stringify({ items: [{ category: "all" }] }), "application/json"],
     ["an unknown member", JSON.stringify({ items: [{ category: "all", enabled: true }], source: "admin" }), "application/json"],
     ["a malformed category", JSON.stringify({ items: [{ category: "team:../x:duyuru", enabled: true }] }), "application/json"],
+    ["a tracking switch that forgets", JSON.stringify({ tracking: { enabled: null } }), "application/json"],
+    ["a tracking switch with another member", JSON.stringify({ tracking: { enabled: false, source: "admin" } }), "application/json"],
+    ["a tracking switch that is not an object", JSON.stringify({ tracking: false }), "application/json"],
+    ["items that are not a list", JSON.stringify({ items: {}, tracking: { enabled: false } }), "application/json"],
+    ["an empty body", JSON.stringify({}), "application/json"],
     ["201 items", JSON.stringify({ items: Array.from({ length: 201 }, (_, index) => ({ category: `team:t${index}:duyuru`, enabled: true })) }), "application/json"],
   ])("refuses %s without calling core", async (_, body, contentType) => {
     const response = await PUT(request("PUT", { body, contentType }));

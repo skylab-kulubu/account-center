@@ -23,6 +23,7 @@ const view: CommunicationPreferencesView = {
   teams: [],
   following: [],
   followable: [],
+  tracking: null,
 };
 
 function pageData(overrides: Partial<CommunicationPreferencesPageData> = {}): CommunicationPreferencesPageData {

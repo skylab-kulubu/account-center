@@ -31,8 +31,9 @@ import { join } from "node:path";
  * first screen match `tests/fixtures/core-communication-preferences.json`.
  * `PUT /__e2e/communication-preferences/{sub}` sets `off` (core without its
  * key: every call `503 communication_preferences_unavailable`);
- * `GET /__e2e/communication-preferences/{sub}` shows the choices and the
- * PUT bodies core received.
+ * `GET /__e2e/communication-preferences/{sub}` shows the choices, the
+ * tracking switch (`null` without a row; mode `opt_out`, the person a
+ * Member) and the PUT bodies core received.
  *
  * The same server also stands in for the realm's sky-account
  * `GET identity` (`tests/fixtures/sky-account-v1-identity.json`, the
@@ -222,7 +223,7 @@ function preferenceSeen(id) {
     preferenceTeamById.get(id).listed !== false;
 }
 
-function preferenceScreen(choices) {
+function preferenceScreen(choices, tracking = null) {
   const master = choices.has("all") ? choices.get("all") : true;
   const cell = (category, enabled, origin, from) => {
     const value = { explicit: choices.has(category) ? choices.get(category) : null, enabled, origin };
@@ -282,6 +283,7 @@ function preferenceScreen(choices) {
     teams,
     following,
     followable,
+    tracking: { enabled: tracking ?? true, effective: tracking ?? true, mode: "opt_out" },
   };
 }
 
@@ -318,7 +320,7 @@ export function startMockCore({
   const preferencesFor = (sub) => {
     let state = preferences.get(sub);
     if (!state) {
-      state = { choices: new Map(initialPreferenceChoices), off: false, puts: [] };
+      state = { choices: new Map(initialPreferenceChoices), tracking: null, off: false, puts: [] };
       preferences.set(sub, state);
     }
     return state;
@@ -379,7 +381,7 @@ export function startMockCore({
     if (state.off) return preferenceProblem(response, 503, "communication_preferences_unavailable");
     const answer = () => {
       response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-      response.end(JSON.stringify(preferenceScreen(state.choices)));
+      response.end(JSON.stringify(preferenceScreen(state.choices, state.tracking)));
     };
     if (request.method === "GET") return answer();
     if (request.method !== "PUT") return problem(response, 405, "Method Not Allowed");
@@ -390,8 +392,17 @@ export function startMockCore({
       return preferenceProblem(response, 400, "communication_preference_invalid");
     }
     state.puts.push(parsed);
-    const items = parsed?.items;
-    if (!Array.isArray(items) || items.length === 0 || items.length > 200 || Object.keys(parsed).length !== 1) {
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return preferenceProblem(response, 400, "communication_preference_invalid");
+    }
+    const items = parsed.items ?? [];
+    const tracking = parsed.tracking;
+    if (
+      !Array.isArray(items) || items.length > 200 ||
+      Object.keys(parsed).some((key) => key !== "items" && key !== "tracking") ||
+      (tracking !== undefined && typeof tracking?.enabled !== "boolean") ||
+      (items.length === 0 && tracking === undefined)
+    ) {
       return preferenceProblem(response, 400, "communication_preference_invalid");
     }
     const seen = new Set();
@@ -412,6 +423,7 @@ export function startMockCore({
       if (item.enabled === null) state.choices.delete(item.category);
       else state.choices.set(item.category, item.enabled);
     }
+    if (tracking !== undefined) state.tracking = tracking.enabled;
     return answer();
   }
 
@@ -509,7 +521,12 @@ export function startMockCore({
       }
       if (preferenceInspection && request.method === "GET") {
         const state = preferencesFor(decodeURIComponent(preferenceInspection[1]));
-        return json(response, 200, { off: state.off, choices: Object.fromEntries(state.choices), puts: state.puts });
+        return json(response, 200, {
+          off: state.off,
+          choices: Object.fromEntries(state.choices),
+          tracking: state.tracking,
+          puts: state.puts,
+        });
       }
       const inspection = /^\/__e2e\/users\/([^/]+)$/.exec(url.pathname);
       if (inspection && request.method === "PUT") {

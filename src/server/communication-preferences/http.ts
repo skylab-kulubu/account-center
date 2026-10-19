@@ -148,7 +148,7 @@ async function readJsonBody(request: NextRequest): Promise<unknown> {
   }
 }
 
-/** `PUT /api/account/communication-preferences`: `{"items": [{category, enabled}]}` → `{ preferences }`. */
+/** `PUT /api/account/communication-preferences`: `{"items": [{category, enabled}], "tracking": {enabled}}` (either or both) → `{ preferences }`. */
 export async function updateCommunicationPreferences(request: NextRequest) {
   const access = await authenticateMutation(request);
   if (!access.ok) return access.response;
