@@ -46,6 +46,7 @@ jobs:
       migrations: ${{ steps.scope.outputs.migrations }}
       docker: ${{ steps.scope.outputs.docker }}
       tested-sha: ${{ steps.scope.outputs.tested-sha }}
+      tested-run-id: ${{ steps.scope.outputs.tested-run-id }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -67,7 +68,8 @@ jobs:
             echo "mode $1: every job" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           }
-          # A push to main whose gate passed tested this tree in full and published main-<sha7>.
+          # A push to main whose gate passed tested this tree in full, published main-<sha7> and kept
+          # the digest it pushed (artifact account-center-published-<sha>, read by promote).
           tested_on_main() {
             local tree run_id head_sha jobs
             tree=$(git rev-parse 'HEAD^{tree}')
@@ -76,8 +78,12 @@ jobs:
               [[ $(gh api "repos/$GITHUB_REPOSITORY/git/commits/$head_sha" --jq .tree.sha) == "$tree" ]] || continue
               jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
                 --jq '.jobs[] | "\(.conclusion) \(.name)"')
-              if grep -qxF 'success gate' <<<"$jobs" && grep -qxF 'success publish' <<<"$jobs"; then
-                echo "$head_sha"
+              if ! grep -qxF 'success gate' <<<"$jobs" || ! grep -qxF 'success publish' <<<"$jobs"; then
+                continue
+              fi
+              if [[ $(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?name=account-center-published-$head_sha" \
+                --jq '[.artifacts[] | select(.expired | not)] | length') -gt 0 ]]; then
+                echo "$head_sha $run_id"
                 return 0
               fi
             done < <(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
@@ -89,9 +95,10 @@ jobs:
           if [[ $EVENT == pull_request && $BASE_REF == main ]]; then
             [[ $FULL_CI_LABEL == true ]] && select_all full
           elif [[ ($EVENT == push && $REF == refs/heads/production) || $EVENT == pull_request ]]; then
-            if tested_sha=$(tested_on_main); then
-              printf 'mode=tested\ncode=false\ne2e=false\nmigrations=false\ndocker=false\ntested-sha=%s\n' \
-                "$tested_sha" >> "$GITHUB_OUTPUT"
+            if tested=$(tested_on_main); then
+              read -r tested_sha tested_run_id <<<"$tested"
+              printf 'mode=tested\ncode=false\ne2e=false\nmigrations=false\ndocker=false\ntested-sha=%s\ntested-run-id=%s\n' \
+                "$tested_sha" "$tested_run_id" >> "$GITHUB_OUTPUT"
               echo "mode tested: main $tested_sha already tested this tree; nothing runs again" | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
@@ -446,6 +453,7 @@ jobs:
           printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/candidate/image.tar.gz" | sha256sum --check --strict
           gzip -dc "$RUNNER_TEMP/candidate/image.tar.gz" | docker load
           test "$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")" = "$EXPECTED_IMAGE_ID"
+      - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -462,9 +470,35 @@ jobs:
             test "$(docker image inspect --format '{{.Id}}' "$target")" = "$source_image_id"
             docker push "$target"
           done
+      - name: Record the digest the registry stored
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # The registry digest of the pushed manifest; both tags must name it.
+          repo_digest=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE:$BRANCH" \
+            | grep -m1 "^$IMAGE@sha256:")
+          digest=${repo_digest#"$IMAGE@"}
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]
+          for target in "$IMAGE:$BRANCH" "$IMAGE:$BRANCH-${GITHUB_SHA::7}"; do
+            test "sha256:$(docker buildx imagetools inspect --raw "$target" | sha256sum | cut -d' ' -f1)" = "$digest"
+          done
+          mkdir -p "$RUNNER_TEMP/published"
+          printf '%s\n' "$digest" > "$RUNNER_TEMP/published/digest"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/published/commit"
+          echo "Published \`$IMAGE@$digest\` as \`$BRANCH\`, \`$BRANCH-${GITHUB_SHA::7}\`" >> "$GITHUB_STEP_SUMMARY"
+      # promote reads the digest from here, not from the mutable main-<sha7> tag.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: account-center-published-${{ github.sha }}
+          path: ${{ runner.temp }}/published
+          if-no-files-found: error
+          retention-days: 90
 
   # tested mode, push to production: the main image of the same tree gets the production tags. No
-  # build: the registry copies the manifest, so production runs the bytes main tested.
+  # build: the registry copies the manifest, so production runs the bytes main tested. The source is
+  # the digest publish recorded in that main run, not the main-<sha7> tag, which anyone with write
+  # access to the package could move.
   promote:
     needs: scope
     if: needs.scope.outputs.mode == 'tested' && github.event_name == 'push' && github.ref == 'refs/heads/production'
@@ -473,7 +507,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: read
     steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: account-center-published-${{ needs.scope.outputs.tested-sha }}
+          path: ${{ runner.temp }}/published
+          run-id: ${{ needs.scope.outputs.tested-run-id }}
+          github-token: ${{ github.token }}
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -486,9 +527,13 @@ jobs:
         run: |
           set -euo pipefail
           [[ $TESTED_SHA =~ ^[0-9a-f]{40}$ ]]
-          source="$IMAGE:main-${TESTED_SHA::7}"
+          test "$(cat "$RUNNER_TEMP/published/commit")" = "$TESTED_SHA"
+          published=$(cat "$RUNNER_TEMP/published/digest")
+          [[ $published =~ ^sha256:[0-9a-f]{64}$ ]]
+          source="$IMAGE@$published"
           digest() { docker buildx imagetools inspect --raw "$1" | sha256sum | cut -d' ' -f1; }
           source_digest=$(digest "$source")
+          test "sha256:$source_digest" = "$published"
           docker buildx imagetools create --prefer-index=false \
             --tag "$IMAGE:production" --tag "$IMAGE:production-${GITHUB_SHA::7}" "$source"
           for target in "$IMAGE:production" "$IMAGE:production-${GITHUB_SHA::7}"; do
