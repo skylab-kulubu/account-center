@@ -1,7 +1,7 @@
 name: CI
 
 # One workflow for every check and for the image. The scope job picks one of three modes:
-# - full: pushes to main, the nightly schedule, a manual run (gh workflow run ci.yml --ref <branch>),
+# - full: pushes to main, a manual run (gh workflow run ci.yml --ref <branch>),
 #   pull requests into anything but main whose tree main has not tested, and pull requests into main
 #   labelled full-ci (the label is read when the PR is opened or pushed to). Every job runs.
 # - fast: pull requests into main. Each job runs only when the paths it reads changed (scope); the
@@ -16,15 +16,12 @@ on:
   pull_request:
   push:
     branches: [main, production]
-  schedule:
-    # Every night 02:17 UTC on main.
-    - cron: '17 2 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A new push to a PR cancels that PR's older run; pushes, the schedule and manual runs are never
+# A new push to a PR cancels that PR's older run; pushes and manual runs are never
 # cancelled (every main and production commit keeps its own run).
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
