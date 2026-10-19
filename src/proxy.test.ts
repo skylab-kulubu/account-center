@@ -127,9 +127,13 @@ describe("security proxy", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("keeps the login page public", () => {
-    const response = proxy(new NextRequest("https://my.yildizskylab.com/login"));
-    expect(response.headers.get("x-middleware-next")).toBe("1");
+  it("keeps the login page's notices public, with or without a session cookie", () => {
+    const variants: Array<Record<string, string>> = [{}, { cookie: "__Host-sky-account=opaque-session" }];
+    for (const headers of variants) {
+      const response = proxy(new NextRequest("https://my.yildizskylab.com/login?loggedOut=1", { headers }));
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(response.headers.get("location")).toBeNull();
+    }
   });
 
   it("keeps the receipt-backed deletion status page public after the account is blocked", () => {
@@ -208,5 +212,150 @@ describe("well-known paths", () => {
   it("still redirects a look-alike path outside /.well-known", () => {
     const response = proxy(new NextRequest("https://my.yildizskylab.com/.well-knownx"));
     expect(response.status).toBe(307);
+  });
+});
+
+describe("automatic login", () => {
+  const hopCookie = "__Host-sky-account-login-hop";
+
+  function login(path: string, headers: Record<string, string> = {}) {
+    return proxy(new NextRequest(`https://my.yildizskylab.com${path}`, { headers }));
+  }
+
+  it("sends /login straight to the login route with the same returnTo and arms the loop guard", () => {
+    const response = login("/login?returnTo=%2Fsessions");
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/api/auth/login?returnTo=%2Fsessions",
+    );
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-security-policy")).toContain("script-src 'self' 'nonce-");
+    const cookie = response.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain(`${hopCookie}=1`);
+    expect(cookie).toMatch(/Max-Age=30/i);
+    expect(cookie).toMatch(/Path=\//);
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/Secure/i);
+    expect(cookie).toMatch(/SameSite=lax/i);
+  });
+
+  it("also skips the page for a stale session cookie the account layout sent back", () => {
+    const response = login("/login", { cookie: "__Host-sky-account=stale" });
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/api/auth/login?returnTo=%2F");
+  });
+
+  it("carries only an allow-listed query of returnTo", () => {
+    const response = login(`/login?returnTo=${encodeURIComponent("/email?intent=add-personal&next=https://attacker.invalid")}`);
+
+    expect(response.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/api/auth/login?returnTo=%2Femail%3Fintent%3Dadd-personal",
+    );
+  });
+
+  it.each([
+    "https://attacker.invalid/",
+    "//attacker.invalid/sessions",
+    "/\\attacker.invalid",
+    "javascript:alert(1)",
+    "/login",
+    "/api/auth/login",
+    "/unknown",
+  ])("never redirects to %s: an unknown returnTo becomes the root", (returnTo) => {
+    const response = login(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/api/auth/login?returnTo=%2F");
+  });
+
+  it("treats a repeated returnTo as missing", () => {
+    const response = login("/login?returnTo=%2Fsessions&returnTo=%2Fsecurity");
+
+    expect(response.headers.get("location")).toBe("https://my.yildizskylab.com/api/auth/login?returnTo=%2F");
+  });
+
+  it.each([
+    "/login?error=unavailable",
+    "/login?error=invalid_request",
+    "/login?error=anything&returnTo=%2Fsessions",
+    "/login?loggedOut=1",
+    "/login?sessionEnded=1",
+  ])("renders %s: the page has a notice to show", (path) => {
+    const response = login(path);
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("renders the page instead of hopping again while the loop guard lives", () => {
+    const response = login("/login?returnTo=%2Fsessions", { cookie: `${hopCookie}=1` });
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("stops a round trip that keeps returning to /login after one automatic attempt", () => {
+    // No session: the protected page sends the person to /login, which hops to the login route.
+    const protectedPage = login("/security");
+    const loginPage = new URL(protectedPage.headers.get("location")!);
+    const firstHop = login(loginPage.pathname + loginPage.search);
+    expect(firstHop.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/api/auth/login?returnTo=%2Fsecurity",
+    );
+    const guard = firstHop.cookies.get(hopCookie)?.value;
+    expect(guard).toBe("1");
+
+    // The callback "succeeds" but the session cannot be read, so the layout sends the person to /login again.
+    const again = login("/login", { cookie: `__Host-sky-account=unreadable; ${hopCookie}=${guard}` });
+    expect(again.headers.get("x-middleware-next")).toBe("1");
+    expect(again.headers.get("location")).toBeNull();
+  });
+
+  it("makes a client-side navigation load /login as a document instead of following the redirect", async () => {
+    const response = login("/login?returnTo=%2Fsessions&_rsc=abc", { rsc: "1" });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("");
+  });
+
+  it.each([
+    ["Sec-Purpose", "prefetch;prerender"],
+    ["Sec-Purpose", "prefetch"],
+    ["Sec-Purpose", "Prefetch; anonymous-client-ip"],
+    ["Purpose", "prefetch"],
+  ])("never starts a login for a speculative %s: %s request", async (name, value) => {
+    const response = login("/login?returnTo=%2Fsessions", { [name]: value });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("");
+
+    // The real navigation afterwards still hops once.
+    const navigation = login("/login?returnTo=%2Fsessions");
+    expect(navigation.status).toBe(307);
+    expect(navigation.headers.get("location")).toBe(
+      "https://my.yildizskylab.com/api/auth/login?returnTo=%2Fsessions",
+    );
+  });
+
+  it("keeps a prerendered notice page: only the automatic hop is held back", () => {
+    const response = login("/login?loggedOut=1", { "Sec-Purpose": "prefetch;prerender" });
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it.each([
+    ["/login", {}],
+    ["/login?returnTo=%2Fsessions", {}],
+  ])("runs for %s", (url, headers) => {
+    expect(unstable_doesMiddlewareMatch({ config, url, headers })).toBe(true);
   });
 });

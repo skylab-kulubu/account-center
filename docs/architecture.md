@@ -96,7 +96,7 @@ Yazma uçları sırayla exact `Origin`, CSRF, erişim kapısı ve oturum doğrul
 | `/permissions` Yetkilerim | `sky_authorization` + Account REST `groups` | yok (salt okunur) | [aşağıda](#yetkilerim) |
 | `/delete-account` Hesabı sil | core silme komutu | `deletion/prepare`, `deletion`, `deletion/status`, `deletion/status/retry` | [account-deletion.md](account-deletion.md) |
 
-`/personal-information` kalıcı olarak (308) `/identity`'ye yönlenir (`next.config.ts`; proxy'den önce çalışır). `/login` ve `/account-deletion` oturumsuz erişilebilen tek sayfalardır. Sayfalar sunucuda yalnız kabuğu üretir; `/identity`, `/email` ve `/security` verisini tarayıcıda ilgili uçlardan okur ve her değişiklikten sonra yeniden okur (liste sunucunun envanteridir, mutation yanıtı değil).
+`/personal-information` kalıcı olarak (308) `/identity`'ye yönlenir (`next.config.ts`; proxy'den önce çalışır). `/login` ve `/account-deletion` oturumsuz erişilebilen tek sayfalardır. `/login` yalnız söyleyecek bir şeyi olduğunda (`error`, `loggedOut=1`, `sessionEnded=1`) sayfa olarak açılır; aksi hâlde proxy aynı izinli `returnTo` ile doğrudan `/api/auth/login`'e yönlendirir (307) ve 30 sn'lik `__Host-sky-account-login-hop` çerezini koyar. Bu çerez yaşarken `/login` yeniden yönlendirmez, sayfayı gösterir; böylece `/login`'e hızla geri dönen bir tur (döngü) tek otomatik denemede durur. İstemci tarafı geçişte (RSC isteği) proxy boş 204 döner ve Next sayfayı belge olarak yeniden yükler (`src/lib/login-redirect.ts`, `src/proxy.ts`). Sayfalar sunucuda yalnız kabuğu üretir; `/identity`, `/email` ve `/security` verisini tarayıcıda ilgili uçlardan okur ve her değişiklikten sonra yeniden okur (liste sunucunun envanteridir, mutation yanıtı değil).
 
 ### Kulüp profili
 
