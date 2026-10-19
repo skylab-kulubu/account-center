@@ -46,3 +46,33 @@ export function allowedReturnQuery(pathname: string, searchParams: URLSearchPara
   const query = kept.toString();
   return query ? `?${query}` : "";
 }
+
+/**
+ * Account pages a login or a Sudo mode re-authentication may return to; a
+ * stored transaction must hold a value `normalizeReturnTo` leaves unchanged
+ * (`oidc-transactions.ts`). The only query kept is `allowedReturnQuery`'s.
+ * Pure like the rest of this file, so the proxy's `/login` redirect uses the
+ * same check as the login route (`oidc-flow.ts` re-exports it).
+ */
+const allowedReturnPaths = new Set([
+  "/",
+  "/identity",
+  "/email",
+  "/security",
+  "/sessions",
+  "/permissions",
+  "/club-profile",
+  "/communication-preferences",
+  "/delete-account",
+]);
+
+export function normalizeReturnTo(value: string | null | undefined) {
+  if (!value) return "/";
+  try {
+    const url = new URL(value, "https://account-center.invalid");
+    if (url.origin !== "https://account-center.invalid" || !allowedReturnPaths.has(url.pathname)) return "/";
+    return url.pathname + allowedReturnQuery(url.pathname, url.searchParams);
+  } catch {
+    return "/";
+  }
+}
