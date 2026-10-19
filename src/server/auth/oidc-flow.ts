@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import * as oauth from "oauth4webapi";
-import { allowedReturnQuery } from "@/lib/return-query";
+import { normalizeReturnTo } from "@/lib/return-query";
 import { randomOpaqueValue } from "@/server/auth/crypto";
 import { logAuthEvent } from "@/server/auth/logging";
 import type { OidcProtocol } from "@/server/auth/oidc-protocol";
@@ -15,6 +15,9 @@ import type {
 } from "@/server/auth/types";
 import type { AccountAccessAuthorizer } from "@/server/access-gate/authorization";
 import { brandCrossBundleError } from "@/server/cross-bundle-error";
+
+/** Lives in `@/lib/return-query` so the proxy can use it too; re-exported for the auth routes. */
+export { normalizeReturnTo };
 
 /**
  * How the `idp_link` round trip ended: Keycloak's own `kc_action_status`, or
@@ -40,23 +43,6 @@ export type OidcFlowOptions = {
   clock?: () => Date;
 };
 
-/**
- * Account pages a login or a Sudo mode re-authentication may return to; a
- * stored transaction must hold a value `normalizeReturnTo` leaves unchanged
- * (`oidc-transactions.ts`). The only query kept is `allowedReturnQuery`'s.
- */
-const allowedReturnPaths = new Set([
-  "/",
-  "/identity",
-  "/email",
-  "/security",
-  "/sessions",
-  "/permissions",
-  "/club-profile",
-  "/communication-preferences",
-  "/delete-account",
-]);
-
 export class InvalidOidcTransactionError extends Error {
   static {
     brandCrossBundleError(this, "InvalidOidcTransactionError");
@@ -65,17 +51,6 @@ export class InvalidOidcTransactionError extends Error {
   constructor() {
     super("The OIDC transaction is invalid, expired, or already used.");
     this.name = "InvalidOidcTransactionError";
-  }
-}
-
-export function normalizeReturnTo(value: string | null | undefined) {
-  if (!value) return "/";
-  try {
-    const url = new URL(value, "https://account-center.invalid");
-    if (url.origin !== "https://account-center.invalid" || !allowedReturnPaths.has(url.pathname)) return "/";
-    return url.pathname + allowedReturnQuery(url.pathname, url.searchParams);
-  } catch {
-    return "/";
   }
 }
 
