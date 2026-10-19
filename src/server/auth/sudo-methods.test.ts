@@ -9,22 +9,22 @@ const credentials = identityFixture.credentials as SkyAccountIdentity["credentia
 
 describe("sudo method availability", () => {
   it("lists the methods in tab order and never a Microsoft fallback when one exists", () => {
-    expect(sudoMethodAvailability(credentials)).toEqual({
+    expect(sudoMethodAvailability({ ...identityFixture, sudoEmailCodeAvailable: false, credentials })).toEqual({
       methods: ["password", "passkey", "totp"],
       fallback: null,
     });
-    expect(sudoMethodAvailability({ ...credentials, password: false })).toEqual({
+    expect(sudoMethodAvailability({ ...identityFixture, sudoEmailCodeAvailable: false, credentials: { ...credentials, password: false } })).toEqual({
       methods: ["passkey", "totp"],
       fallback: null,
     });
-    expect(sudoMethodAvailability({ ...credentials, totp: [] })).toEqual({
+    expect(sudoMethodAvailability({ ...identityFixture, sudoEmailCodeAvailable: false, credentials: { ...credentials, totp: [] } })).toEqual({
       methods: ["password", "passkey"],
       fallback: null,
     });
   });
 
   it("offers the Microsoft re-authentication only when no in-product method exists", () => {
-    expect(sudoMethodAvailability({ password: false, totp: [], passkeys: [] })).toEqual({
+    expect(sudoMethodAvailability({ credentials: { password: false, totp: [], passkeys: [] }, verifiedYtu: true, sudoEmailCodeAvailable: false })).toEqual({
       methods: [],
       fallback: "microsoft",
     });
@@ -40,5 +40,16 @@ describe("sudo method availability", () => {
     )).resolves.toEqual({ methods: ["password", "passkey", "totp"], fallback: null });
     expect(accessToken).toHaveBeenCalledWith(session);
     expect(identity).toHaveBeenCalledWith({ accessToken: "server-held-user-token" });
+  });
+});
+
+
+describe("e-mail sudo capability", () => {
+  it("offers mail for a passwordless identity and Microsoft only for its YTÜ link", () => {
+    const identity = { credentials: { password: false, totp: [], passkeys: [] }, sudoEmailCodeAvailable: true, verifiedYtu: false };
+    expect(sudoMethodAvailability(identity)).toEqual({ methods: ["email-code"], fallback: null });
+    expect(sudoMethodAvailability({ ...identity, verifiedYtu: true })).toEqual({ methods: ["email-code"], fallback: "microsoft" });
+    expect(sudoMethodAvailability({ ...identity, credentials: { ...identity.credentials, password: true } })).toEqual({ methods: ["password"], fallback: null });
+    expect(sudoMethodAvailability({ ...identity, sudoEmailCodeAvailable: false })).toEqual({ methods: [], fallback: null });
   });
 });

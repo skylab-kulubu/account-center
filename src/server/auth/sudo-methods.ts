@@ -15,12 +15,15 @@ export type SudoMethodAvailability = {
   fallback: "microsoft" | null;
 };
 
-export function sudoMethodAvailability(credentials: SkyAccountIdentity["credentials"]): SudoMethodAvailability {
+export function sudoMethodAvailability(identity: Pick<SkyAccountIdentity, "credentials" | "sudoEmailCodeAvailable" | "verifiedYtu">): SudoMethodAvailability {
   const methods: SudoMethod[] = [];
+  const { credentials } = identity;
   if (credentials.password) methods.push("password");
   if (credentials.passkeys.length > 0) methods.push("passkey");
   if (credentials.totp.length > 0) methods.push("totp");
-  return { methods, fallback: methods.length === 0 ? "microsoft" : null };
+  const noFactor = methods.length === 0;
+  if (noFactor && identity.sudoEmailCodeAvailable) methods.push("email-code");
+  return { methods, fallback: noFactor && identity.verifiedYtu ? "microsoft" : null };
 }
 
 export type SudoMethodsSource = {
@@ -35,5 +38,5 @@ export async function resolveSudoMethods(
 ): Promise<SudoMethodAvailability> {
   const accessToken = await source.account.accessToken(session);
   const identity = await source.skyAccount.identity({ accessToken });
-  return sudoMethodAvailability(identity.credentials);
+  return sudoMethodAvailability(identity);
 }

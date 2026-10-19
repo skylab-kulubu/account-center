@@ -121,6 +121,7 @@ export function parseIdentity(value: unknown): SkyAccountIdentity {
     !primaryValues.has(value.primary) ||
     typeof value.verifiedYtu !== "boolean" ||
     typeof value.nameLocked !== "boolean" ||
+    (value.sudoEmailCodeAvailable !== undefined && typeof value.sudoEmailCodeAvailable !== "boolean") ||
     (value.usernameChangeAvailableAt !== null && !isoInstant(value.usernameChangeAvailableAt)) ||
     !isObject(value.credentials) ||
     typeof value.credentials.password !== "boolean"
@@ -141,6 +142,7 @@ export function parseIdentity(value: unknown): SkyAccountIdentity {
     primary: value.primary as SkyAccountIdentity["primary"],
     verifiedYtu: value.verifiedYtu,
     nameLocked: value.nameLocked,
+    sudoEmailCodeAvailable: value.sudoEmailCodeAvailable === true,
     usernameChangeAvailableAt: value.usernameChangeAvailableAt as string | null,
     credentials: {
       password: value.credentials.password,

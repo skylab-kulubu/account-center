@@ -10,6 +10,8 @@ import assertionOptionsFixture from "../../../tests/fixtures/sky-account-v1-weba
 import { GET as methods } from "@/app/api/account/sudo/methods/route";
 import { POST as password } from "@/app/api/account/sudo/password/route";
 import { POST as reauthenticate } from "@/app/api/account/sudo/reauthenticate/route";
+import { POST as emailSend } from "@/app/api/account/sudo/email-code/send/route";
+import { POST as emailVerify } from "@/app/api/account/sudo/email-code/verify/route";
 import { POST as totp } from "@/app/api/account/sudo/totp/route";
 import { POST as webauthnOptions } from "@/app/api/account/sudo/webauthn/options/route";
 import { POST as webauthnVerify } from "@/app/api/account/sudo/webauthn/verify/route";
@@ -32,6 +34,8 @@ const routeMocks = vi.hoisted(() => ({
   identity: vi.fn(),
   sudoPassword: vi.fn(),
   sudoTotp: vi.fn(),
+  sudoEmailCodeSend: vi.fn(),
+  sudoEmailCodeVerify: vi.fn(),
   sudoWebauthnOptions: vi.fn(),
   sudoWebauthnVerify: vi.fn(),
   storeSudo: vi.fn(),
@@ -62,6 +66,8 @@ vi.mock("@/server/auth/services", () => ({
       identity: routeMocks.identity,
       sudoPassword: routeMocks.sudoPassword,
       sudoTotp: routeMocks.sudoTotp,
+      sudoEmailCodeSend: routeMocks.sudoEmailCodeSend,
+      sudoEmailCodeVerify: routeMocks.sudoEmailCodeVerify,
       sudoWebauthnOptions: routeMocks.sudoWebauthnOptions,
       sudoWebauthnVerify: routeMocks.sudoWebauthnVerify,
     },
@@ -613,5 +619,54 @@ describe("sudo BFF routes", () => {
       expect(ended.cookies.get(SESSION_COOKIE)?.value).toBe("");
       expect(routeMocks.revokeSession).toHaveBeenCalledWith(activeSession.id);
     });
+  });
+});
+
+
+describe("sudo email-code routes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const active = { status: "active", value: { session: activeSession, rotated: false } };
+    routeMocks.authenticate.mockResolvedValue(active);
+    routeMocks.authenticateMutation.mockResolvedValue(active);
+    routeMocks.csrfToken.mockReturnValue("session-bound-csrf");
+    routeMocks.revokeSession.mockResolvedValue(true);
+    routeMocks.accessToken.mockResolvedValue("server-held-user-token");
+    routeMocks.identity.mockResolvedValue(identityFixture);
+    routeMocks.sudoPassword.mockResolvedValue(grant);
+    routeMocks.sudoTotp.mockResolvedValue(grant);
+    routeMocks.sudoWebauthnOptions.mockResolvedValue(assertionOptionsFixture);
+    routeMocks.sudoWebauthnVerify.mockResolvedValue(grant);
+    routeMocks.storeSudo.mockResolvedValue(undefined);
+    routeMocks.currentSudo.mockResolvedValue(null);
+    routeMocks.consumeKey.mockResolvedValue({ allowed: true, count: 1, retryAfterSeconds: 900 });
+    routeMocks.beginSudoReauthentication.mockResolvedValue({
+      authorizationUrl: new URL("https://e.yildizskylab.com/realms/e-skylab/protocol/openid-connect/auth?client_id=account-center&request_uri=urn%3Apar%3Asudo"),
+      browserBinding: "b".repeat(43),
+    });
+  });
+  it("sends to the SPI-selected primary and returns only the deadline", async () => {
+    routeMocks.sudoEmailCodeSend.mockResolvedValue({ expiresAt: "2026-10-16T14:10:00Z" });
+    const response = await emailSend(jsonRequest("/api/account/sudo/email-code/send", {}));
+    expect(response.status).toBe(202);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(routeMocks.sudoEmailCodeSend).toHaveBeenCalledWith({ accessToken: "server-held-user-token" });
+    expect(routeMocks.storeSudo).not.toHaveBeenCalled();
+  });
+  it("refuses address overrides and malformed eight-digit verification", async () => {
+    expect((await emailSend(jsonRequest("/api/account/sudo/email-code/send", { address: "new@example.com" }))).status).toBe(400);
+    expect((await emailVerify(jsonRequest("/api/account/sudo/email-code/verify", { code: "12345678" }))).status).toBe(400);
+    expect(routeMocks.sudoEmailCodeSend).not.toHaveBeenCalled();
+    expect(routeMocks.sudoEmailCodeVerify).not.toHaveBeenCalled();
+  });
+  it("stores the proof encrypted server-side and returns no code or token", async () => {
+    routeMocks.sudoEmailCodeVerify.mockResolvedValue(grant);
+    const response = await emailVerify(jsonRequest("/api/account/sudo/email-code/verify", { code: "008 271" }));
+    expect(response.status).toBe(200);
+    expect(routeMocks.sudoEmailCodeVerify).toHaveBeenCalledWith({ accessToken: "server-held-user-token" }, { code: "008 271" });
+    expect(routeMocks.storeSudo).toHaveBeenCalledWith(activeSession.id, grant.sudoToken, grant.expiresAt, "email-code");
+    const body = await response.text();
+    expect(body).not.toContain("008271");
+    expect(body).not.toContain(grant.sudoToken);
   });
 });
