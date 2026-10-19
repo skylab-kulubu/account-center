@@ -1,16 +1,133 @@
 name: CI
 
+# One workflow for every check and for the image. The scope job picks one of three modes:
+# - full: pushes to main, a manual run (gh workflow run ci.yml --ref <branch>),
+#   pull requests into anything but main whose tree main has not tested, and pull requests into main
+#   labelled full-ci (the label is read when the PR is opened or pushed to). Every job runs.
+# - fast: pull requests into main. Each job runs only when the paths it reads changed (scope); the
+#   browser tests run in four parallel shards.
+# - tested: the push to production and pull requests into production whose tree a push to main has
+#   already tested green (production is a squash of main, so the tree is compared, not the commit).
+#   No test runs again and the image is not rebuilt: the main image of that tree is promoted to the
+#   production tags (promote), then Dokploy deploys it (deploy).
+# A push to main publishes the image only after every test passed (publish needs them). One required
+# check: gate.
 on:
   pull_request:
   push:
     branches: [main, production]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A new push to a PR cancels that PR's older run; pushes and manual runs are never
+# cancelled (every main and production commit keeps its own run).
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/skylab-kulubu/account-center
+  # A push, or a manual run on main or production (the way back when a promotion cannot run).
+  PUBLISH: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production') }}
+
 jobs:
-  verify:
+  scope:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      mode: ${{ steps.scope.outputs.mode }}
+      code: ${{ steps.scope.outputs.code }}
+      e2e: ${{ steps.scope.outputs.e2e }}
+      migrations: ${{ steps.scope.outputs.migrations }}
+      docker: ${{ steps.scope.outputs.docker }}
+      tested-sha: ${{ steps.scope.outputs.tested-sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A pull request checks out GitHub's merge commit: HEAD^1 is the base it merges into.
+          fetch-depth: 2
+
+      - name: Choose the mode and the jobs
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF: ${{ github.ref }}
+          FULL_CI_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          set -euo pipefail
+          select_all() {
+            printf 'mode=%s\ncode=true\ne2e=true\nmigrations=true\ndocker=true\n' "$1" >> "$GITHUB_OUTPUT"
+            echo "mode $1: every job" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          # A push to main whose gate passed tested this tree in full and published main-<sha7>.
+          tested_on_main() {
+            local tree run_id head_sha jobs
+            tree=$(git rev-parse 'HEAD^{tree}')
+            while read -r run_id head_sha; do
+              [[ $run_id =~ ^[0-9]+$ && $head_sha =~ ^[0-9a-f]{40}$ ]] || continue
+              [[ $(gh api "repos/$GITHUB_REPOSITORY/git/commits/$head_sha" --jq .tree.sha) == "$tree" ]] || continue
+              jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+                --jq '.jobs[] | "\(.conclusion) \(.name)"')
+              if grep -qxF 'success gate' <<<"$jobs" && grep -qxF 'success publish' <<<"$jobs"; then
+                echo "$head_sha"
+                return 0
+              fi
+            done < <(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f branch=main -f event=push -f status=success -f per_page=50 \
+              --jq '.workflow_runs[] | "\(.id) \(.head_sha)"')
+            return 1
+          }
+
+          if [[ $EVENT == pull_request && $BASE_REF == main ]]; then
+            [[ $FULL_CI_LABEL == true ]] && select_all full
+          elif [[ ($EVENT == push && $REF == refs/heads/production) || $EVENT == pull_request ]]; then
+            if tested_sha=$(tested_on_main); then
+              printf 'mode=tested\ncode=false\ne2e=false\nmigrations=false\ndocker=false\ntested-sha=%s\n' \
+                "$tested_sha" >> "$GITHUB_OUTPUT"
+              echo "mode tested: main $tested_sha already tested this tree; nothing runs again" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            select_all full
+          else
+            select_all full
+          fi
+
+          # fast: a pull request into main. A diff that cannot be read selects every job.
+          if ! changed=$(git diff --name-only --no-renames HEAD^1 HEAD) || [[ -z $changed ]]; then
+            echo 'the PR diff could not be read' >&2
+            select_all fast
+          fi
+          code=false e2e=false migrations=false docker=false
+          while IFS= read -r path; do
+            case $path in
+              .github/*) code=true e2e=true migrations=true docker=true ;;
+              docs/* | *.md) ;;
+              Dockerfile | .dockerignore) docker=true ;;
+              migrations/* | scripts/migrate.mjs | scripts/database-error.mjs | package.json | pnpm-lock.yaml | pnpm-workspace.yaml)
+                code=true e2e=true migrations=true docker=true ;;
+              next.config.ts | scripts/start.mjs | scripts/validate-env.mjs | scripts/prune-auth.mjs)
+                code=true e2e=true docker=true ;;
+              maintenance/*) code=true docker=true ;;
+              *.test.ts | *.test.tsx | *.test.mjs | vitest.config.ts | eslint.config.mjs) code=true ;;
+              *) code=true e2e=true ;;
+            esac
+          done <<<"$changed"
+          printf 'mode=fast\ncode=%s\ne2e=%s\nmigrations=%s\ndocker=%s\n' "$code" "$e2e" "$migrations" "$docker" >> "$GITHUB_OUTPUT"
+          echo "mode fast: verify=$code browser=$e2e migration-compatibility=$migrations image=$docker" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:18
@@ -51,6 +168,12 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
           TEST_ACCOUNT_ACCESS_REDIS_URL: redis://default:access-gate-test-secret@127.0.0.1:6389/15
+      # Next.js's own build cache: the build reuses unchanged modules of the previous build.
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('src/**', 'public/**', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs') }}
+          restore-keys: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
       - run: pnpm build
       - name: Verify the optimized server's retired handoff, /internal and /.well-known paths
         env:
@@ -79,8 +202,30 @@ jobs:
           pnpm test:retired-handoff
           pnpm test:edge-paths
 
+  # Playwright in four parallel jobs. The account-ui-matrix project depends on desktop, mobile and
+  # reduced-motion, and Playwright runs a dependency project whole in every shard that needs it, so
+  # it runs alone with --no-deps (global-setup has compiled every route, the reason for that
+  # dependency, playwright.config.ts). Most tests run on desktop only (the others skip them), so
+  # desktop is split in two and the other three projects share one job (2026-10-19: a --shard=1/3
+  # of all four took 239 s, 3/3 85 s).
   browser:
+    name: browser (${{ matrix.shard }})
+    needs: scope
+    if: needs.scope.outputs.e2e == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: desktop 1/2
+            args: --project=desktop --shard=1/2
+          - shard: desktop 2/2
+            args: --project=desktop --shard=2/2
+          - shard: mobile, reduced-motion, account-deletion-enforce
+            args: --project=mobile --project=reduced-motion --project=account-deletion-enforce
+          - shard: account-ui-matrix
+            args: --project=account-ui-matrix --no-deps
     services:
       postgres:
         image: postgres:18
@@ -119,7 +264,7 @@ jobs:
       - run: pnpm db:migrate
         env:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
-      - run: pnpm test:e2e
+      - run: pnpm test:e2e ${{ matrix.args }}
         env:
           APP_URL: https://127.0.0.1:3100
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
@@ -139,22 +284,11 @@ jobs:
           ACCOUNT_ACCESS_REDIS_TLS: "false"
           ACCOUNT_ACCESS_REDIS_OPERATION_TIMEOUT_MS: "200"
 
-  container:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   migration-compatibility:
+    needs: scope
+    if: needs.scope.outputs.migrations == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -190,3 +324,256 @@ jobs:
         run: |
           pnpm db:migrate
           pnpm db:migrate
+
+  # Builds the one candidate image and smoke-tests it, in parallel with the tests. When it will be
+  # published it also saves those bytes for publish.
+  image:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full' || needs.scope.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      image-id: ${{ steps.candidate.outputs.imageid }}
+      archive-sha256: ${{ steps.save.outputs.sha256 }}
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: account_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d account_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/account_center_test
+      CANDIDATE_IMAGE: ghcr.io/skylab-kulubu/account-center:candidate-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - uses: docker/setup-buildx-action@v4
+      - id: candidate
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.CANDIDATE_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test candidate image
+        env:
+          EXPECTED_IMAGE_ID: ${{ steps.candidate.outputs.imageid }}
+        run: |
+          set -euo pipefail
+          actual_image_id="$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")"
+          test "$actual_image_id" = "$EXPECTED_IMAGE_ID"
+          docker run --rm --network host \
+            -e DATABASE_URL="$TEST_DATABASE_URL" \
+            "$CANDIDATE_IMAGE" node scripts/migrate.mjs
+          docker run --rm --network host \
+            -e DATABASE_URL="$TEST_DATABASE_URL" \
+            "$CANDIDATE_IMAGE" node scripts/prune-auth.mjs
+          docker run --rm -d --name account-center-candidate --network host \
+            -e PORT=33100 \
+            -e APP_URL=https://my.yildizskylab.com \
+            -e DATABASE_URL="$TEST_DATABASE_URL" \
+            -e SESSION_SECRET=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            -e TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            -e OIDC_ISSUER=https://e.yildizskylab.com/realms/e-skylab \
+            -e OIDC_CLIENT_ID=account-center \
+            -e OIDC_CLIENT_SECRET=container-smoke-secret-000000000000 \
+            -e OIDC_UPSTREAM_SESSION_MAX_SECONDS=28800 \
+            -e AUTH_TRUSTED_PROXY=cloudflare \
+            -e ACCOUNT_ACCESS_GATE_MODE=off \
+            -e ANDROID_ASSET_LINKS_PACKAGE_NAME=com.yildizskylab.ci \
+            -e ANDROID_ASSET_LINKS_SHA256_CERT_FINGERPRINTS=AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB \
+            "$CANDIDATE_IMAGE"
+          trap 'docker rm -f account-center-candidate >/dev/null 2>&1 || true' EXIT
+          curl --fail --silent --show-error --retry 20 --retry-connrefused \
+            --retry-delay 1 http://127.0.0.1:33100/api/ready
+          RETIRED_HANDOFF_TEST_ORIGIN=http://127.0.0.1:33100 node scripts/assert-retired-handoff.mjs
+          EDGE_PATHS_TEST_ORIGIN=http://127.0.0.1:33100 node scripts/assert-edge-paths.mjs
+      - name: Save the verified candidate for publish
+        id: save
+        if: env.PUBLISH == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate"
+          docker save "$CANDIDATE_IMAGE" | gzip -1 > "$RUNNER_TEMP/candidate/image.tar.gz"
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/candidate/image.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: env.PUBLISH == 'true'
+        with:
+          name: account-center-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate
+          if-no-files-found: error
+          retention-days: 1
+          # The tarball is gzip already.
+          compression-level: 0
+
+  # On a push to main, a production commit whose tree main has not tested, or a manual run on
+  # either branch: once every test and the smoke test passed, publishes exactly the bytes image
+  # tested (same archive hash, same image ID) as <branch> and <branch>-<sha7>. No rebuild.
+  publish:
+    needs: [scope, verify, browser, migration-compatibility, image]
+    if: needs.image.result == 'success' && needs.image.outputs.archive-sha256 != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      CANDIDATE_IMAGE: ghcr.io/skylab-kulubu/account-center:candidate-${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: account-center-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate
+      - name: Load the verified candidate
+        env:
+          ARCHIVE_SHA256: ${{ needs.image.outputs.archive-sha256 }}
+          EXPECTED_IMAGE_ID: ${{ needs.image.outputs.image-id }}
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/candidate/image.tar.gz" | sha256sum --check --strict
+          gzip -dc "$RUNNER_TEMP/candidate/image.tar.gz" | docker load
+          test "$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")" = "$EXPECTED_IMAGE_ID"
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the verified image without rebuilding
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          source_image_id="$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")"
+          for target in "$IMAGE:$BRANCH" "$IMAGE:$BRANCH-${GITHUB_SHA::7}"; do
+            docker image tag "$CANDIDATE_IMAGE" "$target"
+            test "$(docker image inspect --format '{{.Id}}' "$target")" = "$source_image_id"
+            docker push "$target"
+          done
+
+  # tested mode, push to production: the main image of the same tree gets the production tags. No
+  # build: the registry copies the manifest, so production runs the bytes main tested.
+  promote:
+    needs: scope
+    if: needs.scope.outputs.mode == 'tested' && github.event_name == 'push' && github.ref == 'refs/heads/production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote the tested main image to production
+        env:
+          TESTED_SHA: ${{ needs.scope.outputs.tested-sha }}
+        run: |
+          set -euo pipefail
+          [[ $TESTED_SHA =~ ^[0-9a-f]{40}$ ]]
+          source="$IMAGE:main-${TESTED_SHA::7}"
+          digest() { docker buildx imagetools inspect --raw "$1" | sha256sum | cut -d' ' -f1; }
+          source_digest=$(digest "$source")
+          docker buildx imagetools create --prefer-index=false \
+            --tag "$IMAGE:production" --tag "$IMAGE:production-${GITHUB_SHA::7}" "$source"
+          for target in "$IMAGE:production" "$IMAGE:production-${GITHUB_SHA::7}"; do
+            test "$(digest "$target")" = "$source_digest"
+          done
+          {
+            echo "### Promoted, not rebuilt"
+            echo
+            echo "\`$source\` (sha256:$source_digest) → \`production\`, \`production-${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The one required check. Fails when a job failed or was cancelled; in full mode every test job
+  # and the image (and publish, when it publishes) must have passed, in tested mode the push to
+  # production must have promoted.
+  gate:
+    if: always()
+    needs: [scope, verify, browser, migration-compatibility, image, publish, promote]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every selected job passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          MODE: ${{ needs.scope.outputs.mode }}
+          PRODUCTION_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/production' }}
+        run: |
+          set -euo pipefail
+          jq -r 'to_entries[] | "\(.key)=\(.value.result)"' <<<"$NEEDS"
+          result() { jq -r --arg job "$1" '.[$job].result' <<<"$NEEDS"; }
+          test "$(result scope)" = success
+          bad=$(jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key' <<<"$NEEDS")
+          if [[ -n $bad ]]; then
+            echo "failed or cancelled: $bad" >&2
+            exit 1
+          fi
+          case $MODE in
+            full)
+              for job in verify browser migration-compatibility image; do
+                test "$(result "$job")" = success || { echo "full mode: $job did not pass" >&2; exit 1; }
+              done
+              if [[ $PUBLISH == true ]]; then
+                test "$(result publish)" = success || { echo 'full mode: publish did not pass' >&2; exit 1; }
+              fi ;;
+            tested)
+              if [[ $PRODUCTION_PUSH == true ]]; then
+                test "$(result promote)" = success || { echo 'the production push was not promoted' >&2; exit 1; }
+              fi ;;
+            fast) ;;
+            *) echo "unknown mode: $MODE" >&2; exit 1 ;;
+          esac
+
+  deploy:
+    needs: gate
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger the production Dokploy deployment
+        env:
+          DOKPLOY_DEPLOY_HOOK: ${{ secrets.DOKPLOY_DEPLOY_HOOK }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DOKPLOY_DEPLOY_HOOK" ]]; then
+            echo "DOKPLOY_DEPLOY_HOOK is required for production deployment." >&2
+            exit 1
+          fi
+
+          response_file=$(mktemp)
+          trap 'rm -f "$response_file"' EXIT
+          if ! response_code=$(
+            curl --silent --show-error \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --output "$response_file" \
+              --write-out '%{http_code}' \
+              --user-agent 'DokployDeployHook/1.0' \
+              --request POST \
+              "$DOKPLOY_DEPLOY_HOOK"
+          ); then
+            echo "Dokploy deployment request failed before receiving an HTTP response." >&2
+            exit 1
+          fi
+
+          echo "Dokploy hook HTTP $response_code"
+          if [[ ! "$response_code" =~ ^2[0-9][0-9]$ ]]; then
+            echo "Dokploy did not accept the production deployment request." >&2
+            exit 1
+          fi
