@@ -144,6 +144,15 @@ describe("communication preference BFF routes", () => {
     expect(routeMocks.update).not.toHaveBeenCalled();
   });
 
+  it("passes a partial answer on as the tracking switch alone", async () => {
+    routeMocks.update.mockResolvedValueOnce({ partial: true, tracking: { enabled: false } });
+
+    const response = await PUT(request("PUT", { body: JSON.stringify({ tracking: { enabled: false } }) }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ partial: true, tracking: { enabled: false } });
+  });
+
   it.each([
     ["not JSON", "{", "application/json"],
     ["another media type", JSON.stringify({ items: [] }), "text/plain"],

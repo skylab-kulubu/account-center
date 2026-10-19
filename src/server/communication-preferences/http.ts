@@ -148,7 +148,11 @@ async function readJsonBody(request: NextRequest): Promise<unknown> {
   }
 }
 
-/** `PUT /api/account/communication-preferences`: `{"items": [{category, enabled}], "tracking": {enabled}}` (either or both) → `{ preferences }`. */
+/**
+ * `PUT /api/account/communication-preferences`: `{"items": [{category, enabled}], "tracking": {enabled}}`
+ * (either or both) → `{ preferences }`, or `{ partial: true, tracking: { enabled } }` when core wrote the
+ * tracking switch alone while Keycloak did not answer it.
+ */
 export async function updateCommunicationPreferences(request: NextRequest) {
   const access = await authenticateMutation(request);
   if (!access.ok) return access.response;
@@ -156,7 +160,8 @@ export async function updateCommunicationPreferences(request: NextRequest) {
   try {
     const body = await readJsonBody(request);
     const view = await preferences.update(sessionUse.session, body);
-    return withRotatedHandle(noStore(NextResponse.json({ preferences: view })), sessionUse);
+    const answer = "partial" in view ? view : { preferences: view };
+    return withRotatedHandle(noStore(NextResponse.json(answer)), sessionUse);
   } catch (error) {
     return failureResponse(request, services, sessionUse, error);
   }

@@ -1,7 +1,11 @@
 import "server-only";
 
 import { isPreferenceCategory, MAX_PREFERENCE_CHANGES } from "@/lib/communication-preferences";
-import type { CommunicationPreferencesView, PreferenceUpdate } from "@/lib/communication-preferences";
+import type {
+  CommunicationPreferencesView,
+  PartialTrackingAnswer,
+  PreferenceUpdate,
+} from "@/lib/communication-preferences";
 import { CoreCommunicationPreferencesError } from "@/server/core/communication-preferences-client";
 import type { CoreCommunicationPreferencesClient } from "@/server/core/communication-preferences-client";
 import type { AccountReadService } from "@/server/keycloak-account/service";
@@ -93,7 +97,7 @@ export class CommunicationPreferencesService {
   }
 
   /** Validates the browser body, then writes it; core answers the new screen. */
-  update(session: SessionIdentity, body: unknown): Promise<CommunicationPreferencesView> {
+  update(session: SessionIdentity, body: unknown): Promise<CommunicationPreferencesView | PartialTrackingAnswer> {
     const update = parsePreferenceUpdate(body);
     return this.#withToken(session, (accessToken) => this.core.update(accessToken, update));
   }

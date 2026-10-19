@@ -81,6 +81,13 @@ export type PreferenceChange = { category: string; enabled: boolean | null };
 /** One write: the category changes and, when set, the tracking switch (`true`/`false` only, never forgotten). */
 export type PreferenceUpdate = { items: PreferenceChange[]; tracking?: boolean };
 
+/**
+ * Core's answer to a change of the tracking switch alone written while
+ * Keycloak did not answer (`"partial": true`): the switch as written and no
+ * team or News switch, so the screen keeps everything else it shows.
+ */
+export type PartialTrackingAnswer = { partial: true; tracking: { enabled: boolean } };
+
 /** The privacy notice the tracking switch links to (skylab-site). */
 export const PRIVACY_NOTICE_URL = "https://yildizskylab.com/kvkk-metni.pdf";
 
@@ -215,6 +222,14 @@ function parseFollowable(value: unknown): FollowableTeam[] | null {
     teams.push({ groupId: item.groupId, code: item.code, displayName: item.displayName, path: item.path });
   }
   return teams;
+}
+
+/** A partial answer (core's or the BFF's), or `null` for anything else. */
+export function parsePartialTrackingAnswer(value: unknown): PartialTrackingAnswer | null {
+  if (!isRecord(value) || value.partial !== true || !isRecord(value.tracking) || typeof value.tracking.enabled !== "boolean") {
+    return null;
+  }
+  return { partial: true, tracking: { enabled: value.tracking.enabled } };
 }
 
 /** `null` for a core without the switch; `undefined` (refused) for a malformed one. */

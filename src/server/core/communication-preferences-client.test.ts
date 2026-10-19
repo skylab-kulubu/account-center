@@ -140,6 +140,27 @@ describe("Core communication preferences HTTP client", () => {
     expect(JSON.parse(init.body as string)).toEqual(body);
   });
 
+  it("answers a tracking-only change core wrote while Keycloak was down as the switch alone", async () => {
+    const partial = {
+      channels: ["email"], master: {}, club: { duyuru: {}, haber: {} }, teams: [], following: [], followable: [],
+      tracking: { enabled: false, effective: false, mode: "opt_out" },
+      partial: true,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(partial)));
+
+    await expect(new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, { items: [], tracking: false }))
+      .resolves.toEqual({ partial: true, tracking: { enabled: false } });
+  });
+
+  it.each([
+    ["a change with items", { items: [{ category: "all", enabled: false }], tracking: false }, { enabled: false }],
+    ["a switch without its value", { items: [], tracking: false }, { mode: "opt_out" }],
+  ])("fails closed on a partial answer to %s", async (_, update, tracking) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ ...fixture, tracking, partial: true })));
+    const error = await failureOf(new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, update));
+    expect(error.failure).toBe("contract");
+  });
+
   it.each([
     ["no change", { items: [] }],
     ["a malformed category", { items: [{ category: "team:a b:duyuru", enabled: true }] }],

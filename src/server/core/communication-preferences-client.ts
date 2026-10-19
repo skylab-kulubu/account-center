@@ -5,8 +5,13 @@ import {
   isPreferenceCategory,
   MAX_PREFERENCE_CHANGES,
   parseCommunicationPreferencesView,
+  parsePartialTrackingAnswer,
 } from "@/lib/communication-preferences";
-import type { CommunicationPreferencesView, PreferenceUpdate } from "@/lib/communication-preferences";
+import type {
+  CommunicationPreferencesView,
+  PartialTrackingAnswer,
+  PreferenceUpdate,
+} from "@/lib/communication-preferences";
 import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 /**
@@ -67,8 +72,12 @@ export class CoreCommunicationPreferencesError extends Error {
 
 export interface CoreCommunicationPreferencesClient {
   read(accessToken: string): Promise<CommunicationPreferencesView>;
-  /** Writes the changes on the e-mail channel and the tracking switch in one transaction and answers the new screen. */
-  update(accessToken: string, update: PreferenceUpdate): Promise<CommunicationPreferencesView>;
+  /**
+   * Writes the changes on the e-mail channel and the tracking switch in one
+   * transaction and answers the new screen, or, for the tracking switch
+   * alone written while Keycloak did not answer core, the switch alone.
+   */
+  update(accessToken: string, update: PreferenceUpdate): Promise<CommunicationPreferencesView | PartialTrackingAnswer>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -229,16 +238,21 @@ export class CoreCommunicationPreferencesHttpClient implements CoreCommunication
     } catch {
       throw new CoreCommunicationPreferencesError("unavailable");
     }
-    if (response.status === 200) return parseCoreScreen(await readBoundedJson(response, ["application/json"]));
+    if (response.status === 200) return readBoundedJson(response, ["application/json"]);
     if (response.status >= 200 && response.status < 300) throw new CoreCommunicationPreferencesError("contract");
     throw await failureOf(response);
   }
 
   async read(accessToken: string) {
-    return this.#request("GET", accessToken);
+    return parseCoreScreen(await this.#request("GET", accessToken));
   }
 
   async update(accessToken: string, update: PreferenceUpdate) {
-    return this.#request("PUT", accessToken, JSON.stringify(requestBody(update)));
+    const body = await this.#request("PUT", accessToken, JSON.stringify(requestBody(update)));
+    if (!isRecord(body) || body.partial !== true) return parseCoreScreen(body);
+    // Only a change of the tracking switch alone may come back partial.
+    const partial = update.items.length === 0 ? parsePartialTrackingAnswer(body) : null;
+    if (!partial) throw new CoreCommunicationPreferencesError("contract");
+    return partial;
   }
 }

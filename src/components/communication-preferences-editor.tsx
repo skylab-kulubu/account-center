@@ -10,6 +10,7 @@ import {
   MASTER_CATEGORY,
   NEWS_KINDS,
   parseCommunicationPreferencesView,
+  parsePartialTrackingAnswer,
   preferencesLoginHref,
   PRIVACY_NOTICE_URL,
   showsTrackingSwitch,
@@ -363,13 +364,21 @@ export function CommunicationPreferencesEditor({
         setFeedback({ tone: "danger", problem: parseProblem(body, response.status) });
         return false;
       }
-      const next = isObject(body) ? parseCommunicationPreferencesView(body.preferences) : null;
-      if (!next) {
+      // The tracking switch alone, written while Keycloak did not answer core: only it changes.
+      const partial = items.length === 0 ? parsePartialTrackingAnswer(body) : null;
+      const next = partial || !isObject(body) ? null : parseCommunicationPreferencesView(body.preferences);
+      if (!partial && !next) {
         moveFocusToFeedback.current = true;
         setFeedback({ tone: "danger", problem: contractProblem });
         return false;
       }
-      setView(next);
+      if (partial) {
+        // Core cannot say yet whether it tracks the person (`effective`); the switch they just used stays in sight.
+        const { enabled } = partial.tracking;
+        setView((current) => ({ ...current, tracking: { enabled, effective: enabled } }));
+      } else if (next) {
+        setView(next);
+      }
       setFeedback({ tone: "success", message: success });
       return true;
     } finally {

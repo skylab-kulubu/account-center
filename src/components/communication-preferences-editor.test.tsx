@@ -259,6 +259,36 @@ describe("CommunicationPreferencesEditor", () => {
     expect(sentBody(fetch, 1)).toEqual({ tracking: { enabled: true } });
   });
 
+  it("takes a partial answer (Keycloak down) as the switch alone and keeps the rest of the screen", async () => {
+    fetch.mockResolvedValueOnce(respond({ partial: true, tracking: { enabled: false } }));
+    renderEditor();
+
+    fireEvent.click(screen.getByRole("switch", { name: TRACKING_LABEL }));
+
+    await screen.findByText("Açılma ve tıklama izlemesi kapatıldı.");
+    expect(screen.getByRole("switch", { name: TRACKING_LABEL })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "WEBLAB · Haberler" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Duyuru ve haber postaları" })).toBeChecked();
+
+    // Turned back on: still in sight although core cannot say yet whether it tracks.
+    fetch.mockResolvedValueOnce(respond({ partial: true, tracking: { enabled: true } }));
+    fireEvent.click(screen.getByRole("switch", { name: TRACKING_LABEL }));
+    await screen.findByText("Açılma ve tıklama izlemesi açıldı.");
+    expect(screen.getByRole("switch", { name: TRACKING_LABEL })).not.toBeChecked();
+  });
+
+  it("fails closed on a partial answer to a team change", async () => {
+    fetch.mockResolvedValueOnce(respond({ partial: true, tracking: { enabled: false } }));
+    renderEditor();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("switch", { name: "WEBLAB · Duyurular" }));
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri güvenle durduruldu");
+    expect(screen.getByRole("switch", { name: "WEBLAB · Duyurular" })).toBeChecked();
+  });
+
   it("does not dim the tracking switch under a closed master switch", () => {
     const off = withTracking({ enabled: true, effective: true });
     off.master = { ...off.master, explicit: false, enabled: false, origin: "explicit", effective: false };
