@@ -37,10 +37,17 @@ test("publishes only the single candidate image that passed every test and the c
   assert.ok(publish.indexOf("docker load") < publish.indexOf('docker push "$target"'));
 });
 
-test("promotes the tested main image to production without rebuilding it", () => {
+test("promotes the digest main published to production without rebuilding it", () => {
+  const publish = job("publish");
   const promote = job("promote");
+  assert.ok(publish.indexOf('docker push "$target"') < publish.indexOf("Record the digest the registry stored"));
+  assert.match(publish, /name: account-center-published-\$\{\{ github\.sha \}\}/);
+
   assert.match(promote, /needs\.scope\.outputs\.mode == 'tested'/);
-  assert.match(promote, /source="\$IMAGE:main-\$\{TESTED_SHA::7\}"/);
+  assert.match(promote, /name: account-center-published-\$\{\{ needs\.scope\.outputs\.tested-sha \}\}/);
+  assert.match(promote, /run-id: \$\{\{ needs\.scope\.outputs\.tested-run-id \}\}/);
+  assert.match(promote, /source="\$IMAGE@\$published"/);
+  assert.doesNotMatch(promote, /main-\$\{TESTED_SHA/);
   assert.match(promote, /imagetools create --prefer-index=false/);
   assert.match(promote, /test "\$\(digest "\$target"\)" = "\$source_digest"/);
   assert.doesNotMatch(promote, /build-push-action/);
