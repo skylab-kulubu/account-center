@@ -10,7 +10,10 @@ import {
   MASTER_CATEGORY,
   NEWS_KINDS,
   parseCommunicationPreferencesView,
+  parsePartialTrackingAnswer,
   preferencesLoginHref,
+  PRIVACY_NOTICE_URL,
+  showsTrackingSwitch,
   teamCategory,
 } from "@/lib/communication-preferences";
 import type {
@@ -20,6 +23,7 @@ import type {
   PreferenceCell,
   PreferenceChange,
   PreferenceTeamRow,
+  PreferenceUpdate,
 } from "@/lib/communication-preferences";
 
 type SafeProblem = { title: string; detail: string; status: number };
@@ -31,6 +35,9 @@ type Feedback =
 const ROUTE = "/api/account/communication-preferences";
 
 const kindLabels: Readonly<Record<NewsKind, string>> = { duyuru: "Duyurular", haber: "Haberler" };
+
+/** Word for word the privacy notice's; checked means not tracked (`tracking.enabled: false`). */
+const TRACKING_LABEL = "Postalarımın açılmasını ve tıklamalarımı izleme";
 
 const networkProblem: SafeProblem = {
   title: "Bağlantı kurulamadı",
@@ -303,6 +310,7 @@ export function CommunicationPreferencesEditor({
   const masterDescriptionId = useId();
   const tableHeadingId = useId();
   const followHeadingId = useId();
+  const trackingHeadingId = useId();
 
   const names = useMemo(() => teamNames(view), [view]);
   const key = focusKey(focusCategory);
@@ -322,9 +330,10 @@ export function CommunicationPreferencesEditor({
   }, [feedback, pending]);
 
   /** Writes the changes and shows core's new screen; `true` when they were saved. */
-  async function apply(changes: PreferenceChange[], success: string, opts: { focusFeedback?: boolean } = {}) {
+  async function apply(update: PreferenceChange[] | PreferenceUpdate, success: string, opts: { focusFeedback?: boolean } = {}) {
     if (pending) return false;
-    setPending(changes[0]?.category ?? "pending");
+    const { items, tracking } = Array.isArray(update) ? { items: update, tracking: undefined } : update;
+    setPending(items[0]?.category ?? "pending");
     setFeedback(null);
     moveFocusToFeedback.current = opts.focusFeedback === true;
     try {
@@ -335,7 +344,10 @@ export function CommunicationPreferencesEditor({
           cache: "no-store",
           credentials: "same-origin",
           headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
-          body: JSON.stringify({ items: changes }),
+          body: JSON.stringify({
+            ...(items.length > 0 ? { items } : {}),
+            ...(tracking !== undefined ? { tracking: { enabled: tracking } } : {}),
+          }),
         });
       } catch {
         setFeedback({ tone: "danger", problem: networkProblem });
@@ -352,13 +364,21 @@ export function CommunicationPreferencesEditor({
         setFeedback({ tone: "danger", problem: parseProblem(body, response.status) });
         return false;
       }
-      const next = isObject(body) ? parseCommunicationPreferencesView(body.preferences) : null;
-      if (!next) {
+      // The tracking switch alone, written while Keycloak did not answer core: only it changes.
+      const partial = items.length === 0 ? parsePartialTrackingAnswer(body) : null;
+      const next = partial || !isObject(body) ? null : parseCommunicationPreferencesView(body.preferences);
+      if (!partial && !next) {
         moveFocusToFeedback.current = true;
         setFeedback({ tone: "danger", problem: contractProblem });
         return false;
       }
-      setView(next);
+      if (partial) {
+        // Core cannot say yet whether it tracks the person (`effective`); the switch they just used stays in sight.
+        const { enabled } = partial.tracking;
+        setView((current) => ({ ...current, tracking: { enabled, effective: enabled } }));
+      } else if (next) {
+        setView(next);
+      }
       setFeedback({ tone: "success", message: success });
       return true;
     } finally {
@@ -392,6 +412,13 @@ export function CommunicationPreferencesEditor({
       forgetTree(row),
       row.hidden ? "Gizli ekip için kalan ayar silindi." : `${rowLabel(row)} artık takip edilmiyor.`,
       { focusFeedback: true },
+    );
+
+  /** Checked turns tracking off: the switch is the objection, not the tracking. */
+  const objectToTracking = (checked: boolean) =>
+    void apply(
+      { items: [], tracking: !checked },
+      checked ? "Açılma ve tıklama izlemesi kapatıldı." : "Açılma ve tıklama izlemesi açıldı.",
     );
 
   const busy = pending !== null;
@@ -551,6 +578,25 @@ export function CommunicationPreferencesEditor({
           <p className="preferences-follow__empty">Takip edebileceğin başka bir ekip yok.</p>
         )}
       </section>
+
+      {/* Open and click tracking (hub ticket 16): its own section, untouched by the master switch. */}
+      {showsTrackingSwitch(view.tracking) ? (
+        <section className="settings-section" aria-labelledby={trackingHeadingId}>
+          <div className="settings-section__heading">
+            <h2 id={trackingHeadingId}>Postalarımın açılma ve tıklama bilgisi</h2>
+            <p>
+              <a href={PRIVACY_NOTICE_URL} rel="noopener noreferrer" target="_blank">KVKK aydınlatma metni</a>
+            </p>
+          </div>
+          <ToggleRow
+            aria-label={TRACKING_LABEL}
+            checked={!view.tracking.enabled}
+            disabled={busy}
+            onCheckedChange={objectToTracking}
+            title={TRACKING_LABEL}
+          />
+        </section>
+      ) : null}
     </>
   );
 }

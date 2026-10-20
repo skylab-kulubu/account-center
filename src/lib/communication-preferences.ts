@@ -53,16 +53,52 @@ export type PreferenceTeamRow = {
 
 export type FollowableTeam = { groupId: string; code: string; displayName: string; path: string };
 
+/**
+ * The open and click tracking switch (core `docs/communication-preferences.md`,
+ * "Tracking"; hub ticket 16). No channel and no category of the lists: core
+ * keeps it beside them.
+ */
+export type TrackingState = {
+  /** The person's choice, or core's mode default without one. The screen shows it reversed ("izleme"). */
+  enabled: boolean;
+  /** Whether core lets SkyMail track the person now: enabled and a Member. */
+  effective: boolean;
+};
+
 export type CommunicationPreferencesView = {
   master: PreferenceCell;
   club: KindCells;
   teams: PreferenceTeamRow[];
   following: PreferenceTeamRow[];
   followable: FollowableTeam[];
+  /** `null` from a core that does not serve the switch yet: the screen leaves it out. */
+  tracking: TrackingState | null;
 };
 
 /** One change the browser asks for; the BFF adds the channel. `null` forgets the choice. */
 export type PreferenceChange = { category: string; enabled: boolean | null };
+
+/** One write: the category changes and, when set, the tracking switch (`true`/`false` only, never forgotten). */
+export type PreferenceUpdate = { items: PreferenceChange[]; tracking?: boolean };
+
+/**
+ * Core's answer to a change of the tracking switch alone written while
+ * Keycloak did not answer (`"partial": true`): the switch as written and no
+ * team or News switch, so the screen keeps everything else it shows.
+ */
+export type PartialTrackingAnswer = { partial: true; tracking: { enabled: boolean } };
+
+/** The privacy notice the tracking switch links to (skylab-site). */
+export const PRIVACY_NOTICE_URL = "https://yildizskylab.com/kvkk-metni.pdf";
+
+/**
+ * Whether the screen offers the tracking switch: core serves it, and the
+ * person is tracked or has turned it off. Someone core never tracks (no
+ * Member) and who has not objected has nothing to turn off.
+ */
+export function showsTrackingSwitch(tracking: TrackingState | null): tracking is TrackingState {
+  return tracking !== null && (tracking.effective || !tracking.enabled);
+}
 
 export const MASTER_CATEGORY = "all";
 
@@ -188,6 +224,21 @@ function parseFollowable(value: unknown): FollowableTeam[] | null {
   return teams;
 }
 
+/** A partial answer (core's or the BFF's), or `null` for anything else. */
+export function parsePartialTrackingAnswer(value: unknown): PartialTrackingAnswer | null {
+  if (!isRecord(value) || value.partial !== true || !isRecord(value.tracking) || typeof value.tracking.enabled !== "boolean") {
+    return null;
+  }
+  return { partial: true, tracking: { enabled: value.tracking.enabled } };
+}
+
+/** `null` for a core without the switch; `undefined` (refused) for a malformed one. */
+function parseTracking(value: unknown): TrackingState | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value) || typeof value.enabled !== "boolean" || typeof value.effective !== "boolean") return undefined;
+  return { enabled: value.enabled, effective: value.effective };
+}
+
 /**
  * Fail-closed parser for the BFF's view (the browser re-checks what the
  * BFF answers, as the club profile does): `null` on anything unexpected.
@@ -200,6 +251,7 @@ export function parseCommunicationPreferencesView(value: unknown): Communication
   const teams = parseRows(value.teams, budget);
   const following = parseRows(value.following, budget);
   const followable = parseFollowable(value.followable);
-  if (!master || !club || !teams || !following || !followable) return null;
-  return { master, club, teams, following, followable };
+  const tracking = parseTracking(value.tracking);
+  if (!master || !club || !teams || !following || !followable || tracking === undefined) return null;
+  return { master, club, teams, following, followable, tracking };
 }

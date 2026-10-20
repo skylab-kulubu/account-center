@@ -1,7 +1,11 @@
 import "server-only";
 
 import { isPreferenceCategory, MAX_PREFERENCE_CHANGES } from "@/lib/communication-preferences";
-import type { CommunicationPreferencesView, PreferenceChange } from "@/lib/communication-preferences";
+import type {
+  CommunicationPreferencesView,
+  PartialTrackingAnswer,
+  PreferenceUpdate,
+} from "@/lib/communication-preferences";
 import { CoreCommunicationPreferencesError } from "@/server/core/communication-preferences-client";
 import type { CoreCommunicationPreferencesClient } from "@/server/core/communication-preferences-client";
 import type { AccountReadService } from "@/server/keycloak-account/service";
@@ -21,19 +25,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * `{"items": [{"category", "enabled": true|false|null}]}` from the browser:
- * 1 to 200 items, each category once, nothing else. The channel is not the
- * browser's to choose; the client adds e-mail.
- */
-export function parsePreferenceChanges(body: unknown): PreferenceChange[] {
-  if (!isRecord(body) || Object.keys(body).some((key) => key !== "items") || !Array.isArray(body.items)) {
+/** `{"enabled": true|false}`, nothing else: the tracking switch has no "forget". */
+function parseTrackingChange(value: unknown) {
+  if (!isRecord(value) || Object.keys(value).some((key) => key !== "enabled") || typeof value.enabled !== "boolean") {
     throw new CommunicationPreferencesInputError();
   }
-  const { items } = body;
-  if (items.length === 0 || items.length > MAX_PREFERENCE_CHANGES) throw new CommunicationPreferencesInputError();
+  return value.enabled;
+}
+
+/**
+ * `{"items": [{"category", "enabled": true|false|null}], "tracking":
+ * {"enabled": true|false}}` from the browser: up to 200 items, each
+ * category once, `items`, `tracking` or both and nothing else. The channel
+ * is not the browser's to choose; the client adds e-mail.
+ */
+export function parsePreferenceUpdate(body: unknown): PreferenceUpdate {
+  if (!isRecord(body) || Object.keys(body).some((key) => key !== "items" && key !== "tracking")) {
+    throw new CommunicationPreferencesInputError();
+  }
+  const items = body.items === undefined ? [] : body.items;
+  const tracking = body.tracking === undefined ? undefined : parseTrackingChange(body.tracking);
+  if (!Array.isArray(items) || items.length > MAX_PREFERENCE_CHANGES || (items.length === 0 && tracking === undefined)) {
+    throw new CommunicationPreferencesInputError();
+  }
   const seen = new Set<string>();
-  return items.map((item) => {
+  const changes = items.map((item: unknown) => {
     if (
       !isRecord(item) ||
       Object.keys(item).some((key) => key !== "category" && key !== "enabled") ||
@@ -45,8 +61,9 @@ export function parsePreferenceChanges(body: unknown): PreferenceChange[] {
       throw new CommunicationPreferencesInputError();
     }
     seen.add(item.category);
-    return { category: item.category, enabled: item.enabled };
+    return { category: item.category, enabled: item.enabled as boolean | null };
   });
+  return tracking === undefined ? { items: changes } : { items: changes, tracking };
 }
 
 /**
@@ -80,9 +97,9 @@ export class CommunicationPreferencesService {
   }
 
   /** Validates the browser body, then writes it; core answers the new screen. */
-  update(session: SessionIdentity, body: unknown): Promise<CommunicationPreferencesView> {
-    const changes = parsePreferenceChanges(body);
-    return this.#withToken(session, (accessToken) => this.core.update(accessToken, changes));
+  update(session: SessionIdentity, body: unknown): Promise<CommunicationPreferencesView | PartialTrackingAnswer> {
+    const update = parsePreferenceUpdate(body);
+    return this.#withToken(session, (accessToken) => this.core.update(accessToken, update));
   }
 }
 

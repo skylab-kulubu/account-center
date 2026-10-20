@@ -69,6 +69,13 @@ describe("Core communication preferences HTTP client", () => {
     expect(view.following[0]?.children[0]?.kinds.haber).toMatchObject({ origin: "inherited", from: airlab });
     expect(view.following[1]).toMatchObject({ hidden: true, displayName: "Gizli ekip", code: "", path: "" });
     expect(view.followable.map(({ code }) => code)).toEqual(["ROBOLAB", "SKYSEC"]);
+    expect(view.tracking).toEqual({ enabled: true, effective: true });
+  });
+
+  it("reads a core before the tracking switch as one without it", () => {
+    const older = { ...fixture };
+    delete older.tracking;
+    expect(parseCoreScreen(older).tracking).toBeNull();
   });
 
   it("ignores channels and members it does not know", () => {
@@ -85,6 +92,7 @@ describe("Core communication preferences HTTP client", () => {
     ["a cell without e-mail", { ...fixture, master: { push: {} } }],
     ["teams that are not a list", { ...fixture, teams: {} }],
     ["no followable list", { ...fixture, followable: undefined }],
+    ["a tracking switch without its state", { ...fixture, tracking: { mode: "opt_out" } }],
   ])("fails closed on %s", (_, body) => {
     expect(() => parseCoreScreen(body)).toThrow(CoreCommunicationPreferencesError);
   });
@@ -93,10 +101,12 @@ describe("Core communication preferences HTTP client", () => {
     const fetch = vi.fn().mockResolvedValue(json(fixture));
     vi.stubGlobal("fetch", fetch);
 
-    await new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, [
-      { category: `team:${weblab}:duyuru`, enabled: false },
-      { category: "club:haber", enabled: null },
-    ]);
+    await new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, {
+      items: [
+        { category: `team:${weblab}:duyuru`, enabled: false },
+        { category: "club:haber", enabled: null },
+      ],
+    });
 
     const [, init] = fetch.mock.calls[0] as [URL, RequestInit];
     expect(init.method).toBe("PUT");
@@ -114,14 +124,53 @@ describe("Core communication preferences HTTP client", () => {
   });
 
   it.each([
-    ["no change", []],
-    ["a malformed category", [{ category: "team:a b:duyuru", enabled: true }]],
-    ["the same category twice", [{ category: "all", enabled: true }, { category: "all", enabled: false }]],
-    ["a value that is not a choice", [{ category: "all", enabled: "yes" }]],
-  ])("refuses %s before calling core", async (_, changes) => {
+    [{ items: [], tracking: false }, { tracking: { enabled: false } }],
+    [{ items: [], tracking: true }, { tracking: { enabled: true } }],
+    [
+      { items: [{ category: "all", enabled: false }], tracking: false },
+      { items: [{ category: "all", channel: "email", enabled: false }], tracking: { enabled: false } },
+    ],
+  ])("writes the tracking switch as core's own member %#", async (update, body) => {
+    const fetch = vi.fn().mockResolvedValue(json(fixture));
+    vi.stubGlobal("fetch", fetch);
+
+    await new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, update);
+
+    const [, init] = fetch.mock.calls[0] as [URL, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual(body);
+  });
+
+  it("answers a tracking-only change core wrote while Keycloak was down as the switch alone", async () => {
+    const partial = {
+      channels: ["email"], master: {}, club: { duyuru: {}, haber: {} }, teams: [], following: [], followable: [],
+      tracking: { enabled: false, effective: false, mode: "opt_out" },
+      partial: true,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(partial)));
+
+    await expect(new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, { items: [], tracking: false }))
+      .resolves.toEqual({ partial: true, tracking: { enabled: false } });
+  });
+
+  it.each([
+    ["a change with items", { items: [{ category: "all", enabled: false }], tracking: false }, { enabled: false }],
+    ["a switch without its value", { items: [], tracking: false }, { mode: "opt_out" }],
+  ])("fails closed on a partial answer to %s", async (_, update, tracking) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ ...fixture, tracking, partial: true })));
+    const error = await failureOf(new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, update));
+    expect(error.failure).toBe("contract");
+  });
+
+  it.each([
+    ["no change", { items: [] }],
+    ["a malformed category", { items: [{ category: "team:a b:duyuru", enabled: true }] }],
+    ["the same category twice", { items: [{ category: "all", enabled: true }, { category: "all", enabled: false }] }],
+    ["a value that is not a choice", { items: [{ category: "all", enabled: "yes" }] }],
+    ["a tracking value that is not a choice", { items: [], tracking: null }],
+  ])("refuses %s before calling core", async (_, update) => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
-    const failure = await failureOf(new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, changes as never));
+    const failure = await failureOf(new CoreCommunicationPreferencesHttpClient(baseUrl).update(accessToken, update as never));
     expect(failure.failure).toBe("invalid_input");
     expect(fetch).not.toHaveBeenCalled();
   });
