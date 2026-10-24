@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import meFixture from "../../../tests/fixtures/core-users-me.json";
 import { GET, PATCH } from "@/app/api/account/club-profile/route";
 import { DELETE, POST } from "@/app/api/account/club-profile/picture/route";
+import { DELETE as DELETE_CARD } from "@/app/api/account/club-profile/student-card/route";
 import { CLUB_PROFILE_PICTURE_MAX_BYTES } from "@/config/club-profile";
 import { SESSION_COOKIE } from "@/server/auth/http";
 import {
@@ -32,6 +33,7 @@ const routeMocks = vi.hoisted(() => ({
   patchMe: vi.fn(),
   uploadProfilePicture: vi.fn(),
   deleteProfilePicture: vi.fn(),
+  deleteStudentCard: vi.fn(),
   services: {} as Record<string, unknown>,
 }));
 
@@ -64,6 +66,7 @@ function buildServices(options: { coreEnabled?: boolean } = {}) {
           patchMe: routeMocks.patchMe,
           uploadProfilePicture: routeMocks.uploadProfilePicture,
           deleteProfilePicture: routeMocks.deleteProfilePicture,
+          deleteStudentCard: routeMocks.deleteStudentCard,
         },
   };
 }
@@ -159,6 +162,7 @@ describe("club-profile BFF routes", () => {
     routeMocks.patchMe.mockImplementation(async (_token: string, patch: Record<string, string>) => ({ ...profile, ...patch }));
     routeMocks.uploadProfilePicture.mockResolvedValue(undefined);
     routeMocks.deleteProfilePicture.mockResolvedValue(undefined);
+    routeMocks.deleteStudentCard.mockResolvedValue(undefined);
   });
 
   describe("GET /api/account/club-profile", () => {
@@ -557,6 +561,51 @@ describe("club-profile BFF routes", () => {
       const response = await DELETE(deleteRequest());
       expect(response.status).toBe(503);
       await expect(response.json()).resolves.toMatchObject({ title: "Kulüp profiline şu anda ulaşılamıyor" });
+    });
+  });
+
+  describe("DELETE /api/account/club-profile/student-card", () => {
+    function cardRequest(overrides: RequestOptions = {}) {
+      return request("/api/account/club-profile/student-card", {
+        method: "DELETE",
+        origin: "https://my.yildizskylab.com",
+        csrf: "session-bound-csrf",
+        ...overrides,
+      });
+    }
+
+    it("removes the card through core and re-reads the profile", async () => {
+      routeMocks.getMe.mockResolvedValue({ ...profile, studentCardLinked: false });
+
+      const response = await DELETE_CARD(cardRequest());
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      await expect(response.json()).resolves.toEqual({ profile: { ...expectedView, studentCardLinked: false } });
+      expect(routeMocks.deleteStudentCard).toHaveBeenCalledWith("server-held-user-token");
+      expect(routeMocks.deleteStudentCard.mock.invocationCallOrder[0])
+        .toBeLessThan(routeMocks.getMe.mock.invocationCallOrder[0]!);
+    });
+
+    it("requires exact origin, a valid proof and an active session", async () => {
+      expect((await DELETE_CARD(cardRequest({ origin: "https://attacker.invalid" }))).status).toBe(403);
+      routeMocks.authenticateMutation.mockResolvedValueOnce({ status: "forbidden" });
+      expect((await DELETE_CARD(cardRequest({ csrf: "forged" }))).status).toBe(403);
+      routeMocks.authenticateMutation.mockResolvedValueOnce({ status: "missing" });
+      expect((await DELETE_CARD(cardRequest())).status).toBe(401);
+      expect(routeMocks.deleteStudentCard).not.toHaveBeenCalled();
+    });
+
+    it("answers the disabled state and core failures as problems", async () => {
+      routeMocks.services = buildServices({ coreEnabled: false });
+      expect((await DELETE_CARD(cardRequest())).status).toBe(503);
+
+      routeMocks.services = buildServices();
+      routeMocks.deleteStudentCard.mockRejectedValue(new CoreProfileUnavailableError());
+      const response = await DELETE_CARD(cardRequest());
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toMatchObject({ title: "Kulüp profiline şu anda ulaşılamıyor" });
+      expect(routeMocks.getMe).not.toHaveBeenCalled();
     });
   });
 });

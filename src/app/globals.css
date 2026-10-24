@@ -574,6 +574,19 @@ a.settings-row:hover .settings-row__chevron {
   background: rgba(239, 68, 68, 0.12);
 }
 
+.student-card-feedback {
+  margin-top: 4px;
+  outline: none;
+}
+
+.student-card-feedback[data-tone="success"] {
+  color: #a7f3d0;
+}
+
+.student-card-feedback[data-tone="danger"] {
+  color: #eab8b8;
+}
+
 .action-notice {
   display: flex;
   flex-direction: column;

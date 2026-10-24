@@ -210,3 +210,16 @@ export async function removeClubProfilePicture(request: NextRequest) {
     return failureResponse(request, services, sessionUse, error);
   }
 }
+
+/** `DELETE /api/account/club-profile/student-card`: the person removes their own card. */
+export async function removeClubProfileStudentCard(request: NextRequest) {
+  const access = await authenticateMutation(request);
+  if (!access.ok) return access.response;
+  const { services, clubProfile, sessionUse } = access;
+  try {
+    const profile = toClubProfileView(await clubProfile.removeStudentCard(sessionUse.session));
+    return withRotatedHandle(noStore(NextResponse.json({ profile })), sessionUse);
+  } catch (error) {
+    return failureResponse(request, services, sessionUse, error);
+  }
+}

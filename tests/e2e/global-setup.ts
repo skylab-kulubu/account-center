@@ -68,6 +68,7 @@ const mutations = [
   "/api/account/deletion",
   "/api/account/deletion/prepare",
   "/api/account/club-profile/picture",
+  "/api/account/club-profile/student-card",
 ];
 
 /**

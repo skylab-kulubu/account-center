@@ -26,6 +26,7 @@ function fakeCore(overrides: Partial<FakeCore> = {}): FakeCore {
     patchMe: vi.fn(async (_token: string, patch: Record<string, string>) => ({ ...profile, ...patch })),
     uploadProfilePicture: vi.fn(async () => undefined),
     deleteProfilePicture: vi.fn(async () => undefined),
+    deleteStudentCard: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -169,6 +170,16 @@ describe("ClubProfileService", () => {
     await expect(service.removePicture(session)).resolves.toEqual(cleared);
     expect(core.deleteProfilePicture).toHaveBeenCalledWith("current-user-token");
     expect(core.deleteProfilePicture.mock.invocationCallOrder[0]).toBeLessThan(core.getMe.mock.invocationCallOrder[0]!);
+  });
+
+  it("removes the card and re-reads the profile", async () => {
+    const cleared = { ...profile, studentCardLinked: false };
+    const core = fakeCore({ getMe: vi.fn(async () => cleared) });
+    const service = new ClubProfileService(core, fakeTokens());
+
+    await expect(service.removeStudentCard(session)).resolves.toEqual(cleared);
+    expect(core.deleteStudentCard).toHaveBeenCalledWith("current-user-token");
+    expect(core.deleteStudentCard.mock.invocationCallOrder[0]).toBeLessThan(core.getMe.mock.invocationCallOrder[0]!);
   });
 
   it("is built once per services instance and stays off without a core client", () => {

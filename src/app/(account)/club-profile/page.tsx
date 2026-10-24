@@ -10,6 +10,7 @@ import { AccountDataProblem } from "@/components/account-data-problem";
 import { ClubProfileEditor } from "@/components/club-profile-editor";
 import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
 import { SkyPassWalletCard } from "@/components/skypass-wallet-card";
+import { StudentCardRow } from "@/components/student-card-row";
 import { accountRoute } from "@/config/account-routes";
 import { loadClubProfilePage } from "@/server/club-profile/page-data";
 import type { ClubProfileState } from "@/server/club-profile/page-data";
@@ -83,25 +84,21 @@ export default async function ClubProfilePage() {
         </div>
       ) : null}
 
-      <SettingsGroup title="Üyelik" description="Bu alanlar kulüp kayıtlarından gelir ve buradan değiştirilemez.">
+      <SettingsGroup title="Üyelik" description="Bu alanlar kulüp kayıtlarından gelir.">
         <SettingsRow
           icon={<Hash aria-hidden="true" size={19} />}
           title="SKY numarası"
           description={skyNumber ?? (club ? "Henüz verilmedi" : coreCopy)}
           trailing={<StatusBadge>Core</StatusBadge>}
         />
-        <SettingsRow
-          icon={<Nfc aria-hidden="true" size={19} />}
-          title="Öğrenci kartı"
-          description={club
-            ? "Kartını sky-app’teki SkyPass ekranından bağlayabilir ya da değiştirebilirsin; kapıda o kartla giriş yaparsın."
-            : coreCopy}
-          trailing={club ? (
-            <StatusBadge tone={club.studentCardLinked ? "positive" : "warning"}>
-              {club.studentCardLinked ? "Öğrenci kartı bağlı" : "Öğrenci kartı bağlı değil"}
-            </StatusBadge>
-          ) : <StatusBadge>Core</StatusBadge>}
-        />
+        {club ? <StudentCardRow initialLinked={club.studentCardLinked} csrfToken={data.csrfToken} /> : (
+          <SettingsRow
+            icon={<Nfc aria-hidden="true" size={19} />}
+            title="Öğrenci kartı"
+            description={coreCopy}
+            trailing={<StatusBadge>Core</StatusBadge>}
+          />
+        )}
         <SettingsRow
           icon={<AtSign aria-hidden="true" size={19} />}
           title="Okul e-postası"

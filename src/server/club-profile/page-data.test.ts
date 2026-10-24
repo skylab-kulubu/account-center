@@ -39,6 +39,7 @@ function buildServices(options: { coreEnabled?: boolean } = {}) {
       patchMe: vi.fn(),
       uploadProfilePicture: vi.fn(),
       deleteProfilePicture: vi.fn(),
+      deleteStudentCard: vi.fn(),
     },
     coreSkyPassWallet: options.coreEnabled === false ? null : {
       status: mocks.walletStatus,
