@@ -22,6 +22,7 @@ type PreferenceState = {
 };
 
 const trackingLabel = "Postalarımın açılmasını ve tıklamalarımı izleme";
+const promotionalBox = "SKY LAB'dan tanıtım içerikli e-postalar (indirim kodu, şirket iş ilanı, çekiliş gibi) almak istiyorum.";
 
 function collectPageErrors(page: Page) {
   const errors: string[] = [];
@@ -144,7 +145,8 @@ test("the preferences screen writes each switch to core under its own category",
     await test.step("checking the tracking switch turns tracking off", async () => {
       const tracking = page.getByRole("switch", { name: trackingLabel });
       await expect(tracking).not.toBeChecked();
-      await expect(page.getByRole("link", { name: "KVKK aydınlatma metni" }))
+      await expect(page.getByRole("region", { name: "Postalarımın açılma ve tıklama bilgisi" })
+        .getByRole("link", { name: "KVKK aydınlatma metni" }))
         .toHaveAttribute("href", "https://yildizskylab.com/kvkk-metni.pdf");
       await savePreference(page, () => tracking.click());
       await expect(tracking).toBeChecked();
@@ -186,14 +188,14 @@ test("the screen says the preferences are not on yet while core has no key", asy
     await page.goto("/communication-preferences");
 
     await expect(page.getByText("İletişim tercihleri şu an kullanılamıyor")).toBeVisible();
-    await expect(page.getByRole("switch")).toHaveCount(0);
+    // Only the promotional box is left: it is core's consent record, not the preferences.
+    await expect(page.getByRole("switch")).toHaveCount(1);
+    await expect(page.getByRole("switch", { name: promotionalBox })).toBeVisible();
     await expect(page.getByRole("link", { name: "E-posta ayarları" })).toBeVisible();
   } finally {
     await inspector.dispose();
   }
 });
-
-const promotionalBox = "SKY LAB'dan tanıtım içerikli e-postalar (indirim kodu, şirket iş ilanı, çekiliş gibi) almak istiyorum.";
 
 type ConsentState = {
   off: boolean;
@@ -271,7 +273,10 @@ test("the first screen after signup offers the box once a new account has no gra
     );
     expect(opened.status()).toBe(200);
 
+    // The first project to reach the route compiles it; wait for the answer, not the default five seconds.
+    const offer = page.waitForResponse((candidate) => candidate.url().endsWith("/api/account/promotional-consent/signup-offer"));
     await page.goto("/");
+    await expect((await offer).json()).resolves.toMatchObject({ offer: true });
     const box = page.getByRole("switch", { name: promotionalBox });
     await expect(box).toBeVisible();
     await expect(box).not.toBeChecked();
