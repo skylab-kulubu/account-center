@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { AccountDataProblem } from "@/components/account-data-problem";
 import { HomePrimaryEmailNudge } from "@/components/primary-email-nudge";
+import { HomePromotionalSignupOffer } from "@/components/promotional-consent";
 import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
 import { accountRoute } from "@/config/account-routes";
 import { loadOverview } from "@/server/keycloak-account/page-data";
@@ -43,6 +44,8 @@ export default async function OverviewPage() {
       ) : <AccountDataProblem problem={data.problem} retryHref="/" />}
 
       <HomePrimaryEmailNudge />
+
+      <HomePromotionalSignupOffer />
 
       <SettingsGroup title="Hesap ayarları" description="En sık kullanılan hesap ve güvenlik alanları.">
         <SettingsRow

@@ -192,3 +192,114 @@ test("the screen says the preferences are not on yet while core has no key", asy
     await inspector.dispose();
   }
 });
+
+const promotionalBox = "SKY LAB'dan tanıtım içerikli e-postalar (indirim kodu, şirket iş ilanı, çekiliş gibi) almak istiyorum.";
+
+type ConsentState = {
+  off: boolean;
+  items: Array<{ purpose: string; status: string; source: string; textVersion: string }>;
+  requests: Array<{ method: string; body?: unknown; purpose?: string }>;
+};
+
+async function consentState(request: APIRequestContext, subject: string): Promise<ConsentState> {
+  const response = await request.get(`${mockCoreUrl}/__e2e/consents/${encodeURIComponent(subject)}`);
+  expect(response.status()).toBe(200);
+  return response.json() as Promise<ConsentState>;
+}
+
+async function saveConsent(page: Page, method: "POST" | "DELETE", action: () => Promise<void>) {
+  const response = page.waitForResponse((candidate) =>
+    candidate.url().endsWith("/api/account/promotional-consent") && candidate.request().method() === method);
+  await action();
+  expect((await response).status()).toBe(200);
+}
+
+test("the promotional box on the preferences grants and withdraws through core", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `promotional-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    await page.goto("/communication-preferences");
+    await expect(page.getByRole("heading", { level: 2, name: "Tanıtım içerikleri" })).toBeVisible();
+    const box = page.getByRole("switch", { name: promotionalBox });
+    await expect(box).not.toBeChecked();
+    expect((await consentState(inspector, fixture.subject)).requests).toEqual([]);
+
+    await saveConsent(page, "POST", () => box.click());
+    await expect(box).toBeChecked();
+    let state = await consentState(inspector, fixture.subject);
+    expect(state.requests.at(-1)).toEqual({
+      method: "POST",
+      body: { purpose: "promotional", textVersion: "tanitim-v1", source: "self" },
+    });
+    await page.reload();
+    await expect(page.getByRole("switch", { name: promotionalBox })).toBeChecked();
+
+    await saveConsent(page, "DELETE", () => page.getByRole("switch", { name: promotionalBox }).click());
+    await expect(page.getByRole("switch", { name: promotionalBox })).not.toBeChecked();
+    state = await consentState(inspector, fixture.subject);
+    expect(state.requests.at(-1)).toEqual({ method: "DELETE", purpose: "promotional" });
+    expect(state.items.map((item) => item.status)).toEqual(["withdrawn"]);
+  } finally {
+    await inspector.dispose();
+  }
+});
+
+test("the promotional box is left out while core records no consents", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `promotional-off-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const off = await inspector.put(`${mockCoreUrl}/__e2e/consents/${encodeURIComponent(fixture.subject)}`, { data: { off: true } });
+    expect(off.status()).toBe(200);
+
+    await page.goto("/communication-preferences");
+
+    await expect(page.getByRole("table", { name: "Duyuru ve haber postası tercihlerin, kaynak kaynak" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Tanıtım içerikleri" })).toHaveCount(0);
+    await expect(page.getByRole("switch", { name: promotionalBox })).toHaveCount(0);
+  } finally {
+    await inspector.dispose();
+  }
+});
+
+test("the first screen after signup offers the box once a new account has no grant", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `promotional-signup-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const opened = await inspector.put(
+      `${mockCoreUrl}/__e2e/users/${encodeURIComponent(fixture.subject)}`,
+      { data: { createdAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") } },
+    );
+    expect(opened.status()).toBe(200);
+
+    await page.goto("/");
+    const box = page.getByRole("switch", { name: promotionalBox });
+    await expect(box).toBeVisible();
+    await expect(box).not.toBeChecked();
+    // Unticked records nothing.
+    expect((await consentState(inspector, fixture.subject)).requests).toEqual([]);
+
+    await saveConsent(page, "POST", () => box.click());
+    await expect(box).toBeChecked();
+    expect((await consentState(inspector, fixture.subject)).requests.at(-1)).toEqual({
+      method: "POST",
+      body: { purpose: "promotional", textVersion: "tanitim-v1", source: "signup" },
+    });
+
+    // Given once, the overview does not ask again.
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByRole("switch", { name: promotionalBox })).toHaveCount(0);
+  } finally {
+    await inspector.dispose();
+  }
+});
+
+test("an older account sees no promotional box on the overview", async ({ context, page }, testInfo) => {
+  await installSession(context, `promotional-old-${testInfo.project.name}-${testInfo.retry}`);
+  const offer = page.waitForResponse((candidate) => candidate.url().endsWith("/api/account/promotional-consent/signup-offer"));
+
+  await page.goto("/");
+
+  await expect((await offer).json()).resolves.toEqual({ offer: false });
+  await expect(page.getByRole("switch", { name: promotionalBox })).toHaveCount(0);
+});

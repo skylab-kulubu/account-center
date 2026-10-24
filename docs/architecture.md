@@ -13,7 +13,7 @@ Account Center, `my.yildizskylab.com` üzerinde çalışan ayrı bir Next.js (Ap
 | Keycloak (OIDC) | Giriş, token yenileme, çıkış, backchannel logout | [Keycloak sözleşmesi](keycloak-26.7.4-contract.md) |
 | Keycloak Account REST | Kişinin kendi profil metaverisi, oturumları, grupları (salt okuma; oturum silme) | `src/server/keycloak-account` |
 | sky-account SPI | Ad, kullanıcı adı, e-posta, parola, TOTP, passkey, Sudo token'ı | `src/server/sky-account`, [sky-account-api.md](sky-account-api.md) |
-| core API | Kulüp profili (`/v1/users/me`), SkyPass Google Cüzdan (`/v1/skypass/wallet…`), iletişim tercihleri (`/v1/users/me/communication-preferences`) ve hesap silme komutu | `src/server/core`, `src/server/skypass-wallet`, `src/server/communication-preferences`, `src/server/account-deletion` |
+| core API | Kulüp profili (`/v1/users/me`), SkyPass Google Cüzdan (`/v1/skypass/wallet…`), iletişim tercihleri (`/v1/users/me/communication-preferences`), tanıtım izni (`/v1/users/me/consents`) ve hesap silme komutu | `src/server/core`, `src/server/skypass-wallet`, `src/server/communication-preferences`, `src/server/promotional-consent`, `src/server/account-deletion` |
 | PostgreSQL | Şifreli oturum ve token kayıtları, OIDC transaction'ları, JTI replay, hız sınırı, silme niyetleri | `migrations/`, `src/server/*/postgres-repository*.ts` |
 | Redis | Platform çapındaki hesap erişim engeli (salt okuma) | `src/server/access-gate` |
 
@@ -86,11 +86,11 @@ Yazma uçları sırayla exact `Origin`, CSRF, erişim kapısı ve oturum doğrul
 
 | Sayfa | Veri | Uçlar (`/api/account/…`) | Ayrıntı |
 | --- | --- | --- | --- |
-| `/` Özet | Account REST profil + kimlik bilgisi özeti (sunucuda okunur) | yok | — |
+| `/` Özet | Account REST profil + kimlik bilgisi özeti (sunucuda okunur); kayıttan sonraki ilk oturumda tanıtım kutusu | `email/nudge`, `promotional-consent/signup-offer`, `promotional-consent` | [aşağıda](#tanıtım-içerikleri) |
 | `/identity` Kimlik | sky-account `GET identity` | `identity`, `identity/name`, `identity/username`, `identity/ytu-link` | [account-actions.md](account-actions.md) |
 | `/email` E-posta ve giriş | sky-account `email/*` | `email`, `email/pending`, `email/change-request`, `email/confirm`, `email/primary`, `email/personal`, `email/nudge/dismiss` | [account-actions.md](account-actions.md) |
 | `/club-profile` Kulüp profili | core `/v1/users/me`, `/v1/skypass/wallet` | `club-profile`, `club-profile/picture`, `skypass/wallet/google` | [aşağıda](#kulüp-profili) |
-| `/communication-preferences` İletişim tercihleri | core `/v1/users/me/communication-preferences`, `/v1/users/me` (birincil adres) | `communication-preferences` | [aşağıda](#i̇letişim-tercihleri) |
+| `/communication-preferences` İletişim tercihleri | core `/v1/users/me/communication-preferences`, `/v1/users/me` (birincil adres), `/v1/users/me/consents` | `communication-preferences`, `promotional-consent` | [aşağıda](#i̇letişim-tercihleri) |
 | `/security` Giriş ve güvenlik | sky-account `GET identity` + kimlik bilgisi uçları | `security`, `security/password`, `security/totp/*`, `security/passkeys/*`, `security/credentials/{reference}` | [account-actions.md](account-actions.md) |
 | `/sessions` Oturumlar ve cihazlar | Account REST `sessions` | `sessions`, `sessions/{reference}` | [aşağıda](#oturumlar-ve-cihazlar) |
 | `/permissions` Yetkilerim | `sky_authorization` + Account REST `groups` | yok (salt okunur) | [aşağıda](#yetkilerim) |
@@ -126,6 +126,15 @@ Postadaki "tercihlerini yönet" bağlantısı ve core'un çıkış sayfası `?ka
 
 skylcn'in `Switch` ve `Combobox`'ı (Base UI) gizli form girdisini satır içi `style` ile çizer; sayfa CSP'si bunu sunucu HTML'inde reddeder. Bu yüzden düzenleyici React tarayıcıda çalışınca çizilir (o ana kadar yükleniyor durumu); tarayıcıda stil CSSOM ile verilir ve CSP buna izin verir. SkyMail açılma/tıklama takibinden çıkış ayarı core'da uç açılınca bu sayfaya ayrı bir bölüm olarak eklenecek; o zamana kadar gösterilmez.
 
+### Tanıtım içerikleri
+
+Sözleşme core'da: `docs/contact-consents.md` (amaç `promotional`, aydınlatma s6 §5.8; hub `.scratch/kvkk-s6-yayin-oncesi` bilet 04, 05). Kişi başına tek tanıtım izni; kutu işaretsizdir, duyuru tercihlerinden ve ana anahtardan ayrıdır (ana anahtar onu açmaz). Anahtarın etiketi core'un `tanitim-v1` kutu metnidir; yanında Açık Rıza Metni ve KVKK aydınlatma metni bağlantıları vardır. Metin hub bilet 03'te onaylanınca core'da yeni sürüm olur ve `src/lib/promotional-consent.ts` güncellenir.
+
+- `/communication-preferences` sayfası core'un `GET /v1/users/me/consents` listesini okur. Anahtar yalnız `active` bir izin varken işaretlidir; yalnız onay bekleyen (`pending`, formdan hesapsız verilmiş) izin işaretsiz görünür ve işaretlemek kişinin kendi iznini hemen başlatır.
+- `POST /api/account/promotional-consent` `{"source": "self"|"signup"}` → core `POST /v1/users/me/consents` `{"purpose":"promotional","textVersion":"tanitim-v1","source":…}`; amaç ve metin sürümü BFF'nindir, tarayıcı yalnız kaynağı söyler. `DELETE /api/account/promotional-consent` → core `DELETE /v1/users/me/consents/promotional` (kişinin adreslerine posta götüren bütün açık izinler biter). İkisi de exact `Origin` + CSRF ister, Sudo modu istemez; yanıt `{ promotional: "active"|"none" }`.
+- Kayıttan sonraki ilk ekran (bilet 05, yol B): Keycloak kayıt formuna kutu konmaz. Özet sayfası `GET /api/account/promotional-consent/signup-offer` okur; BFF önce core profilini okur ve core hesabı bu Account Center oturumu başlamadan en çok bir saat önce ya da oturum içinde açtıysa (`createdAt`), kişinin açık izni yoksa `{ offer: true, csrfToken }` döner. Kutu aynı bileşendir, kaynak `signup`'tır. Boş bırakmak hiçbir şey yazmaz; izin verilince kutu bir daha çıkmaz. Core'un ilk kez gördüğü eski bir hesap da kutuyu o oturumda görür.
+- Core'da `CONTACT_CONSENT_KEY` yokken (`503 consents_unavailable`), core bu uçları bilmiyorken (`404`) ya da `CORE_API_URL` tanımsızken bölüm gösterilmez ve özet kutu sunmaz. Liste okunamazsa tercihler sayfası bölümde "Tanıtım izni okunamadı" der. `503 consent_addresses_unavailable` (Keycloak core'a adresleri vermedi) "Biraz sonra yeniden dene" olarak gösterilir, anahtar eski hâlinde kalır.
+
 ### Oturumlar ve cihazlar
 
 Tekil kapatma Account REST oturum kimliğine değil, yerel oturum kimliği ve Keycloak oturum kimliğine bağlı HMAC referansına dayanır; kurallar [Keycloak sözleşmesinde](keycloak-26.7.4-contract.md#oturum-silme). Başka bir oturumu kapatmak Sudo modu istemez ve exact `Origin` + CSRF ile `DELETE /api/account/sessions/{reference}` (tekil) ya da `DELETE /api/account/sessions` (mevcut oturum dışındakiler) çağırır.
@@ -150,4 +159,3 @@ Migration'lar `scripts/migrate.mjs` ile sırayla uygulanır (`account_center_sch
 
 - **K4b**: parola sıfırlamanın (reset credentials) de okul ya da kişisel adresi tanıması devam ediyor (e-skylab-keycloak; [rollout-v2.md](rollout-v2.md#bekleyen-işler)).
 - **Hesap silme açılışı** (`ACCOUNT_ERASURE_MODE=enforce`): core'un diğer servislere silme komutları ve kapılar tamamlanınca ([account-deletion.md](account-deletion.md#account_erasure_mode-ve-açılış-kapıları)).
-- Mobil `/.well-known` değerleri (Mobile Lab) ve kök alan adı proxy'si (OPS1b).
