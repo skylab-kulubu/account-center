@@ -16,12 +16,10 @@ import {
 import { logAuthEvent, requestCorrelationId } from "@/server/auth/logging";
 import { readBytesBody, RequestBodyError } from "@/server/auth/request-body";
 import { getAuthServices } from "@/server/auth/services";
-import { clubProfileServiceFor } from "@/server/club-profile/service";
 import { CoreConsentError } from "@/server/core/consents-client";
 import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
 import {
-  offersSignupBox,
   parseGrantBody,
   promotionalConsentServiceFor,
   PromotionalConsentInputError,
@@ -188,7 +186,7 @@ async function readJsonBody(request: NextRequest): Promise<unknown> {
   }
 }
 
-/** `POST /api/account/promotional-consent` `{"source": "self"|"signup"}` → `{ promotional: "active" }`. */
+/** `POST /api/account/promotional-consent` `{"source": "self"}` → `{ promotional: "active" }`. */
 export async function grantPromotionalConsent(request: NextRequest) {
   const access = await authenticateMutation(request);
   if (!access.ok) return access.response;
@@ -217,39 +215,5 @@ export async function withdrawPromotionalConsent(request: NextRequest) {
     return withRotatedHandle(noStore(NextResponse.json({ promotional })), sessionUse);
   } catch (error) {
     return failureResponse(request, services, sessionUse, error);
-  }
-}
-
-/**
- * `GET /api/account/promotional-consent/signup-offer`: whether the overview
- * shows the box (`source=signup`), and the CSRF proof it needs. Like the
- * e-mail nudge it is never in the way: once the session is known, any
- * failure (core off, the bearer, core's profile or list) is `200 { offer: false }`
- * and never ends the session. Core's profile is read first, so an account
- * that is not new costs no consent read.
- */
-export async function promotionalSignupOfferRoute(request: NextRequest) {
-  const services = getAuthServices();
-  const authorization = await services.sessionAccess.authenticate(
-    request.cookies.get(SESSION_COOKIE)?.value,
-    { requestId: requestCorrelationId(request) },
-  );
-  if (authorization.status === "unavailable") return accountAccessUnavailableResponse();
-  if (authorization.status === "blocked") return authenticationRequiredResponse(true);
-  if (authorization.status !== "active") return authenticationRequiredResponse();
-
-  const session = authorization.value.session;
-  const none = noStore(NextResponse.json({ offer: false }));
-  const consent = promotionalConsentServiceFor(services);
-  const clubProfile = clubProfileServiceFor(services);
-  if (!consent || !clubProfile) return none;
-  try {
-    const profile = await clubProfile.read(session);
-    if (!offersSignupBox("none", profile.createdAt, session.createdAt)) return none;
-    const state = await consent.read(session);
-    if (!offersSignupBox(state, profile.createdAt, session.createdAt)) return none;
-    return noStore(NextResponse.json({ offer: true, csrfToken: services.sessions.csrfToken(session.id) }));
-  } catch {
-    return none;
   }
 }

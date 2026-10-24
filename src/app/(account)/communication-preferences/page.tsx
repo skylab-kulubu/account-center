@@ -47,7 +47,6 @@ export default async function CommunicationPreferencesPage({
           csrfToken={data.csrfToken}
           initial={data.promotional.value}
           returnTo={route.href}
-          source="self"
         />
       ) : null}
 

@@ -3,10 +3,9 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DELETE, POST } from "@/app/api/account/promotional-consent/route";
-import { GET as signupOffer } from "@/app/api/account/promotional-consent/signup-offer/route";
 import { CoreConsentError } from "@/server/core/consents-client";
 import { AccountReauthenticationRequiredError } from "@/server/keycloak-account/service";
-import { offersSignupBox, promotionalStateOf, SIGNUP_OFFER_SLACK_MS } from "@/server/promotional-consent/service";
+import { promotionalStateOf } from "@/server/promotional-consent/service";
 
 const mocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
@@ -16,7 +15,6 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   grant: vi.fn(),
   withdraw: vi.fn(),
-  getMe: vi.fn(),
   services: {} as Record<string, unknown>,
 }));
 
@@ -24,11 +22,9 @@ vi.mock("@/server/auth/services", () => ({
   getAuthServices: () => mocks.services,
 }));
 
-const sessionCreatedAt = new Date("2026-10-24T10:00:00Z");
 const activeSession = {
   id: "local-session-id",
   subject: "authenticated-subject",
-  createdAt: sessionCreatedAt,
   absoluteExpiresAt: new Date("2026-10-24T18:00:00Z"),
 };
 
@@ -40,7 +36,6 @@ function buildServices(options: { core?: boolean } = {}) {
     sessions: { revokeSession: mocks.revokeLocalSession, csrfToken: () => "session-bound-csrf" },
     account: { accessToken: mocks.accessToken },
     coreConsents: core ? { list: mocks.list, grant: mocks.grant, withdraw: mocks.withdraw } : null,
-    coreProfile: core ? { getMe: mocks.getMe } : null,
   };
 }
 
@@ -59,12 +54,6 @@ function mutation(method: "POST" | "DELETE", options: { origin?: string; csrf?: 
   });
 }
 
-function offerRequest() {
-  return new NextRequest("https://my.yildizskylab.com/api/account/promotional-consent/signup-offer", {
-    headers: { cookie: "__Host-sky-account=opaque-browser-handle" },
-  });
-}
-
 describe("promotional consent rules", () => {
   it("reads active before pending, and only the promotional purpose", () => {
     expect(promotionalStateOf([])).toBe("none");
@@ -75,17 +64,6 @@ describe("promotional consent rules", () => {
       { purpose: "promotional", status: "pending" },
       { purpose: "promotional", status: "active" },
     ])).toBe("active");
-  });
-
-  it("offers the signup box only to an account core opened around this session, without an open grant", () => {
-    const justBefore = new Date(sessionCreatedAt.getTime() - SIGNUP_OFFER_SLACK_MS).toISOString();
-    const tooEarly = new Date(sessionCreatedAt.getTime() - SIGNUP_OFFER_SLACK_MS - 1_000).toISOString();
-    expect(offersSignupBox("none", justBefore, sessionCreatedAt)).toBe(true);
-    expect(offersSignupBox("none", "2026-10-24T10:05:00Z", sessionCreatedAt)).toBe(true);
-    expect(offersSignupBox("none", tooEarly, sessionCreatedAt)).toBe(false);
-    expect(offersSignupBox("none", null, sessionCreatedAt)).toBe(false);
-    expect(offersSignupBox("pending", "2026-10-24T10:05:00Z", sessionCreatedAt)).toBe(false);
-    expect(offersSignupBox("active", "2026-10-24T10:05:00Z", sessionCreatedAt)).toBe(false);
   });
 });
 
@@ -100,14 +78,13 @@ describe("promotional consent BFF routes", () => {
     mocks.list.mockResolvedValue([]);
     mocks.grant.mockResolvedValue(undefined);
     mocks.withdraw.mockResolvedValue(1);
-    mocks.getMe.mockResolvedValue({ createdAt: "2026-10-24T09:58:00Z" });
     vi.spyOn(console, "info").mockImplementation(() => {});
   });
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("grants on tanitim-v1 with the source the box was ticked on, without Sudo mode", async () => {
-    const response = await POST(mutation("POST", { body: JSON.stringify({ source: "signup" }) }));
+  it("grants on tanitim-v1 with source self, without Sudo mode", async () => {
+    const response = await POST(mutation("POST"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -116,7 +93,7 @@ describe("promotional consent BFF routes", () => {
     expect(mocks.grant).toHaveBeenCalledWith("server-held-user-token", {
       purpose: "promotional",
       textVersion: "tanitim-v1",
-      source: "signup",
+      source: "self",
     });
   });
 
@@ -130,6 +107,7 @@ describe("promotional consent BFF routes", () => {
 
   it.each([
     ["another source", JSON.stringify({ source: "forms" })],
+    ["the dropped signup source", JSON.stringify({ source: "signup" })],
     ["a purpose chosen by the browser", JSON.stringify({ source: "self", purpose: "event_invitations" })],
     ["a text version chosen by the browser", JSON.stringify({ source: "self", textVersion: "davet-v2" })],
     ["no source", JSON.stringify({})],
@@ -187,43 +165,5 @@ describe("promotional consent BFF routes", () => {
     const keycloak = await POST(mutation("POST"));
     expect(keycloak.status).toBe(401);
     expect(mocks.revokeLocalSession).toHaveBeenCalledWith(activeSession.id);
-  });
-
-  it("offers the signup box with the CSRF proof to a new account without a grant", async () => {
-    const response = await signupOffer(offerRequest());
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ offer: true, csrfToken: "session-bound-csrf" });
-    expect(mocks.list).toHaveBeenCalledWith("server-held-user-token");
-  });
-
-  it("offers nothing to an older account, without reading its consents", async () => {
-    mocks.getMe.mockResolvedValue({ createdAt: "2025-10-01T09:00:00Z" });
-
-    await expect((await signupOffer(offerRequest())).json()).resolves.toEqual({ offer: false });
-    expect(mocks.list).not.toHaveBeenCalled();
-  });
-
-  it("offers nothing when a grant is open, core is off or anything fails", async () => {
-    mocks.list.mockResolvedValueOnce([{ purpose: "promotional", status: "pending" }]);
-    await expect((await signupOffer(offerRequest())).json()).resolves.toEqual({ offer: false });
-
-    mocks.list.mockRejectedValueOnce(new CoreConsentError("off"));
-    await expect((await signupOffer(offerRequest())).json()).resolves.toEqual({ offer: false });
-
-    mocks.getMe.mockRejectedValueOnce(new Error("core down"));
-    const failed = await signupOffer(offerRequest());
-    expect(failed.status).toBe(200);
-    await expect(failed.json()).resolves.toEqual({ offer: false });
-    expect(mocks.revokeLocalSession).not.toHaveBeenCalled();
-
-    mocks.services = buildServices({ core: false });
-    await expect((await signupOffer(offerRequest())).json()).resolves.toEqual({ offer: false });
-  });
-
-  it("asks for a session first", async () => {
-    mocks.authenticate.mockResolvedValue({ status: "missing" });
-    expect((await signupOffer(offerRequest())).status).toBe(401);
-    expect(mocks.getMe).not.toHaveBeenCalled();
   });
 });

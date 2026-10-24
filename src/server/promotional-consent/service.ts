@@ -21,15 +21,6 @@ export class PromotionalConsentInputError extends Error {
   }
 }
 
-/**
- * How long before the Account Center session began core may have opened
- * the account for the session to count as the first one after signup: the
- * signup (code, name, optional password or passkey) ends before the OIDC
- * callback opens the session, and core may learn of the account from
- * Keycloak's REGISTER event a little earlier.
- */
-export const SIGNUP_OFFER_SLACK_MS = 60 * 60 * 1_000;
-
 /** `active` when an open grant mails the person, `pending` when one only waits for its confirmation, else `none`. */
 export function promotionalStateOf(items: readonly CoreConsentItem[]): PromotionalConsentState {
   const own = items.filter((item) => item.purpose === PROMOTIONAL_PURPOSE);
@@ -37,24 +28,7 @@ export function promotionalStateOf(items: readonly CoreConsentItem[]): Promotion
   return own.some((item) => item.status === "pending") ? "pending" : "none";
 }
 
-/**
- * Whether the overview offers the box (`source=signup`): the person has no
- * open grant, and core opened their account during, or just before, this
- * Account Center session, so the session is the first one after signup.
- * Core's `createdAt` is when core first saw the account; an old account core
- * meets for the first time now is offered the box once too.
- */
-export function offersSignupBox(
-  state: PromotionalConsentState,
-  coreCreatedAt: string | null,
-  sessionCreatedAt: Date,
-) {
-  if (state !== "none" || coreCreatedAt === null) return false;
-  const created = Date.parse(coreCreatedAt);
-  return Number.isFinite(created) && created >= sessionCreatedAt.getTime() - SIGNUP_OFFER_SLACK_MS;
-}
-
-/** `{"source": "self"|"signup"}` from the browser, nothing else. */
+/** `{"source": "self"}` from the browser, nothing else. */
 export function parseGrantBody(body: unknown): PromotionalConsentSource {
   if (
     typeof body !== "object" || body === null || Array.isArray(body) ||

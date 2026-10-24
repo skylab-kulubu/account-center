@@ -28,10 +28,11 @@ export const PROMOTIONAL_TITLE = "Tanıtım içerikleri";
 export const CONSENT_TEXT_URL = "https://yildizskylab.com/acik-riza-metni.pdf";
 
 /**
- * Where the box was ticked: `self` on the communication preferences,
- * `signup` on the first screen after the account was opened.
+ * Where the box was ticked: `self`, the communication preferences, the
+ * only place Account Center shows it (the box after signup, hub ticket 05,
+ * was dropped on 2026-10-24).
  */
-export const PROMOTIONAL_SOURCES = ["self", "signup"] as const;
+export const PROMOTIONAL_SOURCES = ["self"] as const;
 export type PromotionalConsentSource = (typeof PROMOTIONAL_SOURCES)[number];
 
 /**

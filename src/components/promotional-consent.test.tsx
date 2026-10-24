@@ -1,6 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HomePromotionalSignupOffer, PromotionalConsentSection } from "@/components/promotional-consent";
+import { PromotionalConsentSection } from "@/components/promotional-consent";
 
 const BOX = /tanıtım içerikli e-postalar/;
 
@@ -23,8 +23,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderSection(initial: "active" | "pending" | "none" | null = "none", source: "self" | "signup" = "self") {
-  return render(<PromotionalConsentSection csrfToken="csrf-proof" initial={initial} returnTo="/communication-preferences" source={source} />);
+function renderSection(initial: "active" | "pending" | "none" | null = "none") {
+  return render(<PromotionalConsentSection csrfToken="csrf-proof" initial={initial} returnTo="/communication-preferences" />);
 }
 
 describe("Tanıtım içerikleri box", () => {
@@ -37,9 +37,9 @@ describe("Tanıtım içerikleri box", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("ticking grants with its source, unticking withdraws", async () => {
+  it("ticking grants with source self, unticking withdraws", async () => {
     fetch.mockResolvedValueOnce(respond({ promotional: "active" })).mockResolvedValueOnce(respond({ promotional: "none" }));
-    renderSection("none", "signup");
+    renderSection();
 
     fireEvent.click(screen.getByRole("switch", { name: BOX }));
     await waitFor(() => expect(screen.getByRole("switch", { name: BOX })).toBeChecked());
@@ -48,7 +48,7 @@ describe("Tanıtım içerikleri box", () => {
     expect(url).toBe("/api/account/promotional-consent");
     expect(init.method).toBe("POST");
     expect(init.headers).toMatchObject({ "x-csrf-token": "csrf-proof" });
-    expect(JSON.parse(init.body as string)).toEqual({ source: "signup" });
+    expect(JSON.parse(init.body as string)).toEqual({ source: "self" });
 
     fireEvent.click(screen.getByRole("switch", { name: BOX }));
     await waitFor(() => expect(screen.getByRole("switch", { name: BOX })).not.toBeChecked());
@@ -82,28 +82,5 @@ describe("Tanıtım içerikleri box", () => {
     renderSection(null);
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.getByText("Tanıtım izni okunamadı. Sayfayı yenileyip yeniden dene.")).toBeInTheDocument();
-  });
-});
-
-describe("the overview's signup box", () => {
-  it("appears only on a clean offer", async () => {
-    fetch.mockResolvedValueOnce(respond({ offer: true, csrfToken: "csrf-proof" }));
-    render(<HomePromotionalSignupOffer />);
-    expect(await screen.findByRole("switch", { name: BOX })).not.toBeChecked();
-    expect(fetch).toHaveBeenCalledWith("/api/account/promotional-consent/signup-offer", expect.objectContaining({ cache: "no-store" }));
-  });
-
-  it.each([
-    ["no offer", respond({ offer: false })],
-    ["an offer without a proof", respond({ offer: true })],
-    ["a failure", respond({}, 500)],
-  ])("shows nothing on %s", async (_, response) => {
-    fetch.mockResolvedValueOnce(response);
-    render(<HomePromotionalSignupOffer />);
-    await act(async () => {
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(fetch).toHaveBeenCalled());
-    expect(screen.queryByRole("switch")).toBeNull();
   });
 });
