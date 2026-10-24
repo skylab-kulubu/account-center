@@ -8,7 +8,8 @@ import { join } from "node:path";
  * tests. It speaks the same contract the BFF client is pinned to
  * (`tests/fixtures/core-users-me.json`): bearer with the `core` audience,
  * JSON PATCH of the club fields, multipart picture upload under `file` or
- * `image`, and `DELETE /v1/users/me/profile-picture`. State is kept per
+ * `image`, `DELETE /v1/users/me/profile-picture` and
+ * `DELETE /v1/skypass/card-bind` (card removal). State is kept per
  * token subject so every seeded session starts from the fixture, and
  * `GET /__e2e/users/{sub}` exposes what core received for assertions. The
  * self-delete intake is served too; `GET /__e2e/account-deletion-intakes/{sub}`
@@ -711,6 +712,13 @@ export function startMockCore({
         record();
         user.profile.profilePictureId = null;
         user.profile.profilePictureUrl = null;
+        user.profile.updatedAt = new Date().toISOString();
+        response.writeHead(204);
+        return response.end();
+      }
+      if (url.pathname === "/v1/skypass/card-bind" && request.method === "DELETE") {
+        record();
+        user.profile.studentCardLinked = false;
         user.profile.updatedAt = new Date().toISOString();
         response.writeHead(204);
         return response.end();

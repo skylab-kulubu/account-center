@@ -214,6 +214,21 @@ describe("Core profile HTTP client", () => {
     expect(deleteCall?.[1]).toMatchObject({ method: "DELETE", body: null });
   });
 
+  it("removes the caller's card with DELETE /v1/skypass/card-bind and accepts only 204", async () => {
+    const client = new CoreProfileHttpClient(baseUrl);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    await expect(client.deleteStudentCard(accessToken)).resolves.toBeUndefined();
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call?.[0]).toEqual(new URL("https://api.yildizskylab.com/v1/skypass/card-bind"));
+    expect(call?.[1]).toMatchObject({ method: "DELETE", body: null });
+    expect(call?.[1].headers.authorization).toBe(`Bearer ${accessToken}`);
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+    await expect(client.deleteStudentCard(accessToken)).rejects.toBeInstanceOf(CoreProfileContractError);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    await expect(client.deleteStudentCard(accessToken)).rejects.toBeInstanceOf(CoreProfileUnauthorizedError);
+  });
+
   it("maps the fixed error statuses without echoing upstream bodies", async () => {
     const client = new CoreProfileHttpClient(baseUrl);
     const cases = [

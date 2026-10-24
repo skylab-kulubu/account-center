@@ -157,6 +157,25 @@ test("club profile fields and picture round-trip through the mock core", async (
       expect(removed.requests.filter(({ method }) => method === "DELETE")).toHaveLength(1);
     });
 
+    await test.step("remove the card after confirmation", async () => {
+      await page.getByRole("button", { name: "Kartı kaldır" }).click();
+      const dialog = page.getByRole("dialog", { name: "Kart kaydı kaldırılsın mı?" });
+      await expect(dialog).toBeVisible();
+      const deleteResponse = page.waitForResponse((response) =>
+        response.url().endsWith("/api/account/club-profile/student-card") && response.request().method() === "DELETE");
+      await dialog.getByRole("button", { name: "Kartı kaldır" }).click();
+      expect((await deleteResponse).status()).toBe(200);
+      await expect(page.getByRole("status").filter({ hasText: "Kart kaydı kaldırıldı." })).toBeFocused();
+      await expect(page.getByText("Öğrenci kartı bağlı değil", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Kartı kaldır" })).toHaveCount(0);
+      const removed = await mockCoreState(inspector, fixture.subject);
+      expect(removed.profile.studentCardLinked).toBe(false);
+      expect(removed.requests.some(({ method, path }) => method === "DELETE" && path === "/v1/skypass/card-bind")).toBe(true);
+
+      await page.reload();
+      await expect(page.getByText("Öğrenci kartı bağlı değil", { exact: true })).toBeVisible();
+    });
+
     expect(errors).toEqual([]);
   } finally {
     await inspector.dispose();
