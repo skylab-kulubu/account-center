@@ -65,19 +65,17 @@ describe("Core consents HTTP client", () => {
   });
 
   it("grants with the purpose, the text version and the source named, and wants an active answer", async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(json({ status: "active" }, 201)).mockResolvedValueOnce(json({ status: "active" }));
+    const fetch = vi.fn().mockResolvedValueOnce(json({ status: "active" }, 201));
     vi.stubGlobal("fetch", fetch);
     const client = new CoreConsentsHttpClient(baseUrl);
 
     await client.grant(accessToken, grant);
-    await client.grant(accessToken, { ...grant, source: "signup" });
 
     const [url, init] = fetch.mock.calls[0] as [URL, RequestInit];
     expect(url.href).toBe("https://api.yildizskylab.com/v1/users/me/consents");
     expect(init.method).toBe("POST");
     expect(init.headers).toMatchObject({ "content-type": "application/json" });
     expect(JSON.parse(init.body as string)).toEqual({ purpose: "promotional", textVersion: "tanitim-v1", source: "self" });
-    expect(JSON.parse((fetch.mock.calls[1] as [URL, RequestInit])[1].body as string)).toMatchObject({ source: "signup" });
 
     fetch.mockResolvedValueOnce(json({ status: "pending" }, 201));
     expect((await failureOf(client.grant(accessToken, grant))).failure).toBe("contract");

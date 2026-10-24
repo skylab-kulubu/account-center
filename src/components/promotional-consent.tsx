@@ -2,7 +2,7 @@
 
 import { Button, Notice, ToggleRow } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { PRIVACY_NOTICE_URL } from "@/lib/communication-preferences";
 import {
   CONSENT_TEXT_URL,
@@ -10,7 +10,7 @@ import {
   PROMOTIONAL_TEXT,
   PROMOTIONAL_TITLE,
 } from "@/lib/promotional-consent";
-import type { PromotionalConsentSource, PromotionalConsentState } from "@/lib/promotional-consent";
+import type { PromotionalConsentState } from "@/lib/promotional-consent";
 import { isObject, responseJson, securityRequest } from "@/lib/security-client";
 
 const ROUTE = "/api/account/promotional-consent";
@@ -51,7 +51,6 @@ type SectionProps = {
   /** `null` when the BFF could not read the consent: the section says so and offers no switch. */
   initial: PromotionalConsentState | null;
   csrfToken: string;
-  source: PromotionalConsentSource;
   /** Where a fresh login comes back to. */
   returnTo: string;
 };
@@ -59,11 +58,10 @@ type SectionProps = {
 /**
  * The "Tanıtım içerikleri" box: core's `tanitim-v1` text as the switch's
  * label, unticked unless the person's own consent is active. Ticking records
- * a grant (`source` says where); unticking withdraws every grant that mails
- * the person. The same section sits on the communication preferences
- * (`self`) and, once after signup, on the overview (`signup`).
+ * a grant (`source: self`); unticking withdraws every grant that mails the
+ * person. It sits on the communication preferences only.
  */
-export function PromotionalConsentSection({ initial, csrfToken, source, returnTo }: SectionProps) {
+export function PromotionalConsentSection({ initial, csrfToken, returnTo }: SectionProps) {
   const headingId = useId();
   const [state, setState] = useState(initial);
   const [pending, setPending] = useState(false);
@@ -77,7 +75,7 @@ export function PromotionalConsentSection({ initial, csrfToken, source, returnTo
       let response: Response;
       try {
         response = await securityRequest(checked
-          ? { method: "POST", path: ROUTE, csrfToken, body: { source } }
+          ? { method: "POST", path: ROUTE, csrfToken, body: { source: "self" } }
           : { method: "DELETE", path: ROUTE, csrfToken });
       } catch {
         setFeedback({ tone: "danger", problem: networkProblem });
@@ -139,44 +137,4 @@ export function PromotionalConsentSection({ initial, csrfToken, source, returnTo
       )}
     </section>
   );
-}
-
-type Offer = { csrfToken: string };
-
-/** `GET /api/account/promotional-consent/signup-offer`; anything but a clean offer is none. */
-function parseOffer(value: unknown): Offer | null {
-  if (
-    !isObject(value) || value.offer !== true ||
-    typeof value.csrfToken !== "string" || value.csrfToken.length < 1 || value.csrfToken.length > 128
-  ) return null;
-  return { csrfToken: value.csrfToken };
-}
-
-/**
- * The overview's copy of the box in the first session after signup (hub
- * ticket 05), read after the page is shown. The BFF offers it only while the
- * person has no open grant; leaving it unticked records nothing.
- */
-export function HomePromotionalSignupOffer() {
-  const [offer, setOffer] = useState<Offer | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const response = await fetch(`${ROUTE}/signup-offer`, { cache: "no-store", credentials: "same-origin" });
-        if (!response.ok) return;
-        const parsed = parseOffer(await responseJson(response));
-        if (active) setOffer(parsed);
-      } catch {
-        // No box; the page works without it.
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (!offer) return null;
-  return <PromotionalConsentSection csrfToken={offer.csrfToken} initial="none" returnTo="/" source="signup" />;
 }
