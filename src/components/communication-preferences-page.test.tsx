@@ -29,6 +29,7 @@ const view: CommunicationPreferencesView = {
 function pageData(overrides: Partial<CommunicationPreferencesPageData> = {}): CommunicationPreferencesPageData {
   return {
     preferences: { status: "ready", value: view },
+    promotional: { status: "hidden" },
     primaryEmail: "ada@std.yildiz.edu.tr",
     csrfToken: "session-bound-csrf",
     ...overrides,
@@ -125,6 +126,31 @@ describe("İletişim tercihleri page", () => {
       "href",
       "/login?returnTo=%2Fcommunication-preferences%3Fkanal%3Demail%26kategori%3Dteam%253Aabc%253Aduyuru",
     );
+  });
+
+  it("shows the promotional box apart from the preferences, unticked unless the consent is active", async () => {
+    vi.mocked(loadCommunicationPreferencesPage).mockResolvedValue(pageData({ promotional: { status: "shown", value: "pending" } }));
+    await renderPage();
+    expect(screen.getByRole("heading", { level: 2, name: "Tanıtım içerikleri" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /tanıtım içerikli e-postalar/ })).not.toBeChecked();
+    expect(screen.getByRole("link", { name: "Açık Rıza Metni" })).toHaveAttribute("href", "https://yildizskylab.com/acik-riza-metni.pdf");
+    cleanup();
+
+    vi.mocked(loadCommunicationPreferencesPage).mockResolvedValue(pageData({ promotional: { status: "shown", value: "active" } }));
+    await renderPage();
+    expect(screen.getByRole("switch", { name: /tanıtım içerikli e-postalar/ })).toBeChecked();
+  });
+
+  it("leaves the promotional box out while core records no consents, and says so when the list failed", async () => {
+    vi.mocked(loadCommunicationPreferencesPage).mockResolvedValue(pageData());
+    await renderPage();
+    expect(screen.queryByRole("heading", { name: "Tanıtım içerikleri" })).toBeNull();
+    cleanup();
+
+    vi.mocked(loadCommunicationPreferencesPage).mockResolvedValue(pageData({ promotional: { status: "shown", value: null } }));
+    await renderPage();
+    expect(screen.getByText("Tanıtım izni okunamadı. Sayfayı yenileyip yeniden dene.")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /tanıtım/ })).toBeNull();
   });
 
   it("server-renders without an inline style", async () => {
