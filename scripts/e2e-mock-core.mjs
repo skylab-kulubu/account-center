@@ -8,7 +8,8 @@ import { join } from "node:path";
  * tests. It speaks the same contract the BFF client is pinned to
  * (`tests/fixtures/core-users-me.json`): bearer with the `core` audience,
  * JSON PATCH of the club fields, multipart picture upload under `file` or
- * `image`, and `DELETE /v1/users/me/profile-picture`. State is kept per
+ * `image`, `DELETE /v1/users/me/profile-picture` and
+ * `DELETE /v1/skypass/card-bind` (card removal). State is kept per
  * token subject so every seeded session starts from the fixture, and
  * `GET /__e2e/users/{sub}` exposes what core received for assertions. The
  * self-delete intake is served too; `GET /__e2e/account-deletion-intakes/{sub}`
@@ -34,6 +35,13 @@ import { join } from "node:path";
  * `GET /__e2e/communication-preferences/{sub}` shows the choices, the
  * tracking switch (`null` without a row; mode `opt_out`, the person a
  * Member) and the PUT bodies core received.
+ *
+ * The person's own contact consents (`/v1/users/me/consents`, core
+ * `docs/contact-consents.md`) start empty: `POST` records an active grant
+ * of a known purpose and text, `DELETE /v1/users/me/consents/{purpose}`
+ * ends the open ones. `PUT /__e2e/consents/{sub}` sets `off` (core without
+ * `CONTACT_CONSENT_KEY`: every call `503 consents_unavailable`);
+ * `GET /__e2e/consents/{sub}` shows the grants and the bodies core received.
  *
  * The same server also stands in for the realm's sky-account
  * `GET identity` (`tests/fixtures/sky-account-v1-identity.json`, the
@@ -292,6 +300,9 @@ export function initialPreferenceScreen() {
   return preferenceScreen(new Map(initialPreferenceChoices));
 }
 
+/** Core's own-consent texts (`internal/consent`): purpose → versions. */
+const consentTexts = new Map([["event_invitations", ["davet-v1", "davet-v2"]], ["promotional", ["tanitim-v1"]]]);
+
 function preferenceProblem(response, status, code, headers = {}) {
   response.writeHead(status, { "content-type": "application/problem+json", "cache-control": "no-store", ...headers });
   response.end(JSON.stringify({ type: "about:blank", title: "x", status, code }));
@@ -322,6 +333,16 @@ export function startMockCore({
     if (!state) {
       state = { choices: new Map(initialPreferenceChoices), tracking: null, off: false, puts: [] };
       preferences.set(sub, state);
+    }
+    return state;
+  };
+  /** subject → own consent grants, the bodies core received and whether core runs without its key. */
+  const consents = new Map();
+  const consentsFor = (sub) => {
+    let state = consents.get(sub);
+    if (!state) {
+      state = { off: false, items: [], requests: [] };
+      consents.set(sub, state);
     }
     return state;
   };
@@ -427,6 +448,59 @@ export function startMockCore({
     return answer();
   }
 
+  function ownConsents(request, response, url, sub, body) {
+    const state = consentsFor(sub);
+    if (state.off) return preferenceProblem(response, 503, "consents_unavailable");
+    const listed = () => json(response, 200, { items: state.items });
+    if (url.pathname === "/v1/users/me/consents" && request.method === "GET") return listed();
+    if (url.pathname === "/v1/users/me/consents" && request.method === "POST") {
+      let parsed;
+      try {
+        parsed = JSON.parse(body.toString("utf8"));
+      } catch {
+        return preferenceProblem(response, 400, "consent_invalid");
+      }
+      state.requests.push({ method: "POST", body: parsed });
+      const versions = consentTexts.get(parsed?.purpose);
+      if (!versions) return preferenceProblem(response, 400, "consent_invalid");
+      if (parsed.textVersion !== undefined && !versions.includes(parsed.textVersion)) {
+        return preferenceProblem(response, 400, "consent_text_unknown");
+      }
+      const source = parsed.source ?? "self";
+      if (source !== "self" && !(source === "signup" && parsed.purpose === "promotional")) {
+        return preferenceProblem(response, 400, "consent_invalid");
+      }
+      const open = state.items.find((item) => item.purpose === parsed.purpose && item.status === "active");
+      if (open) return json(response, 200, { status: "active" });
+      const now = new Date().toISOString();
+      state.items.push({
+        id: randomUUID(),
+        purpose: parsed.purpose,
+        status: "active",
+        subject: "account",
+        source,
+        textVersion: parsed.textVersion ?? versions.at(-1),
+        grantedAt: now,
+        confirmedAt: now,
+      });
+      return json(response, 201, { status: "active" });
+    }
+    const withdrawal = /^\/v1\/users\/me\/consents\/([a-z_]+)$/.exec(url.pathname);
+    if (withdrawal && request.method === "DELETE") {
+      state.requests.push({ method: "DELETE", purpose: withdrawal[1] });
+      let withdrawn = 0;
+      for (const item of state.items) {
+        if (item.purpose === withdrawal[1] && (item.status === "active" || item.status === "pending")) {
+          item.status = "withdrawn";
+          item.endedAt = new Date().toISOString();
+          withdrawn += 1;
+        }
+      }
+      return json(response, 200, { withdrawn });
+    }
+    return problem(response, 404, "Not Found");
+  }
+
   function accountDeletion(request, response, url, body) {
     if (url.pathname === "/v1/account-deletion-requests/self" && request.method === "POST") {
       const bearer = decodeBearer(request.headers.authorization, "account");
@@ -528,6 +602,22 @@ export function startMockCore({
           puts: state.puts,
         });
       }
+      const consentInspection = /^\/__e2e\/consents\/([^/]+)$/.exec(url.pathname);
+      if (consentInspection && request.method === "PUT") {
+        let overrides;
+        try {
+          overrides = JSON.parse((await readBody(request)).toString("utf8"));
+        } catch {
+          return problem(response, 400, "Bad Request");
+        }
+        const state = consentsFor(decodeURIComponent(consentInspection[1]));
+        if (typeof overrides?.off === "boolean") state.off = overrides.off;
+        if (Array.isArray(overrides?.items)) state.items = overrides.items;
+        return json(response, 200, state);
+      }
+      if (consentInspection && request.method === "GET") {
+        return json(response, 200, consentsFor(decodeURIComponent(consentInspection[1])));
+      }
       const inspection = /^\/__e2e\/users\/([^/]+)$/.exec(url.pathname);
       if (inspection && request.method === "PUT") {
         let overrides;
@@ -566,6 +656,9 @@ export function startMockCore({
       if (url.pathname.startsWith("/v1/skypass/wallet")) return skyPassWallet(request, response, url, claims.sub);
       if (url.pathname === "/v1/users/me/communication-preferences") {
         return communicationPreferences(request, response, claims.sub, await readBody(request));
+      }
+      if (url.pathname.startsWith("/v1/users/me/consents")) {
+        return ownConsents(request, response, url, claims.sub, await readBody(request));
       }
       const user = userFor(claims.sub);
       const body = await readBody(request);
@@ -619,6 +712,13 @@ export function startMockCore({
         record();
         user.profile.profilePictureId = null;
         user.profile.profilePictureUrl = null;
+        user.profile.updatedAt = new Date().toISOString();
+        response.writeHead(204);
+        return response.end();
+      }
+      if (url.pathname === "/v1/skypass/card-bind" && request.method === "DELETE") {
+        record();
+        user.profile.studentCardLinked = false;
         user.profile.updatedAt = new Date().toISOString();
         response.writeHead(204);
         return response.end();
