@@ -130,11 +130,15 @@ describe("AccountShell inbox badge", () => {
   }
 
   it("shows the unseen count beside Bildirimlerim and clears it when the inbox is seen", async () => {
-    stub(4);
+    const fetch = stub(4);
     render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
     const link = screen.getByRole("link", { name: /Bildirimlerim/ });
     expect(link).toHaveAttribute("href", "/notifications");
     expect(await within(link).findByText("4")).toBeInTheDocument();
+    // One refresh (shared with the shell's own), then the counts: never both at once.
+    const urls = fetch.mock.calls.map(([url]) => url as string);
+    expect(urls.filter((url) => url === "/api/auth/session/refresh")).toHaveLength(1);
+    expect(urls.indexOf("/api/auth/session/refresh")).toBeLessThan(urls.indexOf("/api/account/inbox/counts"));
     expect(within(link).getByText("yeni bildirim", { exact: false })).toBeInTheDocument();
 
     await act(async () => {
