@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InboxList, InboxNotice } from "@/components/inbox-list";
 import type { InboxItem } from "@/lib/inbox";
@@ -59,6 +60,13 @@ describe("InboxList", () => {
     expect(fetch.mock.calls.map(([url]) => url).slice(0, 2)).toEqual(["/api/auth/session/refresh", "/api/account/inbox/seen-all"]);
     const [, init] = fetch.mock.calls[1] as [string, RequestInit];
     expect(init.headers).toMatchObject({ "x-csrf-token": "csrf-proof" });
+  });
+
+  it("marks everything seen once, also under Strict Mode's double mount", async () => {
+    render(<StrictMode><InboxList csrfToken="csrf-proof" initial={{ items: [unread], nextCursor: null }} /></StrictMode>);
+    await waitFor(() => expect(posts()).toContain("/api/account/inbox/seen-all"));
+    await act(async () => {});
+    expect(posts().filter((url) => url === "/api/account/inbox/seen-all")).toHaveLength(1);
   });
 
   it("shows unread items marked, opens only yildizskylab.com links and keeps the retention note", () => {
