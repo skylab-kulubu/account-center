@@ -36,7 +36,6 @@ describe("AccountShell", () => {
       "E-posta ve giriş",
       "Kulüp profili",
       "İletişim tercihleri",
-      "Bildirimlerim",
       "Giriş ve güvenlik",
       "Oturumlar ve cihazlar",
       "Yetkilerim",
@@ -129,6 +128,16 @@ describe("AccountShell inbox badge", () => {
     return fetch;
   }
 
+  it("lists Bildirimlerim only when SkyMail is configured", () => {
+    stub(0);
+    const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    expect(screen.queryByRole("link", { name: /Bildirimlerim/ })).toBeNull();
+    unmount();
+    render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    const names = Array.from(screen.getByRole("navigation", { name: "Hesap ayarları" }).querySelectorAll("a"), (link) => link.textContent);
+    expect(names.indexOf("Bildirimlerim")).toBe(names.indexOf("İletişim tercihleri") + 1);
+  });
+
   it("shows the unseen count beside Bildirimlerim and clears it when the inbox is seen", async () => {
     const fetch = stub(4);
     render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
@@ -152,6 +161,7 @@ describe("AccountShell inbox badge", () => {
     const fetch = stub(0);
     const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
     expect(fetch.mock.calls.some(([url]) => url === "/api/account/inbox/counts")).toBe(false);
+    expect(screen.queryByRole("link", { name: /Bildirimlerim/ })).toBeNull();
     unmount();
 
     stub("many");

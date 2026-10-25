@@ -68,10 +68,13 @@ function useInboxUnseen(enabled: boolean, csrfToken: string) {
 function DesktopNavigation({
   currentRoute,
   csrfToken,
+  inboxEnabled,
   inboxUnseen,
 }: {
   currentRoute: AccountRoute | null;
   csrfToken: string;
+  /** Without SkyMail (`SKYMAIL_API_URL` unset) the page would only say it is off: it is left out of the menu. */
+  inboxEnabled: boolean;
   inboxUnseen: number | null;
 }) {
   return (
@@ -85,7 +88,7 @@ function DesktopNavigation({
       </Link>
 
       <nav className="account-nav" aria-label="Hesap ayarları">
-        {accountRoutes.map(({ href, navigationLabel, icon: Icon, tone }) => {
+        {accountRoutes.filter(({ href }) => inboxEnabled || href !== "/notifications").map(({ href, navigationLabel, icon: Icon, tone }) => {
           const active = currentRoute?.href === href;
           return (
             <Link
@@ -176,7 +179,12 @@ export function AccountShell({
       <a className="skip-link" href="#main-content">İçeriğe geç</a>
       <Background />
       <div className="account-frame">
-        <DesktopNavigation currentRoute={currentRoute} csrfToken={logoutCsrfToken} inboxUnseen={inboxUnseen} />
+        <DesktopNavigation
+          currentRoute={currentRoute}
+          csrfToken={logoutCsrfToken}
+          inboxEnabled={inboxEnabled}
+          inboxUnseen={inboxUnseen}
+        />
         {embedded ? null : <MobileHeader currentRoute={currentRoute} csrfToken={logoutCsrfToken} />}
         <main className="account-content" id="main-content" tabIndex={-1}>
           {children}
