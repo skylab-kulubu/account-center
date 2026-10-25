@@ -225,6 +225,25 @@ function validateCoreApiEnvironment(env) {
   requireHttpsOrigin("CORE_API_URL", value);
 }
 
+/** SkyMail's API for the inbox (Bildirimlerim): an HTTPS URL, a path allowed, no trailing slash, query or fragment. */
+function validateSkymailApiEnvironment(env) {
+  const value = env.SKYMAIL_API_URL?.trim();
+  if (!value) return;
+  if (placeholderPattern.test(value)) throw new Error("SKYMAIL_API_URL contains a placeholder value.");
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("SKYMAIL_API_URL must be a valid HTTPS URL.");
+  }
+  if (
+    url.protocol !== "https:" || url.username || url.password || url.search || url.hash || value.endsWith("/") ||
+    value !== `${url.origin}${url.pathname === "/" ? "" : url.pathname}`
+  ) {
+    throw new Error("SKYMAIL_API_URL must be a canonical credential-free HTTPS URL without a trailing slash, query or fragment.");
+  }
+}
+
 function validateProfilePictureOriginEnvironment(env) {
   const value = env.PROFILE_PICTURE_ORIGIN?.trim();
   if (!value) return;
@@ -381,6 +400,7 @@ export function validateEnvironment(env) {
   requireOidcIssuer(values.OIDC_ISSUER);
   validateAccountAccessEnvironment(env, values.OIDC_ISSUER);
   validateCoreApiEnvironment(env);
+  validateSkymailApiEnvironment(env);
   validateProfilePictureOriginEnvironment(env);
   validateYtuIdpAliasEnvironment(env);
   validateAccountErasureEnvironment(env);

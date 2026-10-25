@@ -1,4 +1,5 @@
 import {
+  Bell,
   BellRing,
   CircleUserRound,
   IdCard,
@@ -17,6 +18,7 @@ export type AccountRoutePath =
   | "/email"
   | "/club-profile"
   | "/communication-preferences"
+  | "/notifications"
   | "/security"
   | "/sessions"
   | "/permissions"
@@ -78,6 +80,15 @@ export const accountRoutes = [
     title: "İletişim tercihleri",
     description: "Kulüpten ve ekiplerinden hangi duyuru ve haber postalarını alacağını seç. Hesap postaların bu ayarlardan etkilenmez.",
     icon: BellRing,
+    tone: "default",
+  },
+  {
+    href: "/notifications",
+    navigationLabel: "Bildirimlerim",
+    documentTitle: "Bildirimlerim",
+    title: "Bildirimlerim",
+    description: "Biletler, etkinlikler ve hesabınla ilgili bildirimlerin. Bildirimler 90 gün tutulur.",
+    icon: Bell,
     tone: "default",
   },
   {
