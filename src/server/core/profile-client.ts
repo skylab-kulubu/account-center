@@ -4,7 +4,8 @@ import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 /**
  * Club-profile client for core `GET/PATCH /v1/users/me` and
- * `POST/DELETE /v1/users/me/profile-picture`, called with the person's own
+ * `POST/DELETE /v1/users/me/profile-picture` and `DELETE /v1/skypass/card-bind`
+ * (the person removes their own card), called with the person's own
  * Account Center user token (audience `core`, no core roles). Transport rules
  * follow `account-deletion/core-gateway.ts`: canonical HTTPS origin, bounded
  * timeouts and bodies, no retries on non-idempotent calls, status-only error
@@ -89,6 +90,8 @@ export interface CoreProfileClient {
   patchMe(accessToken: string, patch: CoreProfilePatch): Promise<CoreProfile>;
   uploadProfilePicture(accessToken: string, upload: CoreProfilePictureUpload): Promise<void>;
   deleteProfilePicture(accessToken: string): Promise<void>;
+  /** Clears the caller's bound card UID; `204` also when none was bound. */
+  deleteStudentCard(accessToken: string): Promise<void>;
 }
 
 export class CoreProfileUnavailableError extends Error {
@@ -286,7 +289,7 @@ export class CoreProfileHttpClient implements CoreProfileClient {
   }
 
   async #request(
-    path: "/v1/users/me" | "/v1/users/me/profile-picture",
+    path: "/v1/users/me" | "/v1/users/me/profile-picture" | "/v1/skypass/card-bind",
     method: "GET" | "PATCH" | "POST" | "DELETE",
     accessToken: string,
     options: { body?: string | FormData; acceptedStatuses: readonly number[]; timeoutMs?: number },
@@ -353,5 +356,9 @@ export class CoreProfileHttpClient implements CoreProfileClient {
     await this.#request("/v1/users/me/profile-picture", "DELETE", accessToken, {
       acceptedStatuses: [200, 204],
     });
+  }
+
+  async deleteStudentCard(accessToken: string) {
+    await this.#request("/v1/skypass/card-bind", "DELETE", accessToken, { acceptedStatuses: [204] });
   }
 }

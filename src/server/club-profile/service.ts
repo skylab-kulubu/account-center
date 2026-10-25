@@ -109,6 +109,14 @@ export class ClubProfileService {
       return this.core.getMe(accessToken);
     });
   }
+
+  /** Removes the person's own card: core clears the stored chip UID. */
+  removeStudentCard(session: SessionIdentity): Promise<CoreProfile> {
+    return this.#withToken(session, async (accessToken) => {
+      await this.core.deleteStudentCard(accessToken);
+      return this.core.getMe(accessToken);
+    });
+  }
 }
 
 type ClubProfileDependencies = {

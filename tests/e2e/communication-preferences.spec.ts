@@ -22,6 +22,7 @@ type PreferenceState = {
 };
 
 const trackingLabel = "Postalarımın açılmasını ve tıklamalarımı izleme";
+const promotionalBox = "SKY LAB'dan tanıtım içerikli e-postalar (indirim kodu, şirket iş ilanı, çekiliş gibi) almak istiyorum.";
 
 function collectPageErrors(page: Page) {
   const errors: string[] = [];
@@ -144,7 +145,8 @@ test("the preferences screen writes each switch to core under its own category",
     await test.step("checking the tracking switch turns tracking off", async () => {
       const tracking = page.getByRole("switch", { name: trackingLabel });
       await expect(tracking).not.toBeChecked();
-      await expect(page.getByRole("link", { name: "KVKK aydınlatma metni" }))
+      await expect(page.getByRole("region", { name: "Postalarımın açılma ve tıklama bilgisi" })
+        .getByRole("link", { name: "KVKK aydınlatma metni" }))
         .toHaveAttribute("href", "https://yildizskylab.com/kvkk-metni.pdf");
       await savePreference(page, () => tracking.click());
       await expect(tracking).toBeChecked();
@@ -186,8 +188,76 @@ test("the screen says the preferences are not on yet while core has no key", asy
     await page.goto("/communication-preferences");
 
     await expect(page.getByText("İletişim tercihleri şu an kullanılamıyor")).toBeVisible();
-    await expect(page.getByRole("switch")).toHaveCount(0);
+    // Only the promotional box is left: it is core's consent record, not the preferences.
+    await expect(page.getByRole("switch")).toHaveCount(1);
+    await expect(page.getByRole("switch", { name: promotionalBox })).toBeVisible();
     await expect(page.getByRole("link", { name: "E-posta ayarları" })).toBeVisible();
+  } finally {
+    await inspector.dispose();
+  }
+});
+
+type ConsentState = {
+  off: boolean;
+  items: Array<{ purpose: string; status: string; source: string; textVersion: string }>;
+  requests: Array<{ method: string; body?: unknown; purpose?: string }>;
+};
+
+async function consentState(request: APIRequestContext, subject: string): Promise<ConsentState> {
+  const response = await request.get(`${mockCoreUrl}/__e2e/consents/${encodeURIComponent(subject)}`);
+  expect(response.status()).toBe(200);
+  return response.json() as Promise<ConsentState>;
+}
+
+async function saveConsent(page: Page, method: "POST" | "DELETE", action: () => Promise<void>) {
+  const response = page.waitForResponse((candidate) =>
+    candidate.url().endsWith("/api/account/promotional-consent") && candidate.request().method() === method);
+  await action();
+  expect((await response).status()).toBe(200);
+}
+
+test("the promotional box on the preferences grants and withdraws through core", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `promotional-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    await page.goto("/communication-preferences");
+    await expect(page.getByRole("heading", { level: 2, name: "Tanıtım içerikleri" })).toBeVisible();
+    const box = page.getByRole("switch", { name: promotionalBox });
+    await expect(box).not.toBeChecked();
+    expect((await consentState(inspector, fixture.subject)).requests).toEqual([]);
+
+    await saveConsent(page, "POST", () => box.click());
+    await expect(box).toBeChecked();
+    let state = await consentState(inspector, fixture.subject);
+    expect(state.requests.at(-1)).toEqual({
+      method: "POST",
+      body: { purpose: "promotional", textVersion: "tanitim-v1", source: "self" },
+    });
+    await page.reload();
+    await expect(page.getByRole("switch", { name: promotionalBox })).toBeChecked();
+
+    await saveConsent(page, "DELETE", () => page.getByRole("switch", { name: promotionalBox }).click());
+    await expect(page.getByRole("switch", { name: promotionalBox })).not.toBeChecked();
+    state = await consentState(inspector, fixture.subject);
+    expect(state.requests.at(-1)).toEqual({ method: "DELETE", purpose: "promotional" });
+    expect(state.items.map((item) => item.status)).toEqual(["withdrawn"]);
+  } finally {
+    await inspector.dispose();
+  }
+});
+
+test("the promotional box is left out while core records no consents", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `promotional-off-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const off = await inspector.put(`${mockCoreUrl}/__e2e/consents/${encodeURIComponent(fixture.subject)}`, { data: { off: true } });
+    expect(off.status()).toBe(200);
+
+    await page.goto("/communication-preferences");
+
+    await expect(page.getByRole("table", { name: "Duyuru ve haber postası tercihlerin, kaynak kaynak" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Tanıtım içerikleri" })).toHaveCount(0);
+    await expect(page.getByRole("switch", { name: promotionalBox })).toHaveCount(0);
   } finally {
     await inspector.dispose();
   }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AtSign, Info } from "lucide-react";
 import { CommunicationPreferencesEditor } from "@/components/communication-preferences-editor";
 import { CommunicationPreferencesNotice } from "@/components/communication-preferences-notice";
+import { PromotionalConsentSection } from "@/components/promotional-consent";
 import { AccountPageHeader } from "@/components/settings";
 import { accountRoute } from "@/config/account-routes";
 import { preferenceFocus } from "@/lib/communication-preferences";
@@ -40,6 +41,14 @@ export default async function CommunicationPreferencesPage({
           <CommunicationPreferencesNotice focusCategory={focusCategory} problem={state.problem} />
         </div>
       )}
+
+      {data.promotional.status === "shown" ? (
+        <PromotionalConsentSection
+          csrfToken={data.csrfToken}
+          initial={data.promotional.value}
+          returnTo={route.href}
+        />
+      ) : null}
 
       <section className="settings-section" aria-labelledby="preferences-address-heading">
         <div className="settings-section__heading">
