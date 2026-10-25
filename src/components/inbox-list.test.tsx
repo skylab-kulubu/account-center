@@ -32,6 +32,7 @@ let fetch: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   fetch = vi.fn().mockImplementation(async (url: string) => {
+    if (url === "/api/auth/session/refresh") return new Response(null, { status: 204 });
     if (url.endsWith("/read")) return respond({ item: { ...unread, readAt: "2026-10-25T10:00:00Z" } });
     if (url.endsWith("/archive")) return respond({ item: unread });
     if (url.endsWith("/read-all") || url.endsWith("/seen-all")) return respond({ updated: 1 });
@@ -48,14 +49,15 @@ afterEach(() => {
 const posts = () => fetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST").map(([url]) => url);
 
 describe("InboxList", () => {
-  it("marks everything seen on open, with the CSRF proof, and says so to the shell", async () => {
+  it("marks everything seen on open, after the session refresh, with the CSRF proof, and says so to the shell", async () => {
     const seen = vi.fn();
     window.addEventListener("account-center:inbox-seen", seen);
     render(<InboxList csrfToken="csrf-proof" initial={{ items: [unread, read], nextCursor: null }} />);
     await waitFor(() => expect(seen).toHaveBeenCalled());
     window.removeEventListener("account-center:inbox-seen", seen);
-    const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/api/account/inbox/seen-all");
+    // The refresh first (the one request that rotates the handle), then seen-all: never both at once.
+    expect(fetch.mock.calls.map(([url]) => url).slice(0, 2)).toEqual(["/api/auth/session/refresh", "/api/account/inbox/seen-all"]);
+    const [, init] = fetch.mock.calls[1] as [string, RequestInit];
     expect(init.headers).toMatchObject({ "x-csrf-token": "csrf-proof" });
   });
 
@@ -70,6 +72,7 @@ describe("InboxList", () => {
 
   it("marks one read, archives one and marks all read", async () => {
     render(<InboxList csrfToken="csrf-proof" initial={{ items: [unread, read], nextCursor: null }} />);
+    await waitFor(() => expect(posts()).toContain("/api/account/inbox/seen-all"));
     fireEvent.click(screen.getByRole("button", { name: "Kodlama Gecesi biletin hazır: okundu yap" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Kodlama Gecesi biletin hazır: okunmadı yap" })).toBeInTheDocument());
 
@@ -78,6 +81,7 @@ describe("InboxList", () => {
 
     expect(screen.getByRole("button", { name: /Hepsini okundu yap/ })).toBeDisabled();
     expect(posts()).toEqual([
+      "/api/auth/session/refresh",
       "/api/account/inbox/seen-all",
       `/api/account/inbox/items/${unread.id}/read`,
       `/api/account/inbox/items/${read.id}/archive`,

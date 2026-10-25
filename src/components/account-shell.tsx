@@ -13,6 +13,7 @@ import { SkyLabMark } from "@/components/skylab-mark";
 import { accountRoutes, matchAccountRoute } from "@/config/account-routes";
 import type { AccountRoute } from "@/config/account-routes";
 import { INBOX_SEEN_EVENT } from "@/lib/inbox";
+import { refreshBrowserSession } from "@/lib/session-refresh";
 
 export const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;
 
@@ -187,18 +188,4 @@ export function AccountShell({
       </div>
     </div>
   );
-}
-
-let refreshInFlight: Promise<Response> | undefined;
-
-function refreshBrowserSession(csrfToken: string) {
-  refreshInFlight ??= fetch("/api/auth/session/refresh", {
-    method: "POST",
-    cache: "no-store",
-    credentials: "same-origin",
-    headers: { "x-csrf-token": csrfToken },
-  }).finally(() => {
-    refreshInFlight = undefined;
-  });
-  return refreshInFlight;
 }
