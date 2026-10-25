@@ -3,7 +3,7 @@
 import { Archive, BellOff, Check, Inbox, MailOpen } from "lucide-react";
 import { Button, ListItem, ListPanel, Notice, StatusDot } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { INBOX_RETENTION_DAYS, INBOX_SEEN_EVENT, inboxLinkHref } from "@/lib/inbox";
 import type { InboxItem, InboxItemAction, InboxPage } from "@/lib/inbox";
 import { refreshBrowserSession } from "@/lib/session-refresh";
@@ -83,7 +83,11 @@ export function InboxList({ initial, csrfToken }: { initial: InboxPage; csrfToke
   const [pending, setPending] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
+  // Once per page view: React's development double mount (Strict Mode) keeps refs, so this holds there too.
+  const seenSent = useRef(false);
   useEffect(() => {
+    if (seenSent.current) return;
+    seenSent.current = true;
     // After the shell's session refresh (shared, one at a time): never beside it with the same handle.
     void refreshBrowserSession(csrfToken)
       .catch(() => undefined)
