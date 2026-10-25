@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountShell, SESSION_REFRESH_INTERVAL_MS } from "@/components/account-shell";
@@ -109,5 +109,64 @@ describe("AccountShell", () => {
     unmount();
     await vi.advanceTimersByTimeAsync(SESSION_REFRESH_INTERVAL_MS);
     expect(fetchMock).toHaveBeenCalledTimes(requestsBeforeUnmount);
+  });
+});
+
+describe("AccountShell inbox badge", () => {
+  beforeEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  function stub(unseen: unknown) {
+    const fetch = vi.fn().mockImplementation(async (url: string) =>
+      url === "/api/account/inbox/counts"
+        ? new Response(JSON.stringify({ counts: { unseen, unread: 3 } }), { status: 200, headers: { "content-type": "application/json" } })
+        : new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+
+  it("lists Bildirimlerim only when SkyMail is configured", () => {
+    stub(0);
+    const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    expect(screen.queryByRole("link", { name: /Bildirimlerim/ })).toBeNull();
+    unmount();
+    render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    const names = Array.from(screen.getByRole("navigation", { name: "Hesap ayarları" }).querySelectorAll("a"), (link) => link.textContent);
+    expect(names.indexOf("Bildirimlerim")).toBe(names.indexOf("İletişim tercihleri") + 1);
+  });
+
+  it("shows the unseen count beside Bildirimlerim and clears it when the inbox is seen", async () => {
+    const fetch = stub(4);
+    render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    const link = screen.getByRole("link", { name: /Bildirimlerim/ });
+    expect(link).toHaveAttribute("href", "/notifications");
+    expect(await within(link).findByText("4")).toBeInTheDocument();
+    // The refresh first, the counts after it: never both at once. (A later refresh in this test comes from
+    // the mocked useRouter returning a new object per render, which re-runs the shell's refresh effect.)
+    const urls = fetch.mock.calls.map(([url]) => url as string);
+    expect(urls.indexOf("/api/auth/session/refresh")).toBeGreaterThan(-1);
+    expect(urls.indexOf("/api/auth/session/refresh")).toBeLessThan(urls.indexOf("/api/account/inbox/counts"));
+    expect(within(link).getByText("yeni bildirim", { exact: false })).toBeInTheDocument();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("account-center:inbox-seen"));
+    });
+    expect(within(link).queryByText("4")).toBeNull();
+  });
+
+  it("reads no counts without SkyMail, and shows nothing for zero or a body it does not know", async () => {
+    const fetch = stub(0);
+    const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    expect(fetch.mock.calls.some(([url]) => url === "/api/account/inbox/counts")).toBe(false);
+    expect(screen.queryByRole("link", { name: /Bildirimlerim/ })).toBeNull();
+    unmount();
+
+    stub("many");
+    render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    await act(async () => {});
+    expect(screen.getByRole("link", { name: "Bildirimlerim" }).querySelector(".account-nav__badge")).toBeNull();
   });
 });

@@ -117,7 +117,7 @@ function encryptedTokenFixture(
  * the loopback mock core, so the signature can be random. `sid` is the
  * Keycloak session a sudo token must name for core to accept it.
  */
-function contractShapedAccessToken(subject: string, sid: string) {
+function contractShapedAccessToken(subject: string, sid: string, skymail = false) {
   const base64url = (value: unknown) => Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
   const issuedAt = Math.floor(Date.now() / 1_000);
   const header = base64url({ alg: "RS256", typ: "JWT" });
@@ -127,7 +127,8 @@ function contractShapedAccessToken(subject: string, sid: string) {
     sid,
     azp: process.env.OIDC_CLIENT_ID ?? "account-center",
     scope: "openid",
-    aud: ["account", "core"],
+    // The skymail audience comes with e-skylab-keycloak's iletişim-servisi 04 (Bildirimlerim).
+    aud: skymail ? ["account", "core", "skymail"] : ["account", "core"],
     resource_access: { account: { roles: ["manage-account", "view-profile"] } },
     iat: issuedAt,
     exp: issuedAt + 60 * 60,
@@ -227,6 +228,8 @@ export async function seedAuthenticatedSession(
   options: {
     includeRefreshToken?: boolean;
     contractToken?: boolean;
+    /** The contract token also names skymail (the inbox, iletişim-servisi 04 and 07). */
+    skymailAudience?: boolean;
     /** When set, the stored ID token is contract-shaped and signs this authentication time. */
     idTokenAuthenticatedAt?: Date;
   } = {},
@@ -238,7 +241,7 @@ export async function seedAuthenticatedSession(
   const keycloakSid = `e2e-sid-${sessionId}`;
   const generatedCanaries = {
     accessToken: options.contractToken
-      ? contractShapedAccessToken(subject, keycloakSid)
+      ? contractShapedAccessToken(subject, keycloakSid, options.skymailAudience)
       : `e2e-access-${randomBytes(16).toString("base64url")}`,
     refreshToken: `e2e-refresh-${randomBytes(16).toString("base64url")}`,
     idToken: options.idTokenAuthenticatedAt

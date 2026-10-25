@@ -53,7 +53,7 @@ OIDC kimliği doğrulandıktan sonra ve her oturum kullanımında, issuer ve sub
 
 ## Keycloak ve token sözleşmesi
 
-Account Center service account ya da Admin REST kullanmaz. Oturumdaki kullanıcı access token'ı pinli sözleşmeyi (`azp=account-center`, `scope=openid`, `aud` kümesi, `manage-account` + `view-profile`, core rolü yok) karşılamadan hiçbir upstream çağrısı yapılmaz. `aud` tam olarak `{account, core}` olmalıdır; K2 geçişinde kabul edilen eski `{account}` kümesi A0c ile kaldırıldı ve reddedilir: bkz. [Keycloak sözleşmesi](keycloak-26.7.4-contract.md#kullanıcı-access-token-sözleşmesi). Account REST adaptörü yalnız `GET`/`DELETE` yapar, yanıtta bilinen alan/tür sözleşmesinden sapma fail-closed olur (API `application/problem+json`, sayfalar güvenli Türkçe durum kartı).
+Account Center service account ya da Admin REST kullanmaz. Oturumdaki kullanıcı access token'ı pinli sözleşmeyi (`azp=account-center`, `scope=openid`, `aud` kümesi, `manage-account` + `view-profile`, core rolü yok) karşılamadan hiçbir upstream çağrısı yapılmaz. `aud` tam olarak `{account, core}` ya da `{account, core, skymail}` olmalıdır (`skymail`: Bildirimlerim, iletişim-servisi 04); K2 geçişinde kabul edilen eski `{account}` kümesi A0c ile kaldırıldı ve reddedilir: bkz. [Keycloak sözleşmesi](keycloak-26.7.4-contract.md#kullanıcı-access-token-sözleşmesi). Account REST adaptörü yalnız `GET`/`DELETE` yapar, yanıtta bilinen alan/tür sözleşmesinden sapma fail-closed olur (API `application/problem+json`, sayfalar güvenli Türkçe durum kartı).
 
 ## sky-account SPI istemcisi
 

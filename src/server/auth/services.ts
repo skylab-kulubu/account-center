@@ -34,6 +34,7 @@ import { CoreConsentsHttpClient } from "@/server/core/consents-client";
 import { CoreProfileHttpClient } from "@/server/core/profile-client";
 import { CoreSkyPassWalletHttpClient } from "@/server/core/skypass-wallet-client";
 import { SkyAccountHttpClient } from "@/server/sky-account/client";
+import { SkyMailInboxHttpClient } from "@/server/skymail/inbox-client";
 import { NoticeDismissals, PostgresNoticeDismissalRepository } from "@/server/notice-dismissals/store";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
@@ -85,6 +86,7 @@ function createAuthServices() {
     ? new CoreCommunicationPreferencesHttpClient(config.coreApiUrl)
     : null;
   const coreConsents = config.coreApiUrl ? new CoreConsentsHttpClient(config.coreApiUrl) : null;
+  const skymailInbox = config.skymailApiUrl ? new SkyMailInboxHttpClient(config.skymailApiUrl) : null;
   const accountDeletion = config.accountErasure.mode === "enforce"
     ? new AccountDeletionOrchestrator(
         new PostgresAccountDeletionRepository(pool),
@@ -110,6 +112,7 @@ function createAuthServices() {
     coreSkyPassWallet,
     coreCommunicationPreferences,
     coreConsents,
+    skymailInbox,
     noticeDismissals,
     backchannelLogout: new BackchannelLogoutService(
       new KeycloakBackchannelLogoutVerifier(config),

@@ -29,6 +29,11 @@ export type AuthConfig = {
   previousHandleGraceSeconds: number;
   /** Canonical core origin for the person's own `/v1/users/me` endpoints; `null` keeps club-profile features off. */
   coreApiUrl: URL | null;
+  /**
+   * SkyMail's API (`SKYMAIL_API_URL`, e.g. `https://api.yildizskylab.com/api/skymail`) for the
+   * person's in-app inbox ("Bildirimlerim", iletişim-servisi 07); `null` keeps the page off.
+   */
+  skymailApiUrl: URL | null;
   accountErasure:
     | { mode: "off" }
     | { mode: "enforce"; coreApiUrl: URL };
@@ -129,6 +134,24 @@ function coreApiUrlConfig(): URL | null {
   return coreApiUrl;
 }
 
+/** An HTTPS URL without credentials, query or fragment; a path is kept, written without a trailing slash. */
+function skymailApiUrlConfig(): URL | null {
+  if (!process.env.SKYMAIL_API_URL?.trim()) return null;
+  const value = required("SKYMAIL_API_URL");
+  const url = httpsUrl("SKYMAIL_API_URL");
+  if (
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    value.endsWith("/") ||
+    value !== `${url.origin}${url.pathname === "/" ? "" : url.pathname}`
+  ) {
+    throw new Error("SKYMAIL_API_URL must be a canonical credential-free HTTPS URL without a trailing slash, query or fragment.");
+  }
+  return url;
+}
+
 function trustedProxyConfig(): AuthTrustedProxy {
   const value = required("AUTH_TRUSTED_PROXY");
   const mode = AUTH_TRUSTED_PROXY_MODES.find((candidate) => candidate === value);
@@ -215,6 +238,7 @@ export function getAuthConfig(): AuthConfig {
     sessionRotationSeconds: 15 * 60,
     previousHandleGraceSeconds: 30,
     coreApiUrl,
+    skymailApiUrl: skymailApiUrlConfig(),
     accountErasure: accountErasureConfig(coreApiUrl),
     ytuIdpAlias: ytuIdpAliasConfig(),
   };

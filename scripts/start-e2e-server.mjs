@@ -37,6 +37,8 @@ const env = mockCore
   ? {
       ...process.env,
       CORE_API_URL: mockCore.origin,
+      // The mock serves SkyMail's person endpoints under /skymail, as production's API path does.
+      SKYMAIL_API_URL: `${mockCore.origin}/skymail`,
       E2E_MOCK_REALM_ORIGIN: mockCore.origin,
       NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${realmRedirect}`].filter(Boolean).join(" "),
     }

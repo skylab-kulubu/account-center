@@ -22,6 +22,7 @@ const pages = [
   "/permissions",
   "/club-profile",
   "/communication-preferences",
+  "/notifications",
   "/delete-account",
   "/account-deletion",
   "/.well-known/assetlinks.json",
@@ -40,6 +41,8 @@ const pages = [
   "/api/account/security",
   "/api/account/club-profile",
   "/api/account/communication-preferences",
+  "/api/account/inbox",
+  "/api/account/inbox/counts",
   "/api/account/skypass/wallet/google",
   "/api/account/sudo/methods",
   "/api/account/deletion/status",
@@ -69,6 +72,9 @@ const mutations = [
   "/api/account/deletion/prepare",
   "/api/account/club-profile/picture",
   "/api/account/club-profile/student-card",
+  "/api/account/inbox/seen-all",
+  "/api/account/inbox/read-all",
+  "/api/account/inbox/items/e2e-warm-up/read",
 ];
 
 /**
@@ -85,6 +91,8 @@ const authenticatedPages = [
   "/sessions",
   "/permissions",
   "/club-profile",
+  "/communication-preferences",
+  "/notifications",
   "/delete-account",
   "/e2e-warm-up-not-found",
 ];
