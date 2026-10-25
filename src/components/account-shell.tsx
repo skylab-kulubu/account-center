@@ -34,13 +34,17 @@ function LogoutForm({ csrfToken, compact = false }: { csrfToken: string; compact
  * the shell opens and when the window comes back; cleared when the inbox page marks all seen.
  * Off (null) without SkyMail, and on any failure: a badge is a hint, never an error.
  */
-function useInboxUnseen(enabled: boolean) {
+function useInboxUnseen(enabled: boolean, csrfToken: string) {
   const [unseen, setUnseen] = useState<number | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+    // After the session refresh the shell sends at the same moments (mount, focus): a read beside a
+    // rotating refresh would carry the handle the refresh is replacing (iletişim-servisi 07 review).
     const read = () => {
-      void fetch("/api/account/inbox/counts", { cache: "no-store", credentials: "same-origin" })
+      void refreshBrowserSession(csrfToken)
+        .catch(() => undefined)
+        .then(() => fetch("/api/account/inbox/counts", { cache: "no-store", credentials: "same-origin" }))
         .then(async (response) => (response.ok ? ((await response.json()) as { counts?: { unseen?: unknown } }) : null))
         .then((body) => {
           const value = body?.counts?.unseen;
@@ -57,7 +61,7 @@ function useInboxUnseen(enabled: boolean) {
       window.removeEventListener("focus", read);
       window.removeEventListener(INBOX_SEEN_EVENT, seen);
     };
-  }, [enabled]);
+  }, [enabled, csrfToken]);
   return unseen;
 }
 
@@ -145,7 +149,7 @@ export function AccountShell({
   const pathname = usePathname();
   const router = useRouter();
   const currentRoute = matchAccountRoute(pathname);
-  const inboxUnseen = useInboxUnseen(inboxEnabled);
+  const inboxUnseen = useInboxUnseen(inboxEnabled, logoutCsrfToken);
 
   useEffect(() => {
     const refresh = () => {
