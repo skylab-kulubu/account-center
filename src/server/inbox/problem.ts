@@ -53,9 +53,9 @@ export function toInboxProblem(error: unknown): InboxProblem {
     case "not_enabled":
       return {
         type: `${PROBLEM_BASE}inbox-not-enabled`,
-        title: "Bildirimler bu oturumda henüz açık değil",
+        title: "Bildirimler henüz açık değil",
         status: 503,
-        detail: "Bildirimlerin bir sonraki girişinde görünür.",
+        detail: "Bildirimler açıldığında burada görünür.",
         code: "inbox_not_enabled",
       };
     case "contract":

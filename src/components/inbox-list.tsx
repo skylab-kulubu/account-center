@@ -28,13 +28,10 @@ type Problem = { title: string; detail: string; status: number; code?: string };
 export function InboxNotice({ problem }: { problem: Problem }) {
   const off = problem.code === "inbox_disabled";
   if (problem.code === "inbox_not_enabled") {
+    // The session's token does not name SkyMail: before e-skylab-keycloak's iletişim-servisi 04 is
+    // released a new login would not change that, so nothing is offered but the sentence.
     return (
-      <Notice
-        action={<Button render={<Link href="/login?returnTo=%2Fnotifications" />} size="sm" variant="link">Yeniden giriş yap</Button>}
-        icon={BellOff}
-        title={problem.title}
-        tone="info"
-      >
+      <Notice icon={BellOff} title={problem.title} tone="info">
         {problem.detail}
       </Notice>
     );
