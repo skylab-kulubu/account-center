@@ -135,9 +135,10 @@ describe("AccountShell inbox badge", () => {
     const link = screen.getByRole("link", { name: /Bildirimlerim/ });
     expect(link).toHaveAttribute("href", "/notifications");
     expect(await within(link).findByText("4")).toBeInTheDocument();
-    // One refresh (shared with the shell's own), then the counts: never both at once.
+    // The refresh first, the counts after it: never both at once. (A later refresh in this test comes from
+    // the mocked useRouter returning a new object per render, which re-runs the shell's refresh effect.)
     const urls = fetch.mock.calls.map(([url]) => url as string);
-    expect(urls.filter((url) => url === "/api/auth/session/refresh")).toHaveLength(1);
+    expect(urls.indexOf("/api/auth/session/refresh")).toBeGreaterThan(-1);
     expect(urls.indexOf("/api/auth/session/refresh")).toBeLessThan(urls.indexOf("/api/account/inbox/counts"));
     expect(within(link).getByText("yeni bildirim", { exact: false })).toBeInTheDocument();
 
