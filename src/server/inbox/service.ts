@@ -1,5 +1,6 @@
 import "server-only";
 
+import { decodeJwt } from "jose";
 import { isInboxCursor, isInboxItemAction, isInboxItemId } from "@/lib/inbox";
 import type { InboxCounts, InboxItem, InboxItemAction, InboxPage } from "@/lib/inbox";
 import type { AccountReadService } from "@/server/keycloak-account/service";
@@ -28,9 +29,15 @@ export class InboxService {
     private readonly tokens: TokenSource,
   ) {}
 
-  /** A SkyMail 401 is retried once with a force-refreshed token; every other failure surfaces unchanged. */
+  /**
+   * A token that does not name SkyMail in its audience (a session from before e-skylab-keycloak's
+   * iletişim-servisi 04, or that release not out yet) is not sent: SkyMail would answer 401, and
+   * forcing a refresh for the badge on every page would gain nothing. A SkyMail 401 of a token that
+   * names it is retried once with a force-refreshed token; every other failure surfaces unchanged.
+   */
   async #withToken<T>(session: SessionIdentity, operation: (accessToken: string) => Promise<T>) {
     const accessToken = await this.tokens.accessToken(session);
+    if (!namesSkyMail(accessToken)) throw new SkyMailInboxError("not_enabled");
     try {
       return await operation(accessToken);
     } catch (error) {
@@ -55,6 +62,16 @@ export class InboxService {
 
   markAll(session: SessionIdentity, action: "read-all" | "seen-all"): Promise<number> {
     return this.#withToken(session, (token) => this.skymail.markAll(token, action));
+  }
+}
+
+/** Whether the token's `aud` holds `skymail`; a token that is no JWT does not. */
+export function namesSkyMail(accessToken: string): boolean {
+  try {
+    const { aud } = decodeJwt(accessToken);
+    return aud === "skymail" || (Array.isArray(aud) && aud.includes("skymail"));
+  } catch {
+    return false;
   }
 }
 

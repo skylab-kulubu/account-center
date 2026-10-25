@@ -125,9 +125,21 @@ export async function readInbox(request: NextRequest) {
   return answer(request, await authenticateRead(request), (inbox, session) => inbox.list(session, cursor), (page) => ({ page }));
 }
 
-/** `GET /api/account/inbox/counts`: `{ counts: { unseen, unread } }`, the shell's badge. */
+/**
+ * `GET /api/account/inbox/counts`: `{ counts: { unseen, unread } }`, the shell's badge; `{ counts: null }`
+ * (200) when the session's token does not name SkyMail yet: a badge is a hint, not an error.
+ */
 export async function readInboxCounts(request: NextRequest) {
-  return answer(request, await authenticateRead(request), (inbox, session) => inbox.counts(session), (counts) => ({ counts }));
+  return answer(
+    request,
+    await authenticateRead(request),
+    (inbox, session) =>
+      inbox.counts(session).catch((error: unknown) => {
+        if (error instanceof SkyMailInboxError && error.failure === "not_enabled") return null;
+        throw error;
+      }),
+    (counts) => ({ counts }),
+  );
 }
 
 /** `POST /api/account/inbox/items/{id}/{read|unread|archive}`: `{ item }`. */

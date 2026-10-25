@@ -27,6 +27,18 @@ type Problem = { title: string; detail: string; status: number; code?: string };
 /** Why the inbox is not shown: off in this environment (no SkyMail), or a failure worth a retry or a fresh login. */
 export function InboxNotice({ problem }: { problem: Problem }) {
   const off = problem.code === "inbox_disabled";
+  if (problem.code === "inbox_not_enabled") {
+    return (
+      <Notice
+        action={<Button render={<Link href="/login?returnTo=%2Fnotifications" />} size="sm" variant="link">Yeniden giriş yap</Button>}
+        icon={BellOff}
+        title={problem.title}
+        tone="info"
+      >
+        {problem.detail}
+      </Notice>
+    );
+  }
   return (
     <Notice
       action={off ? undefined : problem.status === 401 ? (

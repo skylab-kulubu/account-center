@@ -5,7 +5,7 @@ import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
 import { SkyMailInboxError } from "@/server/skymail/inbox-client";
 
-export type InboxProblem = AccountProblem & { code?: "inbox_disabled" };
+export type InboxProblem = AccountProblem & { code?: "inbox_disabled" | "inbox_not_enabled" };
 
 const PROBLEM_BASE = "https://my.yildizskylab.com/problems/";
 
@@ -49,6 +49,14 @@ export function toInboxProblem(error: unknown): InboxProblem {
         title: "Bildirim bulunamadı",
         status: 404,
         detail: "Bildirim silinmiş ya da süresi dolmuş olabilir. Sayfayı yenile.",
+      };
+    case "not_enabled":
+      return {
+        type: `${PROBLEM_BASE}inbox-not-enabled`,
+        title: "Bildirimler bu oturumda henüz açık değil",
+        status: 503,
+        detail: "Bildirimlerin bir sonraki girişinde görünür.",
+        code: "inbox_not_enabled",
       };
     case "contract":
       return {

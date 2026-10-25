@@ -39,6 +39,8 @@ export type SkyMailInboxFailure =
   | "unavailable"
   /** A 2xx whose body is not the documented one. */
   | "contract"
+  /** The session's token does not name SkyMail yet (no `aud skymail`): nothing was sent. */
+  | "not_enabled"
   | "invalid_input";
 
 export class SkyMailInboxError extends Error {

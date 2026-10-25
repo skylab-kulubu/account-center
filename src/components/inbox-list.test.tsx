@@ -123,4 +123,10 @@ describe("InboxNotice", () => {
     render(<InboxNotice problem={{ title: "Yeniden giriş", detail: "x", status: 401 }} />);
     expect(screen.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", "/login?returnTo=%2Fnotifications");
   });
+
+  it("says a session whose token does not name SkyMail yet sees the inbox after its next login", () => {
+    render(<InboxNotice problem={{ title: "Bildirimler bu oturumda henüz açık değil", detail: "x", status: 503, code: "inbox_not_enabled" }} />);
+    expect(screen.getByText("Bildirimler bu oturumda henüz açık değil")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", "/login?returnTo=%2Fnotifications");
+  });
 });

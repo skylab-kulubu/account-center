@@ -69,6 +69,13 @@ function post(path: string, options: { origin?: string; csrf?: string } = {}) {
 
 const params = (id: string, action: string) => ({ params: Promise.resolve({ id, action }) });
 
+/** A JWT-shaped token (unsigned: the BFF reads its audience only, SkyMail checks it). */
+function token(name: string, aud: string[] = ["account", "core", "skymail"]) {
+  const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${part({ alg: "RS256" })}.${part({ sub: name, aud })}.c2ln`;
+}
+const USER_TOKEN = token("server-held-user-token");
+
 describe("inbox BFF routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,7 +83,7 @@ describe("inbox BFF routes", () => {
     mocks.authenticate.mockResolvedValue({ status: "active", value: { session: activeSession } });
     mocks.authenticateMutation.mockResolvedValue({ status: "active", value: { session: activeSession } });
     mocks.revokeLocalSession.mockResolvedValue(true);
-    mocks.accessToken.mockResolvedValue("server-held-user-token");
+    mocks.accessToken.mockResolvedValue(USER_TOKEN);
     mocks.list.mockResolvedValue(page);
     mocks.counts.mockResolvedValue({ unseen: 1, unread: 1 });
     mocks.mark.mockResolvedValue({ ...item, readAt: "2026-10-25T10:00:00Z" });
@@ -91,10 +98,10 @@ describe("inbox BFF routes", () => {
     expect(first.status).toBe(200);
     expect(first.headers.get("cache-control")).toBe("no-store");
     await expect(first.json()).resolves.toEqual({ page });
-    expect(mocks.list).toHaveBeenCalledWith("server-held-user-token", undefined);
+    expect(mocks.list).toHaveBeenCalledWith(USER_TOKEN, undefined);
 
     await LIST(get("/api/account/inbox?cursor=next_1"));
-    expect(mocks.list).toHaveBeenLastCalledWith("server-held-user-token", "next_1");
+    expect(mocks.list).toHaveBeenLastCalledWith(USER_TOKEN, "next_1");
   });
 
   it("refuses a cursor it does not take without calling SkyMail", async () => {
@@ -111,7 +118,7 @@ describe("inbox BFF routes", () => {
     const marked = await MARK(post(`/api/account/inbox/items/${ITEM_ID}/read`), params(ITEM_ID, "read"));
     expect(marked.status).toBe(200);
     await expect(marked.json()).resolves.toMatchObject({ item: { readAt: "2026-10-25T10:00:00Z" } });
-    expect(mocks.mark).toHaveBeenCalledWith("server-held-user-token", ITEM_ID, "read");
+    expect(mocks.mark).toHaveBeenCalledWith(USER_TOKEN, ITEM_ID, "read");
     expect(mocks.authenticateMutation).toHaveBeenCalledWith("opaque-browser-handle", "session-bound-csrf", { allowRotation: true });
 
     await expect((await READ_ALL(post("/api/account/inbox/read-all"))).json()).resolves.toEqual({ updated: 1 });
@@ -131,11 +138,26 @@ describe("inbox BFF routes", () => {
 
   it("retries once with a refreshed token when SkyMail refuses the bearer", async () => {
     mocks.list.mockRejectedValueOnce(new SkyMailInboxError("unauthorized")).mockResolvedValueOnce(page);
-    mocks.accessToken.mockResolvedValueOnce("stale-token").mockResolvedValueOnce("fresh-token");
+    const FRESH = token("fresh-token");
+    mocks.accessToken.mockResolvedValueOnce(token("stale-token")).mockResolvedValueOnce(FRESH);
 
     expect((await LIST(get("/api/account/inbox"))).status).toBe(200);
     expect(mocks.accessToken).toHaveBeenLastCalledWith(activeSession, { forceRefresh: true });
-    expect(mocks.list).toHaveBeenLastCalledWith("fresh-token", undefined);
+    expect(mocks.list).toHaveBeenLastCalledWith(FRESH, undefined);
+  });
+
+  it("sends no token without the skymail audience, forces no refresh and keeps the session", async () => {
+    mocks.accessToken.mockResolvedValue(token("old-session", ["account", "core"]));
+    const badge = await COUNTS(get("/api/account/inbox/counts"));
+    expect(badge.status).toBe(200);
+    await expect(badge.json()).resolves.toEqual({ counts: null });
+    const list = await LIST(get("/api/account/inbox"));
+    expect(list.status).toBe(503);
+    await expect(list.json()).resolves.toMatchObject({ code: "inbox_not_enabled" });
+    expect(mocks.counts).not.toHaveBeenCalled();
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(mocks.accessToken).toHaveBeenCalledTimes(2);
+    expect(mocks.revokeLocalSession).not.toHaveBeenCalled();
   });
 
   it("keeps the local session on a SkyMail 401 but ends it on a Keycloak one", async () => {
