@@ -48,7 +48,11 @@ test("Bildirimlerim lists the inbox, clears the badge, marks read and archives t
 
   try {
     // Another page first: the sidebar shows one unseen item.
+    const firstRefresh = page.waitForResponse((response) => response.url().endsWith("/api/auth/session/refresh"));
     await page.goto("/communication-preferences");
+    // The seeded session is due for rotation: let the shell's refresh land before the next page (the
+    // page's own seen-all also waits for the shell's refresh; this keeps the test about Bildirimlerim).
+    expect((await firstRefresh).status()).toBe(204);
     const navigation = page.getByRole("navigation", { name: "Hesap ayarları" });
     if (await navigation.isVisible()) {
       await expect(navigation.getByRole("link", { name: /Bildirimlerim\s*1 yeni bildirim/ })).toBeVisible();

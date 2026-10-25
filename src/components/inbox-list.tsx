@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { INBOX_RETENTION_DAYS, INBOX_SEEN_EVENT, inboxLinkHref } from "@/lib/inbox";
 import type { InboxItem, InboxItemAction, InboxPage } from "@/lib/inbox";
+import { refreshBrowserSession } from "@/lib/session-refresh";
 
 const ROUTE = "/api/account/inbox";
 
@@ -83,7 +84,10 @@ export function InboxList({ initial, csrfToken }: { initial: InboxPage; csrfToke
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    void post(`${ROUTE}/seen-all`, csrfToken)
+    // After the shell's session refresh (shared, one at a time): never beside it with the same handle.
+    void refreshBrowserSession(csrfToken)
+      .catch(() => undefined)
+      .then(() => post(`${ROUTE}/seen-all`, csrfToken))
       .then(() => window.dispatchEvent(new Event(INBOX_SEEN_EVENT)))
       .catch(() => undefined);
   }, [csrfToken]);

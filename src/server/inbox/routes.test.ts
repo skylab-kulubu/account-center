@@ -119,7 +119,7 @@ describe("inbox BFF routes", () => {
     expect(marked.status).toBe(200);
     await expect(marked.json()).resolves.toMatchObject({ item: { readAt: "2026-10-25T10:00:00Z" } });
     expect(mocks.mark).toHaveBeenCalledWith(USER_TOKEN, ITEM_ID, "read");
-    expect(mocks.authenticateMutation).toHaveBeenCalledWith("opaque-browser-handle", "session-bound-csrf", { allowRotation: true });
+    expect(mocks.authenticateMutation).toHaveBeenCalledWith("opaque-browser-handle", "session-bound-csrf", { allowRotation: false });
 
     await expect((await READ_ALL(post("/api/account/inbox/read-all"))).json()).resolves.toEqual({ updated: 1 });
     await SEEN_ALL(post("/api/account/inbox/seen-all"));

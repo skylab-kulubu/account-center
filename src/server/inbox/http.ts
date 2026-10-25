@@ -89,7 +89,9 @@ async function authenticateMutation(request: NextRequest): Promise<Authenticated
   const authorization = await services.sessionAccess.authenticateMutation(
     request.cookies.get(SESSION_COOKIE)?.value,
     request.headers.get("x-csrf-token") ?? undefined,
-    { allowRotation: true },
+    // Marking read or seen never rotates the session handle: that is the session refresh's job, and a
+    // mark sent on mount beside it would present the same old handle twice (iletişim-servisi 07 review).
+    { allowRotation: false },
   );
   if (authorization.status === "forbidden") {
     return { ok: false, response: noStore(NextResponse.json({ error: "forbidden" }, { status: 403 })) };
@@ -98,9 +100,7 @@ async function authenticateMutation(request: NextRequest): Promise<Authenticated
   if (authorization.status === "blocked") return { ok: false, response: authenticationRequiredResponse(true) };
   if (authorization.status !== "active") return { ok: false, response: authenticationRequiredResponse() };
   const inbox = inboxServiceFor(services);
-  if (!inbox) {
-    return { ok: false, response: withRotatedHandle(problemResponse(request, inboxDisabledProblem), authorization.value) };
-  }
+  if (!inbox) return { ok: false, response: problemResponse(request, inboxDisabledProblem) };
   return { ok: true, services, inbox, sessionUse: authorization.value };
 }
 
