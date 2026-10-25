@@ -13,8 +13,8 @@ class MemorySessions implements SessionRepository {
     previousHandleHash?: Buffer;
     previousHandleExpiresAt?: Date;
     revokedAt?: Date;
-    /** Mirrors account_sessions.handle_used_at (0010): the current handle has carried a request. */
-    handleUsed?: boolean;
+    /** Mirrors account_sessions.rotation_salt (0010). */
+    rotationSalt?: Buffer;
   };
 
   async insert(value: NewSessionRecord) {
@@ -47,24 +47,22 @@ class MemorySessions implements SessionRepository {
       row.previousHandleExpiresAt && row.previousHandleExpiresAt > input.now;
     if (!current && !previous) return null;
     if (input.authorizeSessionId && !input.authorizeSessionId(row.id)) return { proofRejected: true };
-    const rotated = Boolean(
+    // Mirrors PostgresSessionRepository: the previous handle gets its successor back, unchanged row.
+    const sameSuccessor = Boolean(previous && input.allowRotation && row.rotationSalt &&
+      input.successorHash(row.rotationSalt).equals(row.handleHash));
+    const rotated = sameSuccessor || Boolean(
       input.allowRotation &&
       (previous ||
         (current &&
           row.rotatedAt.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000)),
     );
-    // Mirrors PostgresSessionRepository: a never-used current handle does not displace the previous one.
-    const keepPrevious = Boolean(previous) && !row.handleUsed;
-    if (rotated && !keepPrevious) {
+    const rotationSalt = sameSuccessor ? row.rotationSalt : rotated ? input.newRotationSalt : undefined;
+    if (rotated && !sameSuccessor) {
       row.previousHandleHash = row.handleHash;
       row.previousHandleExpiresAt = new Date(input.now.getTime() + input.previousHandleGraceSeconds * 1_000);
-    }
-    if (rotated) {
-      row.handleHash = input.replacementHandleHash;
+      row.handleHash = input.successorHash(input.newRotationSalt);
+      row.rotationSalt = input.newRotationSalt;
       row.rotatedAt = input.now;
-      row.handleUsed = false;
-    } else if (current) {
-      row.handleUsed = true;
     }
     row.lastSeenAt = input.now;
     row.idleExpiresAt = new Date(
@@ -72,6 +70,7 @@ class MemorySessions implements SessionRepository {
     );
     return {
       rotated,
+      ...(rotationSalt ? { rotationSalt } : {}),
       session: {
         id: row.id,
         subject: row.subject,
@@ -322,37 +321,101 @@ describe("SessionManager", () => {
     const lostResponse = await manager.authenticate(created.handle, { allowRotation: true });
     expect(lostResponse?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
+    // The browser kept the original: it gets the same successor again, and nothing in the row moves.
     const recovered = await manager.authenticate(created.handle, { allowRotation: true });
-    expect(recovered?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    // The lost handle was never used: it no longer opens anything, and the original stays the previous
-    // handle, so a second request still carrying it (sent beside the first) recovers too.
-    await expect(manager.authenticate(lostResponse?.rotatedHandle)).resolves.toBeNull();
+    expect(recovered?.rotatedHandle).toBe(lostResponse?.rotatedHandle);
+    await expect(manager.authenticate(lostResponse?.rotatedHandle)).resolves.not.toBeNull();
     await expect(manager.authenticate(created.handle)).resolves.not.toBeNull();
-    const alongside = await manager.authenticate(created.handle, { allowRotation: true });
-    expect(alongside?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    await expect(manager.authenticate(recovered?.rotatedHandle)).resolves.toBeNull();
-    await expect(manager.authenticate(alongside?.rotatedHandle)).resolves.not.toBeNull();
   });
 
-  it("keeps a used replacement valid when an older request re-rotates", async () => {
-    let now = new Date("2026-09-20T00:00:00Z");
+  function rotatingManager(clock: () => Date, secret = Buffer.alloc(32, 8)) {
     const repository = new MemorySessions();
     const manager = new SessionManager(
       repository,
       new AesGcmSecretCipher(Buffer.alloc(32, 9)),
-      Buffer.alloc(32, 8),
+      secret,
       { absoluteTtlSeconds: 3_600, upstreamSessionMaxSeconds: 3_600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
-      () => now,
+      clock,
     );
+    return { repository, manager };
+  }
+
+  it("gives every request that carries the previous handle in its window the same successor (two tabs, refresh beside a mutation)", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const { manager } = rotatingManager(() => now);
+    const created = await manager.create({ subject: "rotation-race", authenticatedAt, tokens });
+    now = new Date("2026-09-20T00:01:01Z");
+    // Two rotating requests with the same handle, whichever takes the row first.
+    const first = await manager.authenticate(created.handle, { allowRotation: true });
+    const second = await manager.authenticate(created.handle, { allowRotation: true });
+    expect(first?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(second?.rotatedHandle).toBe(first?.rotatedHandle);
+    // Whichever answer the browser keeps last, its cookie opens the session.
+    await expect(manager.authenticate(first?.rotatedHandle)).resolves.not.toBeNull();
+  });
+
+  it("keeps a delivered successor that has not carried a request yet when a late old request comes", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const { manager } = rotatingManager(() => now);
     const created = await manager.create({ subject: "rotation-delivered", authenticatedAt, tokens });
     now = new Date("2026-09-20T00:01:01Z");
     const delivered = await manager.authenticate(created.handle, { allowRotation: true });
-    now = new Date("2026-09-20T00:01:02Z");
-    await expect(manager.authenticate(delivered?.rotatedHandle)).resolves.not.toBeNull();
-    now = new Date("2026-09-20T00:01:03Z");
+    // The late request's answer is lost too: the browser still holds the delivered successor.
+    now = new Date("2026-09-20T00:01:05Z");
     const late = await manager.authenticate(created.handle, { allowRotation: true });
-    expect(late?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(late?.rotatedHandle).toBe(delivered?.rotatedHandle);
     await expect(manager.authenticate(delivered?.rotatedHandle)).resolves.not.toBeNull();
+  });
+
+  it("ends the previous handle at its own expiry; the successor rotates on schedule", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const { manager } = rotatingManager(() => now);
+    const created = await manager.create({ subject: "rotation-window", authenticatedAt, tokens });
+    now = new Date("2026-09-20T00:01:01Z");
+    const next = await manager.authenticate(created.handle, { allowRotation: true });
+    now = new Date("2026-09-20T00:01:20Z");
+    await manager.authenticate(created.handle, { allowRotation: true });
+    now = new Date("2026-09-20T00:01:32Z");
+    await expect(manager.authenticate(created.handle, { allowRotation: true })).resolves.toBeNull();
+    now = new Date("2026-09-20T00:02:02Z");
+    const after = await manager.authenticate(next?.rotatedHandle, { allowRotation: true });
+    expect(after?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(after?.rotatedHandle).not.toBe(next?.rotatedHandle);
+  });
+
+  it("falls back to a fresh rotation when the row's current handle is not the derived successor (an older image rotated it)", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const { repository, manager } = rotatingManager(() => now);
+    const created = await manager.create({ subject: "rotation-old-image", authenticatedAt, tokens });
+    // An older image rotated: the original is the previous handle, the current one random, the salt stale.
+    const oldImageHandle = Buffer.alloc(32, 77);
+    now = new Date("2026-09-20T00:01:01Z");
+    repository.record!.previousHandleHash = repository.record!.handleHash;
+    repository.record!.previousHandleExpiresAt = new Date("2026-09-20T00:01:31Z");
+    repository.record!.handleHash = oldImageHandle;
+    repository.record!.rotationSalt = Buffer.alloc(16, 5);
+    const fresh = await manager.authenticate(created.handle, { allowRotation: true });
+    expect(fresh?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // As before this change: the old image's handle stays valid as the previous one.
+    expect(repository.record!.previousHandleHash).toEqual(oldImageHandle);
+    await expect(manager.authenticate(fresh?.rotatedHandle)).resolves.not.toBeNull();
+  });
+
+  it("derives a successor no one can compute without the session secret", async () => {
+    const now = new Date("2026-09-20T00:01:01Z");
+    const created = new Date("2026-09-20T00:00:00Z");
+    let clockA = created;
+    let clockB = created;
+    const a = rotatingManager(() => clockA, Buffer.alloc(32, 8));
+    const b = rotatingManager(() => clockB, Buffer.alloc(32, 7));
+    const sessionA = await a.manager.create({ subject: "secret-a", authenticatedAt, tokens });
+    b.repository.record = { ...a.repository.record! };
+    clockA = now;
+    clockB = now;
+    const fromA = await a.manager.authenticate(sessionA.handle, { allowRotation: true });
+    const fromB = await b.manager.authenticate(sessionA.handle, { allowRotation: true });
+    expect(fromA?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(fromB?.rotatedHandle).not.toBe(fromA?.rotatedHandle);
   });
 
   it("binds CSRF values to one active session", async () => {

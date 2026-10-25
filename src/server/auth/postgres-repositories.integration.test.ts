@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
@@ -30,7 +31,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "0006_account_sudo.sql",
       "0007_account_deletion_confirmations.sql",
       "0009_account_notice_dismissals.sql",
-      "0010_account_session_handle_used.sql",
+      "0010_account_session_rotation_salt.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);
@@ -75,17 +76,15 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     });
   });
 
-  it("rotates a still-valid previous handle so a lost Set-Cookie response can recover", async () => {
-    const repository = new PostgresSessionRepository(pool);
-    const now = new Date("2026-09-20T00:20:00Z");
-    const original = Buffer.alloc(32, 21);
-    const firstReplacement = Buffer.alloc(32, 22);
-    const recoveryReplacement = Buffer.alloc(32, 23);
+  /** A stand-in for SessionManager's derivation: the successor's hash is a function of the handle and the salt. */
+  const successorOf = (handle: Buffer) => (salt: Buffer) => createHash("sha256").update(handle).update(salt).digest();
+
+  async function rotatingSession(repository: PostgresSessionRepository, id: string, handle: Buffer) {
     await repository.insert({
-      id: "88888888-8888-4888-8888-888888888888",
-      subject: "rotation-recovery",
-      keycloakSid: "rotation-recovery-sid",
-      handleHash: original,
+      id,
+      subject: `rotation-${id.slice(0, 4)}`,
+      keycloakSid: `rotation-${id.slice(0, 4)}-sid`,
+      handleHash: handle,
       tokenCiphertext: "encrypted",
       createdAt: new Date("2026-09-20T00:00:00Z"),
       rotatedAt: new Date("2026-09-20T00:00:00Z"),
@@ -93,119 +92,77 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
       absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
     });
-
-    const first = await repository.useHandle({
-      handleHash: original,
-      replacementHandleHash: firstReplacement,
-      now,
+    return (presented: Buffer, now: string, salt: Buffer, allowRotation = true) => repository.useHandle({
+      handleHash: presented,
+      newRotationSalt: salt,
+      successorHash: successorOf(presented),
+      now: new Date(now),
       idleTtlSeconds: 1_800,
       rotateAfterSeconds: 900,
       previousHandleGraceSeconds: 30,
-      allowRotation: true,
+      allowRotation,
     });
-    expect(first).toMatchObject({ rotated: true });
+  }
 
-    const recovery = await repository.useHandle({
-      handleHash: original,
-      replacementHandleHash: recoveryReplacement,
-      now: new Date("2026-09-20T00:20:01Z"),
-      idleTtlSeconds: 1_800,
-      rotateAfterSeconds: 900,
-      previousHandleGraceSeconds: 30,
-      allowRotation: true,
-    });
-    expect(recovery).toMatchObject({ rotated: true });
+  it("hands a lost Set-Cookie's successor out again to the previous handle, changing nothing in the row", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const original = Buffer.alloc(32, 21);
+    const use = await rotatingSession(repository, "88888888-8888-4888-8888-888888888888", original);
+    const first = await use(original, "2026-09-20T00:20:00Z", Buffer.alloc(16, 1));
+    expect(first).toMatchObject({ rotated: true, rotationSalt: Buffer.alloc(16, 1) });
+    const successor = successorOf(original)(Buffer.alloc(16, 1));
 
-    // The first replacement was never used (its response was lost): the original stays the previous
-    // handle, so another request still carrying it recovers too; the lost one no longer opens anything.
-    await expect(repository.useHandle({
-      handleHash: firstReplacement,
-      replacementHandleHash: Buffer.alloc(32, 24),
-      now: new Date("2026-09-20T00:20:02Z"),
-      idleTtlSeconds: 1_800,
-      rotateAfterSeconds: 900,
-      previousHandleGraceSeconds: 30,
-      allowRotation: false,
-    })).resolves.toBeNull();
-    await expect(repository.useHandle({
-      handleHash: original,
-      replacementHandleHash: Buffer.alloc(32, 26),
-      now: new Date("2026-09-20T00:20:02Z"),
-      idleTtlSeconds: 1_800,
-      rotateAfterSeconds: 900,
-      previousHandleGraceSeconds: 30,
-      allowRotation: false,
-    })).resolves.not.toBeNull();
-    await expect(repository.useHandle({
-      handleHash: recoveryReplacement,
-      replacementHandleHash: Buffer.alloc(32, 25),
-      now: new Date("2026-09-20T00:20:02Z"),
-      idleTtlSeconds: 1_800,
-      rotateAfterSeconds: 900,
-      previousHandleGraceSeconds: 30,
-      allowRotation: false,
-    })).resolves.not.toBeNull();
+    const recovery = await use(original, "2026-09-20T00:20:01Z", Buffer.alloc(16, 2));
+    expect(recovery).toMatchObject({ rotated: true, rotationSalt: Buffer.alloc(16, 1) });
+    await expect(use(successor, "2026-09-20T00:20:02Z", Buffer.alloc(16, 3), false)).resolves.not.toBeNull();
+    // The second salt was never used: no row holds its successor.
+    await expect(use(successorOf(original)(Buffer.alloc(16, 2)), "2026-09-20T00:20:02Z", Buffer.alloc(16, 4), false)).resolves.toBeNull();
+    // The previous handle keeps its first expiry (00:20:30), however often it recovers.
+    await expect(use(original, "2026-09-20T00:20:31Z", Buffer.alloc(16, 5), false)).resolves.toBeNull();
   });
 
-  it("lets two requests that carry the same previous handle at once both recover", async () => {
+  it("gives two rotating requests that carry the same current handle at once the same successor (normal rotation, two tabs)", async () => {
     const repository = new PostgresSessionRepository(pool);
     const original = Buffer.alloc(32, 31);
-    const lost = Buffer.alloc(32, 32);
-    await repository.insert({
-      id: "99999999-9999-4999-8999-999999999999",
-      subject: "rotation-race",
-      keycloakSid: "rotation-race-sid",
-      handleHash: original,
-      tokenCiphertext: "encrypted",
-      createdAt: new Date("2026-09-20T00:00:00Z"),
-      rotatedAt: new Date("2026-09-20T00:00:00Z"),
-      lastSeenAt: new Date("2026-09-20T00:00:00Z"),
-      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
-      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
-    });
-    const use = (handleHash: Buffer, replacementHandleHash: Buffer, now: string, allowRotation = true) => repository.useHandle({
-      handleHash, replacementHandleHash, now: new Date(now), idleTtlSeconds: 1_800, rotateAfterSeconds: 900,
-      previousHandleGraceSeconds: 30, allowRotation,
-    });
-    // A refresh rotates, and its response is lost (the browser navigated away): it keeps the original.
-    await expect(use(original, lost, "2026-09-20T00:20:00Z")).resolves.toMatchObject({ rotated: true });
-    // The next page sends the original twice at once (its shell's refresh and a mutation on mount).
+    const use = await rotatingSession(repository, "99999999-9999-4999-8999-999999999999", original);
     const [a, b] = await Promise.all([
-      use(original, Buffer.alloc(32, 33), "2026-09-20T00:20:05Z"),
-      use(original, Buffer.alloc(32, 34), "2026-09-20T00:20:05Z"),
+      use(original, "2026-09-20T00:20:00Z", Buffer.alloc(16, 11)),
+      use(original, "2026-09-20T00:20:00Z", Buffer.alloc(16, 12)),
     ]);
-    expect(a).toMatchObject({ rotated: true });
-    expect(b).toMatchObject({ rotated: true });
-    // The last replacement is the session's handle; the previous one keeps its first expiry.
-    await expect(use(original, Buffer.alloc(32, 35), "2026-09-20T00:20:31Z", false)).resolves.toBeNull();
+    if (!a || !b || "proofRejected" in a || "proofRejected" in b) throw new Error("both requests should pass");
+    expect(a.rotated && b.rotated).toBe(true);
+    // Whichever took the row first, both answers carry its salt: one successor, one cookie.
+    expect(a.rotationSalt).toEqual(b.rotationSalt);
+    await expect(use(successorOf(original)(a.rotationSalt!), "2026-09-20T00:20:01Z", Buffer.alloc(16, 13), false)).resolves.not.toBeNull();
   });
 
-  it("keeps a used current handle as the previous one when an older handle re-rotates", async () => {
+  it("keeps a delivered successor that has not carried a request yet when a late old request comes", async () => {
     const repository = new PostgresSessionRepository(pool);
     const original = Buffer.alloc(32, 41);
-    const delivered = Buffer.alloc(32, 42);
-    await repository.insert({
-      id: "aaaaaaaa-9999-4999-8999-999999999999",
-      subject: "rotation-delivered",
-      keycloakSid: "rotation-delivered-sid",
-      handleHash: original,
-      tokenCiphertext: "encrypted",
-      createdAt: new Date("2026-09-20T00:00:00Z"),
-      rotatedAt: new Date("2026-09-20T00:00:00Z"),
-      lastSeenAt: new Date("2026-09-20T00:00:00Z"),
-      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
-      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
-    });
-    const use = (handleHash: Buffer, replacementHandleHash: Buffer, now: string, allowRotation = true) => repository.useHandle({
-      handleHash, replacementHandleHash, now: new Date(now), idleTtlSeconds: 1_800, rotateAfterSeconds: 900,
-      previousHandleGraceSeconds: 30, allowRotation,
-    });
-    await expect(use(original, delivered, "2026-09-20T00:20:00Z")).resolves.toMatchObject({ rotated: true });
-    // The new handle reached the browser and is in use; a late request with the original re-rotates.
-    await expect(use(delivered, Buffer.alloc(32, 43), "2026-09-20T00:20:01Z", false)).resolves.not.toBeNull();
-    await expect(use(original, Buffer.alloc(32, 44), "2026-09-20T00:20:02Z")).resolves.toMatchObject({ rotated: true });
-    // The delivered handle stays valid as the previous one (as before this change).
-    await expect(use(delivered, Buffer.alloc(32, 45), "2026-09-20T00:20:03Z", false)).resolves.not.toBeNull();
+    const use = await rotatingSession(repository, "aaaaaaaa-9999-4999-8999-999999999999", original);
+    await use(original, "2026-09-20T00:20:00Z", Buffer.alloc(16, 21));
+    const delivered = successorOf(original)(Buffer.alloc(16, 21));
+    const late = await use(original, "2026-09-20T00:20:10Z", Buffer.alloc(16, 22));
+    expect(late).toMatchObject({ rotated: true, rotationSalt: Buffer.alloc(16, 21) });
+    await expect(use(delivered, "2026-09-20T00:20:11Z", Buffer.alloc(16, 23), false)).resolves.not.toBeNull();
+  });
+
+  it("falls back to a fresh rotation, keeping the current handle as the previous one, for a row an older image rotated", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const original = Buffer.alloc(32, 51);
+    const oldImageHandle = Buffer.alloc(32, 52);
+    const use = await rotatingSession(repository, "bbbbbbbb-9999-4999-8999-999999999999", original);
+    // An older image's rotation: random current handle, no salt written.
+    await pool.query(
+      `UPDATE account_sessions
+          SET previous_handle_hash = handle_hash, previous_handle_expires_at = $2, handle_hash = $3, rotated_at = $4
+        WHERE id = $1`,
+      ["bbbbbbbb-9999-4999-8999-999999999999", new Date("2026-09-20T00:20:30Z"), oldImageHandle, new Date("2026-09-20T00:20:00Z")],
+    );
+    const fresh = await use(original, "2026-09-20T00:20:05Z", Buffer.alloc(16, 31));
+    expect(fresh).toMatchObject({ rotated: true, rotationSalt: Buffer.alloc(16, 31) });
+    await expect(use(oldImageHandle, "2026-09-20T00:20:06Z", Buffer.alloc(16, 32), false)).resolves.not.toBeNull();
+    await expect(use(successorOf(original)(Buffer.alloc(16, 31)), "2026-09-20T00:20:06Z", Buffer.alloc(16, 33), false)).resolves.not.toBeNull();
   });
 
   it("resolves a candidate without touching it and revokes every subject session from a trusted session id", async () => {

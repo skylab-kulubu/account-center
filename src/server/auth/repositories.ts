@@ -16,7 +16,14 @@ export interface OidcTransactionRepository {
 
 export type UseSessionInput = {
   handleHash: Buffer;
-  replacementHandleHash: Buffer;
+  /** The random salt of a rotation this request makes (a fresh one per request). */
+  newRotationSalt: Buffer;
+  /**
+   * The SHA-256 of the presented handle's successor under a rotation salt: the successor is derived
+   * from the handle and the salt (SessionManager), so every request carrying the same previous handle
+   * gets the same successor back.
+   */
+  successorHash: (salt: Buffer) => Buffer;
   now: Date;
   idleTtlSeconds: number;
   rotateAfterSeconds: number;
@@ -25,7 +32,8 @@ export type UseSessionInput = {
   authorizeSessionId?: (sessionId: string) => boolean;
 };
 
-export type SessionUseOutcome = SessionUseResult | { proofRejected: true };
+/** `rotationSalt`: the salt the successor was derived under, when the answer hands one out. */
+export type SessionUseOutcome = (SessionUseResult & { rotationSalt?: Buffer }) | { proofRejected: true };
 
 export interface SessionRepository {
   insert(session: NewSessionRecord): Promise<void>;
