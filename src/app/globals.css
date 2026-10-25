@@ -2736,3 +2736,44 @@ a.email-link-action {
   }
 
 }
+
+/* Bildirimlerim (iletişim-servisi 07): skylcn's ListPanel rows, with the unseen count in the sidebar. */
+.account-nav__badge {
+  margin-left: auto;
+}
+
+.inbox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inbox__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inbox__summary {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.inbox__time {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+}
+
+.inbox__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.inbox__retention {
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+}

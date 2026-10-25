@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Badge } from "@skylab-kulubu/skylcn-ui";
 import {
   ChevronLeft,
   LogOut,
@@ -11,6 +12,7 @@ import { Background } from "@/components/background";
 import { SkyLabMark } from "@/components/skylab-mark";
 import { accountRoutes, matchAccountRoute } from "@/config/account-routes";
 import type { AccountRoute } from "@/config/account-routes";
+import { INBOX_SEEN_EVENT } from "@/lib/inbox";
 
 export const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;
 
@@ -26,7 +28,47 @@ function LogoutForm({ csrfToken, compact = false }: { csrfToken: string; compact
   );
 }
 
-function DesktopNavigation({ currentRoute, csrfToken }: { currentRoute: AccountRoute | null; csrfToken: string }) {
+/**
+ * The inbox's unseen count for the navigation badge (`GET /api/account/inbox/counts`), read when
+ * the shell opens and when the window comes back; cleared when the inbox page marks all seen.
+ * Off (null) without SkyMail, and on any failure: a badge is a hint, never an error.
+ */
+function useInboxUnseen(enabled: boolean) {
+  const [unseen, setUnseen] = useState<number | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    const read = () => {
+      void fetch("/api/account/inbox/counts", { cache: "no-store", credentials: "same-origin" })
+        .then(async (response) => (response.ok ? ((await response.json()) as { counts?: { unseen?: unknown } }) : null))
+        .then((body) => {
+          const value = body?.counts?.unseen;
+          if (!cancelled) setUnseen(typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null);
+        })
+        .catch(() => undefined);
+    };
+    const seen = () => setUnseen(0);
+    read();
+    window.addEventListener("focus", read);
+    window.addEventListener(INBOX_SEEN_EVENT, seen);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", read);
+      window.removeEventListener(INBOX_SEEN_EVENT, seen);
+    };
+  }, [enabled]);
+  return unseen;
+}
+
+function DesktopNavigation({
+  currentRoute,
+  csrfToken,
+  inboxUnseen,
+}: {
+  currentRoute: AccountRoute | null;
+  csrfToken: string;
+  inboxUnseen: number | null;
+}) {
   return (
     <aside className="account-sidebar">
       <Link className="brand" href="/" aria-label="SKY LAB Hesap Merkezi ana sayfa">
@@ -51,6 +93,12 @@ function DesktopNavigation({ currentRoute, csrfToken }: { currentRoute: AccountR
             >
               <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
               <span>{navigationLabel}</span>
+              {href === "/notifications" && inboxUnseen ? (
+                <Badge className="account-nav__badge" tone="brand">
+                  {inboxUnseen > 99 ? "99+" : inboxUnseen}
+                  <span className="sr-only"> yeni bildirim</span>
+                </Badge>
+              ) : null}
             </Link>
           );
         })}
@@ -81,15 +129,19 @@ export function AccountShell({
   children,
   logoutCsrfToken,
   embedded = false,
+  inboxEnabled = false,
 }: Readonly<{
   children: React.ReactNode;
   logoutCsrfToken: string;
+  /** SkyMail is configured (`SKYMAIL_API_URL`): the inbox's badge is read. */
+  inboxEnabled?: boolean;
   /** Opened inside SkyApp's WebView, whose own top bar handles back and close. */
   embedded?: boolean;
 }>) {
   const pathname = usePathname();
   const router = useRouter();
   const currentRoute = matchAccountRoute(pathname);
+  const inboxUnseen = useInboxUnseen(inboxEnabled);
 
   useEffect(() => {
     const refresh = () => {
@@ -119,7 +171,7 @@ export function AccountShell({
       <a className="skip-link" href="#main-content">İçeriğe geç</a>
       <Background />
       <div className="account-frame">
-        <DesktopNavigation currentRoute={currentRoute} csrfToken={logoutCsrfToken} />
+        <DesktopNavigation currentRoute={currentRoute} csrfToken={logoutCsrfToken} inboxUnseen={inboxUnseen} />
         {embedded ? null : <MobileHeader currentRoute={currentRoute} csrfToken={logoutCsrfToken} />}
         <main className="account-content" id="main-content" tabIndex={-1}>
           {children}

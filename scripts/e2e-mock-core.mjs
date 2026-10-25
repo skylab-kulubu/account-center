@@ -346,6 +346,82 @@ export function startMockCore({
     }
     return state;
   };
+  /** subject → the person's SkyMail inbox (`/skymail/v1/me/inbox…`, iletişim-servisi 07) and the marks it received. */
+  const inboxes = new Map();
+  const inboxFor = (sub) => {
+    let state = inboxes.get(sub);
+    if (!state) {
+      state = {
+        items: [
+          {
+            id: "5d0c2f9e-0000-4000-8000-000000000001",
+            type: "event.ticket-created",
+            title: "Kodlama Gecesi biletin hazır",
+            summary: "10.11.2026 18:30 · D-Blok",
+            link: "/events/6f1c2d3e",
+            created_at: "2026-10-25T09:00:00Z",
+            seen_at: null,
+            read_at: null,
+            archived_at: null,
+          },
+          {
+            id: "5d0c2f9e-0000-4000-8000-000000000002",
+            type: "core.certificate",
+            title: "Katılım sertifikan hazır",
+            summary: "",
+            link: "https://yildizskylab.com/sertifika/AB12CD",
+            created_at: "2026-10-24T09:00:00Z",
+            seen_at: "2026-10-24T09:05:00Z",
+            read_at: "2026-10-24T09:05:00Z",
+            archived_at: null,
+          },
+        ],
+        marks: [],
+      };
+      inboxes.set(sub, state);
+    }
+    return state;
+  };
+
+  /** SkyMail's person endpoints as `docs/inbox.md` serves them: aud skymail, the person's own items. */
+  function skymailInbox(request, response, url) {
+    const claims = decodeBearer(request.headers.authorization, "skymail");
+    if (!claims) return problem(response, 401, "Unauthorized");
+    const state = inboxFor(claims.sub);
+    const path = url.pathname.slice("/skymail/v1/me/inbox".length);
+    const now = new Date().toISOString();
+    const live = () => state.items.filter((item) => item.archived_at === null);
+    if (path === "" && request.method === "GET") return json(response, 200, { items: live(), next_cursor: null });
+    if (path === "/counts" && request.method === "GET") {
+      return json(response, 200, {
+        unseen: live().filter((item) => item.seen_at === null).length,
+        unread: live().filter((item) => item.read_at === null).length,
+      });
+    }
+    if ((path === "/read-all" || path === "/seen-all") && request.method === "POST") {
+      state.marks.push(path.slice(1));
+      let updated = 0;
+      for (const item of live()) {
+        if (item.seen_at === null || (path === "/read-all" && item.read_at === null)) updated += 1;
+        item.seen_at ??= now;
+        if (path === "/read-all") item.read_at ??= now;
+      }
+      return json(response, 200, { updated });
+    }
+    const one = /^\/([^/]+)\/(seen|read|unread|archive)$/.exec(path);
+    if (one && request.method === "POST") {
+      const item = state.items.find(({ id }) => id === one[1]);
+      if (!item) return problem(response, 404, "Not Found");
+      state.marks.push(`${one[2]}:${item.id}`);
+      if (one[2] === "seen" || one[2] === "read") item.seen_at ??= now;
+      if (one[2] === "read") item.read_at ??= now;
+      if (one[2] === "unread") item.read_at = null;
+      if (one[2] === "archive") item.archived_at ??= now;
+      return json(response, 200, item);
+    }
+    return problem(response, 404, "Not Found");
+  }
+
   const pictureUrl = (id) => `${pictureBase}/skylab.svg?picture=${encodeURIComponent(id)}`;
 
   function userFor(sub) {
@@ -602,6 +678,11 @@ export function startMockCore({
           puts: state.puts,
         });
       }
+      const inboxInspection = /^\/__e2e\/inbox\/([^/]+)$/.exec(url.pathname);
+      if (inboxInspection && request.method === "GET") {
+        return json(response, 200, inboxFor(decodeURIComponent(inboxInspection[1])));
+      }
+      if (url.pathname.startsWith("/skymail/v1/me/inbox")) return skymailInbox(request, response, url);
       const consentInspection = /^\/__e2e\/consents\/([^/]+)$/.exec(url.pathname);
       if (consentInspection && request.method === "PUT") {
         let overrides;

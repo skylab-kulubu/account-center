@@ -9,13 +9,14 @@ import {
 } from "@/config/account-routes";
 
 describe("account route metadata", () => {
-  it("defines the nine live product routes once and in navigation order", () => {
+  it("defines the ten live product routes once and in navigation order", () => {
     expect(accountRoutes.map(({ href }) => href)).toEqual([
       "/",
       "/identity",
       "/email",
       "/club-profile",
       "/communication-preferences",
+      "/notifications",
       "/security",
       "/sessions",
       "/permissions",
@@ -32,6 +33,7 @@ describe("account route metadata", () => {
       | "/email"
       | "/club-profile"
       | "/communication-preferences"
+      | "/notifications"
       | "/security"
       | "/sessions"
       | "/permissions"
@@ -45,6 +47,7 @@ describe("account route metadata", () => {
     expect(matchAccountRoute("/security/result")).toBe(accountRoute("/security"));
     expect(matchAccountRoute("/club-profile")).toBe(accountRoute("/club-profile"));
     expect(matchAccountRoute("/communication-preferences")).toBe(accountRoute("/communication-preferences"));
+    expect(matchAccountRoute("/notifications")).toBe(accountRoute("/notifications"));
     expect(matchAccountRoute("/identity")).toBe(accountRoute("/identity"));
     expect(matchAccountRoute("/identity-card")).toBeNull();
     expect(matchAccountRoute("/email")).toBe(accountRoute("/email"));

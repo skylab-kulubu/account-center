@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ACCEPTED_AUDIENCE_SET,
+  ACCEPTED_AUDIENCE_SETS,
   AccountAccessTokenContractError,
   AccountAccessTokenExpiredError,
   validateAccountAccessToken,
@@ -47,8 +47,13 @@ describe("Account REST access token contract", () => {
     vi.restoreAllMocks();
   });
 
-  it("pins the single accepted audience set", () => {
-    expect(ACCEPTED_AUDIENCE_SET).toEqual(["account", "core"]);
+  it("pins the accepted audience sets: today's, and today's with skymail (iletişim-servisi 04)", () => {
+    expect(ACCEPTED_AUDIENCE_SETS).toEqual([["account", "core"], ["account", "core", "skymail"]]);
+  });
+
+  it("accepts the token with the skymail audience the Keycloak release adds", () => {
+    expect(validateAccountAccessToken(jwt(claims({ aud: ["skymail", "account", "core"] })), expected, now))
+      .toMatchObject({ expiresAt: new Date("2026-09-20T12:05:00.000Z") });
   });
 
   it("accepts a current user token with exactly the account and core audiences", () => {
@@ -73,6 +78,9 @@ describe("Account REST access token contract", () => {
     ["a duplicated legacy audience", { aud: ["account", "account"] }],
     ["a duplicated audience", { aud: ["account", "account", "core"] }],
     ["an extra audience", { aud: ["account", "core", "skyforms"] }],
+    ["skymail and another extra audience", { aud: ["account", "core", "skymail", "skyforms"] }],
+    ["skymail without core", { aud: ["account", "skymail"] }],
+    ["a duplicated skymail audience", { aud: ["account", "core", "skymail", "skymail"] }],
     ["only the core audience", { aud: ["core"] }],
     ["only the core audience as a bare string", { aud: "core" }],
     ["an empty audience", { aud: [] }],
