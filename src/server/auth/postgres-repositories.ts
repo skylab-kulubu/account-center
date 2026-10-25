@@ -32,6 +32,8 @@ type SessionRow = {
   idle_expires_at: Date;
   absolute_expires_at: Date;
   revoked_at: Date | null;
+  /** When the current handle was first used; null while no request has carried it (0010). */
+  handle_used_at?: Date | null;
 };
 
 function activeSession(row: SessionRow, lastSeenAt = row.last_seen_at, idleExpiresAt = row.idle_expires_at): ActiveSession {
@@ -136,7 +138,7 @@ export class PostgresSessionRepository implements SessionRepository {
       const selected = await client.query<SessionRow>(
         `SELECT id, subject, keycloak_sid, handle_hash, previous_handle_hash,
                 previous_handle_expires_at, created_at, rotated_at, last_seen_at,
-                idle_expires_at, absolute_expires_at, revoked_at
+                idle_expires_at, absolute_expires_at, revoked_at, handle_used_at
            FROM account_sessions
           WHERE handle_hash = $1 OR previous_handle_hash = $1
           FOR UPDATE`,
@@ -180,12 +182,19 @@ export class PostgresSessionRepository implements SessionRepository {
         ),
       );
 
+      // Re-rotating from the previous handle while the current one was never used (handle_used_at is
+      // null: its Set-Cookie response was lost, so no browser holds it) keeps the previous handle as it is, with its own
+      // expiry: the browser still sends it, and two requests that carry it at once (a page's refresh
+      // and a mutation on mount) both recover instead of the second one failing. A current handle that
+      // has been used since its rotation stays the previous one, as before.
+      const keepPrevious = matchedPrevious && row.handle_used_at === null;
       if (rotationDue) {
         await client.query(
           `UPDATE account_sessions
-              SET previous_handle_hash = handle_hash,
-                  previous_handle_expires_at = $3,
+              SET previous_handle_hash = CASE WHEN $6::boolean THEN previous_handle_hash ELSE handle_hash END,
+                  previous_handle_expires_at = CASE WHEN $6::boolean THEN previous_handle_expires_at ELSE $3 END,
                   handle_hash = $2,
+                  handle_used_at = NULL,
                   rotated_at = $4,
                   last_seen_at = $4,
                   idle_expires_at = $5
@@ -196,15 +205,17 @@ export class PostgresSessionRepository implements SessionRepository {
             new Date(input.now.getTime() + input.previousHandleGraceSeconds * 1_000),
             input.now,
             idleExpiresAt,
+            keepPrevious,
           ],
         );
       } else {
         await client.query(
           `UPDATE account_sessions
               SET last_seen_at = $2,
-                  idle_expires_at = $3
+                  idle_expires_at = $3,
+                  handle_used_at = CASE WHEN $4::boolean THEN COALESCE(handle_used_at, $2) ELSE handle_used_at END
             WHERE id = $1`,
-          [row.id, input.now, idleExpiresAt],
+          [row.id, input.now, idleExpiresAt, matchedCurrent],
         );
       }
 

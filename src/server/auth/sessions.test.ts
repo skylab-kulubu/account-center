@@ -13,6 +13,8 @@ class MemorySessions implements SessionRepository {
     previousHandleHash?: Buffer;
     previousHandleExpiresAt?: Date;
     revokedAt?: Date;
+    /** Mirrors account_sessions.handle_used_at (0010): the current handle has carried a request. */
+    handleUsed?: boolean;
   };
 
   async insert(value: NewSessionRecord) {
@@ -51,11 +53,18 @@ class MemorySessions implements SessionRepository {
         (current &&
           row.rotatedAt.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000)),
     );
-    if (rotated) {
+    // Mirrors PostgresSessionRepository: a never-used current handle does not displace the previous one.
+    const keepPrevious = Boolean(previous) && !row.handleUsed;
+    if (rotated && !keepPrevious) {
       row.previousHandleHash = row.handleHash;
       row.previousHandleExpiresAt = new Date(input.now.getTime() + input.previousHandleGraceSeconds * 1_000);
+    }
+    if (rotated) {
       row.handleHash = input.replacementHandleHash;
       row.rotatedAt = input.now;
+      row.handleUsed = false;
+    } else if (current) {
+      row.handleUsed = true;
     }
     row.lastSeenAt = input.now;
     row.idleExpiresAt = new Date(
@@ -315,8 +324,35 @@ describe("SessionManager", () => {
 
     const recovered = await manager.authenticate(created.handle, { allowRotation: true });
     expect(recovered?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    await expect(manager.authenticate(lostResponse?.rotatedHandle)).resolves.not.toBeNull();
-    await expect(manager.authenticate(recovered?.rotatedHandle)).resolves.not.toBeNull();
+    // The lost handle was never used: it no longer opens anything, and the original stays the previous
+    // handle, so a second request still carrying it (sent beside the first) recovers too.
+    await expect(manager.authenticate(lostResponse?.rotatedHandle)).resolves.toBeNull();
+    await expect(manager.authenticate(created.handle)).resolves.not.toBeNull();
+    const alongside = await manager.authenticate(created.handle, { allowRotation: true });
+    expect(alongside?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    await expect(manager.authenticate(recovered?.rotatedHandle)).resolves.toBeNull();
+    await expect(manager.authenticate(alongside?.rotatedHandle)).resolves.not.toBeNull();
+  });
+
+  it("keeps a used replacement valid when an older request re-rotates", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 9)),
+      Buffer.alloc(32, 8),
+      { absoluteTtlSeconds: 3_600, upstreamSessionMaxSeconds: 3_600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+      () => now,
+    );
+    const created = await manager.create({ subject: "rotation-delivered", authenticatedAt, tokens });
+    now = new Date("2026-09-20T00:01:01Z");
+    const delivered = await manager.authenticate(created.handle, { allowRotation: true });
+    now = new Date("2026-09-20T00:01:02Z");
+    await expect(manager.authenticate(delivered?.rotatedHandle)).resolves.not.toBeNull();
+    now = new Date("2026-09-20T00:01:03Z");
+    const late = await manager.authenticate(created.handle, { allowRotation: true });
+    expect(late?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    await expect(manager.authenticate(delivered?.rotatedHandle)).resolves.not.toBeNull();
   });
 
   it("binds CSRF values to one active session", async () => {

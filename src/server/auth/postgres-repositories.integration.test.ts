@@ -30,6 +30,7 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       "0006_account_sudo.sql",
       "0007_account_deletion_confirmations.sql",
       "0009_account_notice_dismissals.sql",
+      "0010_account_session_handle_used.sql",
     ]) {
       const migration = await readFile(resolve(process.cwd(), "migrations", migrationName), "utf8");
       await pool.query(migration);
@@ -115,9 +116,20 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     });
     expect(recovery).toMatchObject({ rotated: true });
 
+    // The first replacement was never used (its response was lost): the original stays the previous
+    // handle, so another request still carrying it recovers too; the lost one no longer opens anything.
     await expect(repository.useHandle({
       handleHash: firstReplacement,
       replacementHandleHash: Buffer.alloc(32, 24),
+      now: new Date("2026-09-20T00:20:02Z"),
+      idleTtlSeconds: 1_800,
+      rotateAfterSeconds: 900,
+      previousHandleGraceSeconds: 30,
+      allowRotation: false,
+    })).resolves.toBeNull();
+    await expect(repository.useHandle({
+      handleHash: original,
+      replacementHandleHash: Buffer.alloc(32, 26),
       now: new Date("2026-09-20T00:20:02Z"),
       idleTtlSeconds: 1_800,
       rotateAfterSeconds: 900,
@@ -133,6 +145,67 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
       previousHandleGraceSeconds: 30,
       allowRotation: false,
     })).resolves.not.toBeNull();
+  });
+
+  it("lets two requests that carry the same previous handle at once both recover", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const original = Buffer.alloc(32, 31);
+    const lost = Buffer.alloc(32, 32);
+    await repository.insert({
+      id: "99999999-9999-4999-8999-999999999999",
+      subject: "rotation-race",
+      keycloakSid: "rotation-race-sid",
+      handleHash: original,
+      tokenCiphertext: "encrypted",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      rotatedAt: new Date("2026-09-20T00:00:00Z"),
+      lastSeenAt: new Date("2026-09-20T00:00:00Z"),
+      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
+    });
+    const use = (handleHash: Buffer, replacementHandleHash: Buffer, now: string, allowRotation = true) => repository.useHandle({
+      handleHash, replacementHandleHash, now: new Date(now), idleTtlSeconds: 1_800, rotateAfterSeconds: 900,
+      previousHandleGraceSeconds: 30, allowRotation,
+    });
+    // A refresh rotates, and its response is lost (the browser navigated away): it keeps the original.
+    await expect(use(original, lost, "2026-09-20T00:20:00Z")).resolves.toMatchObject({ rotated: true });
+    // The next page sends the original twice at once (its shell's refresh and a mutation on mount).
+    const [a, b] = await Promise.all([
+      use(original, Buffer.alloc(32, 33), "2026-09-20T00:20:05Z"),
+      use(original, Buffer.alloc(32, 34), "2026-09-20T00:20:05Z"),
+    ]);
+    expect(a).toMatchObject({ rotated: true });
+    expect(b).toMatchObject({ rotated: true });
+    // The last replacement is the session's handle; the previous one keeps its first expiry.
+    await expect(use(original, Buffer.alloc(32, 35), "2026-09-20T00:20:31Z", false)).resolves.toBeNull();
+  });
+
+  it("keeps a used current handle as the previous one when an older handle re-rotates", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const original = Buffer.alloc(32, 41);
+    const delivered = Buffer.alloc(32, 42);
+    await repository.insert({
+      id: "aaaaaaaa-9999-4999-8999-999999999999",
+      subject: "rotation-delivered",
+      keycloakSid: "rotation-delivered-sid",
+      handleHash: original,
+      tokenCiphertext: "encrypted",
+      createdAt: new Date("2026-09-20T00:00:00Z"),
+      rotatedAt: new Date("2026-09-20T00:00:00Z"),
+      lastSeenAt: new Date("2026-09-20T00:00:00Z"),
+      idleExpiresAt: new Date("2026-09-20T00:30:00Z"),
+      absoluteExpiresAt: new Date("2026-09-20T08:00:00Z"),
+    });
+    const use = (handleHash: Buffer, replacementHandleHash: Buffer, now: string, allowRotation = true) => repository.useHandle({
+      handleHash, replacementHandleHash, now: new Date(now), idleTtlSeconds: 1_800, rotateAfterSeconds: 900,
+      previousHandleGraceSeconds: 30, allowRotation,
+    });
+    await expect(use(original, delivered, "2026-09-20T00:20:00Z")).resolves.toMatchObject({ rotated: true });
+    // The new handle reached the browser and is in use; a late request with the original re-rotates.
+    await expect(use(delivered, Buffer.alloc(32, 43), "2026-09-20T00:20:01Z", false)).resolves.not.toBeNull();
+    await expect(use(original, Buffer.alloc(32, 44), "2026-09-20T00:20:02Z")).resolves.toMatchObject({ rotated: true });
+    // The delivered handle stays valid as the previous one (as before this change).
+    await expect(use(delivered, Buffer.alloc(32, 45), "2026-09-20T00:20:03Z", false)).resolves.not.toBeNull();
   });
 
   it("resolves a candidate without touching it and revokes every subject session from a trusted session id", async () => {
