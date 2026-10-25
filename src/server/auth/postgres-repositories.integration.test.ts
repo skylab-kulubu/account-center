@@ -134,6 +134,16 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     // Whichever took the row first, both answers carry its salt: one successor, one cookie.
     expect(a.rotationSalt).toEqual(b.rotationSalt);
     await expect(use(successorOf(original)(a.rotationSalt!), "2026-09-20T00:20:01Z", Buffer.alloc(16, 13), false)).resolves.not.toBeNull();
+    // The losing salt was never written: its successor opens nothing.
+    const losingSalt = a.rotationSalt!.equals(Buffer.alloc(16, 11)) ? Buffer.alloc(16, 12) : Buffer.alloc(16, 11);
+    await expect(use(successorOf(original)(losingSalt), "2026-09-20T00:20:01Z", Buffer.alloc(16, 14), false)).resolves.toBeNull();
+    // Exactly one rotation: the previous slot still holds the original, not a first successor.
+    const row = await pool.query<{ previous_handle_hash: Buffer; rotation_salt: Buffer }>(
+      "SELECT previous_handle_hash, rotation_salt FROM account_sessions WHERE id = $1",
+      ["99999999-9999-4999-8999-999999999999"],
+    );
+    expect(row.rows[0]?.previous_handle_hash).toEqual(original);
+    expect(row.rows[0]?.rotation_salt).toEqual(a.rotationSalt);
   });
 
   it("keeps a delivered successor that has not carried a request yet when a late old request comes", async () => {
@@ -163,6 +173,35 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     expect(fresh).toMatchObject({ rotated: true, rotationSalt: Buffer.alloc(16, 31) });
     await expect(use(oldImageHandle, "2026-09-20T00:20:06Z", Buffer.alloc(16, 32), false)).resolves.not.toBeNull();
     await expect(use(successorOf(original)(Buffer.alloc(16, 31)), "2026-09-20T00:20:06Z", Buffer.alloc(16, 33), false)).resolves.not.toBeNull();
+  });
+
+  it("falls back to a fresh rotation for a stale salt (new image rotated, an older image rotated again, the new image is back)", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const id = "cccccccc-9999-4999-8999-999999999999";
+    const original = Buffer.alloc(32, 56);
+    const oldImageHandle = Buffer.alloc(32, 57);
+    const use = await rotatingSession(repository, id, original);
+    await use(original, "2026-09-20T00:20:00Z", Buffer.alloc(16, 41));
+    const derived = successorOf(original)(Buffer.alloc(16, 41));
+    // The older image rotates the derived handle away and leaves the salt as it was.
+    await pool.query(
+      `UPDATE account_sessions
+          SET previous_handle_hash = handle_hash, previous_handle_expires_at = $2, handle_hash = $3, rotated_at = $4
+        WHERE id = $1`,
+      [id, new Date("2026-09-20T00:35:30Z"), oldImageHandle, new Date("2026-09-20T00:35:00Z")],
+    );
+    const fresh = await use(derived, "2026-09-20T00:35:05Z", Buffer.alloc(16, 42));
+    expect(fresh).toMatchObject({ rotated: true, rotationSalt: Buffer.alloc(16, 42) });
+    // The stale salt's successor of the presented handle was never stored.
+    await expect(use(successorOf(derived)(Buffer.alloc(16, 41)), "2026-09-20T00:35:06Z", Buffer.alloc(16, 43), false)).resolves.toBeNull();
+    await expect(use(oldImageHandle, "2026-09-20T00:35:06Z", Buffer.alloc(16, 44), false)).resolves.not.toBeNull();
+    await expect(use(successorOf(derived)(Buffer.alloc(16, 42)), "2026-09-20T00:35:06Z", Buffer.alloc(16, 45), false)).resolves.not.toBeNull();
+    const row = await pool.query<{ previous_handle_hash: Buffer; rotation_salt: Buffer }>(
+      "SELECT previous_handle_hash, rotation_salt FROM account_sessions WHERE id = $1",
+      [id],
+    );
+    expect(row.rows[0]?.previous_handle_hash).toEqual(oldImageHandle);
+    expect(row.rows[0]?.rotation_salt).toEqual(Buffer.alloc(16, 42));
   });
 
   it("resolves a candidate without touching it and revokes every subject session from a trusted session id", async () => {

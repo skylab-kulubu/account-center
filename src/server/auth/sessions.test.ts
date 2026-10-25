@@ -401,21 +401,33 @@ describe("SessionManager", () => {
     await expect(manager.authenticate(fresh?.rotatedHandle)).resolves.not.toBeNull();
   });
 
-  it("derives a successor no one can compute without the session secret", async () => {
-    const now = new Date("2026-09-20T00:01:01Z");
+  it("derives the successor from the session secret: the same salt gives the same successor only under the same secret", async () => {
     const created = new Date("2026-09-20T00:00:00Z");
-    let clockA = created;
-    let clockB = created;
-    const a = rotatingManager(() => clockA, Buffer.alloc(32, 8));
-    const b = rotatingManager(() => clockB, Buffer.alloc(32, 7));
-    const sessionA = await a.manager.create({ subject: "secret-a", authenticatedAt, tokens });
-    b.repository.record = { ...a.repository.record! };
-    clockA = now;
-    clockB = now;
-    const fromA = await a.manager.authenticate(sessionA.handle, { allowRotation: true });
-    const fromB = await b.manager.authenticate(sessionA.handle, { allowRotation: true });
+    let now = created;
+    const a = rotatingManager(() => now, Buffer.alloc(32, 8));
+    const sameSecret = rotatingManager(() => now, Buffer.alloc(32, 8));
+    const otherSecret = rotatingManager(() => now, Buffer.alloc(32, 7));
+    const session = await a.manager.create({ subject: "secret-a", authenticatedAt, tokens });
+    now = new Date("2026-09-20T00:01:01Z");
+    const fromA = await a.manager.authenticate(session.handle, { allowRotation: true });
     expect(fromA?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(fromB?.rotatedHandle).not.toBe(fromA?.rotatedHandle);
+    // Copy the rotated row, salt included, so only the secret differs between the managers.
+    const rotatedRow = a.repository.record!;
+    expect(rotatedRow.rotationSalt).toBeDefined();
+    sameSecret.repository.record = { ...rotatedRow };
+    otherSecret.repository.record = { ...rotatedRow };
+
+    const fromSame = await sameSecret.manager.authenticate(session.handle, { allowRotation: true });
+    expect(fromSame?.rotatedHandle).toBe(fromA?.rotatedHandle);
+
+    // A rotated SESSION_SECRET cannot reproduce the successor: it falls back to a fresh rotation once,
+    // keeping A's current handle as the previous one, so nobody is signed out.
+    const fromOther = await otherSecret.manager.authenticate(session.handle, { allowRotation: true });
+    expect(fromOther?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(fromOther?.rotatedHandle).not.toBe(fromA?.rotatedHandle);
+    expect(otherSecret.repository.record!.previousHandleHash).toEqual(rotatedRow.handleHash);
+    await expect(otherSecret.manager.authenticate(fromA?.rotatedHandle)).resolves.not.toBeNull();
+    await expect(otherSecret.manager.authenticate(fromOther?.rotatedHandle)).resolves.not.toBeNull();
   });
 
   it("binds CSRF values to one active session", async () => {

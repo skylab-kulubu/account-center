@@ -94,7 +94,7 @@ Güvenli örnek değerler [`.env.example`](.env.example) dosyasındadır; gerçe
 | --- | --- | --- |
 | `APP_URL` | evet | Canonical, credential'sız HTTPS origin (`https://my.yildizskylab.com`). |
 | `DATABASE_URL` | evet | Kimlik bilgili PostgreSQL URL'si. |
-| `SESSION_SECRET` | evet | base64/base64url, en az 32 bayt; CSRF, referans ve hız sınırı HMAC anahtarı. |
+| `SESSION_SECRET` | evet | base64/base64url, en az 32 bayt; CSRF, referans, hız sınırı ve oturum ardılı türetme HMAC anahtarı. Değiştirilince oturumlar düşmez; eski anahtarla döndürülmüş bir oturumda önceki tutamakla gelen ilk yeniden döndürme aynı ardılı veremez ve bir kez yeni ardıl üretir, sonraki döndürmeden itibaren aynı-ardıl davranışı geri gelir. |
 | `TOKEN_ENCRYPTION_KEY` | evet | base64/base64url, tam 32 bayt; token, Sudo ve transaction şifreleme anahtarı (AES-256-GCM). |
 | `OIDC_ISSUER` | evet | Canonical `https://<host>/realms/<realm>`; erişim engeli `enforce` iken tam olarak `https://e.yildizskylab.com/realms/e-skylab`. |
 | `OIDC_CLIENT_ID` | evet | Tam olarak `account-center`. |
