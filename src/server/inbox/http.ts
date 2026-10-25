@@ -126,20 +126,17 @@ export async function readInbox(request: NextRequest) {
 }
 
 /**
- * `GET /api/account/inbox/counts`: `{ counts: { unseen, unread } }`, the shell's badge; `{ counts: null }`
- * (200) when the session's token does not name SkyMail yet: a badge is a hint, not an error.
+ * `GET /api/account/inbox/counts`: `{ counts: { unseen, unread } }`, the shell's badge. A badge is a
+ * hint, never an error: any failure past the session check (SkyMail down, a token that does not name
+ * SkyMail, a token the account service cannot hand out) answers `{ counts: null }` (200), ends no
+ * session and logs nothing; the page itself reports what is wrong. The shell asks on every page, so
+ * a refusal here must not sign the person out (the session refresh decides that).
  */
 export async function readInboxCounts(request: NextRequest) {
-  return answer(
-    request,
-    await authenticateRead(request),
-    (inbox, session) =>
-      inbox.counts(session).catch((error: unknown) => {
-        if (error instanceof SkyMailInboxError && error.failure === "not_enabled") return null;
-        throw error;
-      }),
-    (counts) => ({ counts }),
-  );
+  const access = await authenticateRead(request);
+  if (!access.ok) return access.response;
+  const counts = await access.inbox.counts(access.sessionUse.session).catch(() => null);
+  return noStore(NextResponse.json({ counts }));
 }
 
 /** `POST /api/account/inbox/items/{id}/{read|unread|archive}`: `{ item }`. */

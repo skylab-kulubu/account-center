@@ -172,10 +172,22 @@ describe("inbox BFF routes", () => {
     expect(mocks.revokeLocalSession).toHaveBeenCalledWith(activeSession.id);
   });
 
+  it("answers the badge null on any failure, ending no session", async () => {
+    for (const error of [new SkyMailInboxError("unavailable"), new SkyMailInboxError("contract"), new AccountReauthenticationRequiredError()]) {
+      mocks.counts.mockRejectedValueOnce(error);
+      const response = await COUNTS(get("/api/account/inbox/counts"));
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ counts: null });
+    }
+    mocks.accessToken.mockRejectedValueOnce(new AccountReauthenticationRequiredError());
+    expect((await COUNTS(get("/api/account/inbox/counts"))).status).toBe(200);
+    expect(mocks.revokeLocalSession).not.toHaveBeenCalled();
+  });
+
   it("maps SkyMail's failures to problems without its body", async () => {
     for (const [failure, status] of [["unavailable", 503], ["contract", 502], ["not_found", 404], ["forbidden", 403]] as const) {
-      mocks.counts.mockRejectedValueOnce(new SkyMailInboxError(failure));
-      const response = await COUNTS(get("/api/account/inbox/counts"));
+      mocks.list.mockRejectedValueOnce(new SkyMailInboxError(failure));
+      const response = await LIST(get("/api/account/inbox"));
       expect(response.status, failure).toBe(status);
       expect(response.headers.get("content-type")).toBe("application/problem+json");
     }

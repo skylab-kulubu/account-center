@@ -65,7 +65,7 @@ test("Bildirimlerim lists the inbox, clears the badge, marks read and archives t
     // sky-app's path has no web page; the certificate's address opens.
     await expect(page.getByRole("link", { name: /Kodlama Gecesi/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Katılım sertifikan hazır/ })).toHaveAttribute("href", "https://yildizskylab.com/sertifika/AB12CD");
-    await expect(page.getByText("Bildirimler 90 gün tutulur.")).toBeVisible();
+    await expect(page.getByText("Bildirimler 90 gün tutulur.", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Kodlama Gecesi biletin hazır: okundu yap" }).click();
     await expect(page.getByRole("button", { name: "Kodlama Gecesi biletin hazır: okunmadı yap" })).toBeVisible();
