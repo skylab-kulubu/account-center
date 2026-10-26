@@ -130,10 +130,13 @@ afterEach(() => {
 
 describe("parseEmailPayload", () => {
   it("accepts the BFF payload and refuses anything outside it", () => {
-    expect(parseEmailPayload(payload(withPersonal))).toEqual({ ...payload(withPersonal), primaryEmailNudge: null });
-    expect(parseEmailPayload(payload({ primaryEmailNudge: "add-personal" }))).toEqual(payload({ primaryEmailNudge: "add-personal" }));
+    expect(parseEmailPayload(payload(withPersonal))).toEqual({ ...payload(withPersonal), primaryEmailNudge: null, undeliverable: [] });
+    expect(parseEmailPayload(payload({ primaryEmailNudge: "add-personal" }))).toEqual(payload({ primaryEmailNudge: "add-personal", undeliverable: [] }));
     // A nudge this page does not know (a newer BFF) is no nudge, never a broken page.
-    expect(parseEmailPayload(payload({ primaryEmailNudge: "something-new" }))).toEqual({ ...payload(), primaryEmailNudge: null });
+    expect(parseEmailPayload(payload({ primaryEmailNudge: "something-new" }))).toEqual({ ...payload(), primaryEmailNudge: null, undeliverable: [] });
+    // Delivery kinds it does not know (a newer BFF) are dropped; a malformed member is no warning.
+    expect(parseEmailPayload(payload({ undeliverable: ["personal", "work"] }))?.undeliverable).toEqual(["personal"]);
+    expect(parseEmailPayload(payload({ undeliverable: "personal" }))?.undeliverable).toEqual([]);
     expect(parseEmailPayload(payload({ primary: "work" }))).toBeNull();
     expect(parseEmailPayload(payload({ personalEmail: 42 }))).toBeNull();
     expect(parseEmailPayload(payload({ verifiedYtu: "yes" }))).toBeNull();
@@ -956,6 +959,70 @@ describe("EmailManager", () => {
       await waitFor(() => expect(screen.getByRole("button", { name: "ada@example.com — Değiştir" })).toBeEnabled());
       expect(screen.queryByRole("form")).not.toBeInTheDocument();
       expect(within(group).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
+    });
+  });
+
+  describe("SkyMail delivery warning", () => {
+    const warning = "Bu adrese posta ulaşmıyor.";
+
+    function rowOf(address: string) {
+      return screen.getByText(address, { selector: "strong" }).closest<HTMLElement>(".settings-row")!;
+    }
+
+    it("shows no warning when nothing is undeliverable", async () => {
+      mockApi({ email: [{ body: payload({ ...withPersonal, undeliverable: [] }) }] });
+      render(<EmailManager />);
+      await screen.findByRole("heading", { level: 2, name: "Okul e-postası" });
+      expect(screen.queryByText(warning)).not.toBeInTheDocument();
+      expect(screen.queryByRole("group", { name: "ada@std.yildiz.edu.tr" })).not.toBeInTheDocument();
+    });
+
+    it("puts the line only on the primary address's row, tied to it by aria-describedby", async () => {
+      mockApi({ email: [{ body: payload({ ...withPersonal, undeliverable: ["primary"] }) }] });
+      render(<EmailManager />);
+      const school = await screen.findByRole("group", { name: "ada@std.yildiz.edu.tr" });
+      expect(school).toHaveAccessibleDescription(warning);
+      expect(within(school).getByText(warning)).toBeInTheDocument();
+      expect(within(rowOf("ada@example.com")).queryByText(warning)).not.toBeInTheDocument();
+      expect(screen.getAllByText(warning)).toHaveLength(1);
+    });
+
+    it("follows the primary to the personal row when the personal address is primary", async () => {
+      mockApi({ email: [{ body: payload({ ...withPersonal, email: "ada@example.com", primary: "personal", undeliverable: ["primary"] }) }] });
+      render(<EmailManager />);
+      const personal = await screen.findByRole("group", { name: "ada@example.com" });
+      expect(personal).toHaveAccessibleDescription(warning);
+      expect(within(rowOf("ada@std.yildiz.edu.tr")).queryByText(warning)).not.toBeInTheDocument();
+    });
+
+    it("warns on the school and the personal row separately", async () => {
+      mockApi({ email: [{ body: payload({ ...withPersonal, undeliverable: ["school"] }) }] });
+      render(<EmailManager />);
+      expect(await screen.findByRole("group", { name: "ada@std.yildiz.edu.tr" })).toHaveAccessibleDescription(warning);
+      expect(within(rowOf("ada@example.com")).queryByText(warning)).not.toBeInTheDocument();
+      cleanup();
+      vi.restoreAllMocks();
+
+      mockApi({ email: [{ body: payload({ ...withPersonal, undeliverable: ["personal"] }) }] });
+      render(<EmailManager />);
+      expect(await screen.findByRole("group", { name: "ada@example.com" })).toHaveAccessibleDescription(warning);
+      expect(within(rowOf("ada@std.yildiz.edu.tr")).queryByText(warning)).not.toBeInTheDocument();
+      // The person cannot lift it here: the row offers only its usual actions.
+      expect(within(rowOf("ada@example.com")).getAllByRole("button").map((button) => button.textContent)).toEqual(["Değiştir", "Kaldır"]);
+    });
+
+    it("warns on a legacy primary's row", async () => {
+      mockApi({ email: [{ body: payload({ email: "ada@hotmail.com", primary: "none", undeliverable: ["primary"] }) }] });
+      render(<EmailManager />);
+      expect(await screen.findByRole("group", { name: "ada@hotmail.com" })).toHaveAccessibleDescription(warning);
+      expect(within(rowOf("ada@std.yildiz.edu.tr")).queryByText(warning)).not.toBeInTheDocument();
+    });
+
+    it("works as before when the answer carries no delivery state (an older BFF or SkyMail unreachable)", async () => {
+      mockApi({ email: [{ body: payload(withPersonal) }] });
+      render(<EmailManager />);
+      expect(await screen.findByRole("heading", { level: 2, name: "Kişisel e-posta" })).toBeInTheDocument();
+      expect(screen.queryByText(warning)).not.toBeInTheDocument();
     });
   });
 });

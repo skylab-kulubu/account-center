@@ -86,9 +86,9 @@ Yazma uçları sırayla exact `Origin`, CSRF, erişim kapısı ve oturum doğrul
 
 | Sayfa | Veri | Uçlar (`/api/account/…`) | Ayrıntı |
 | --- | --- | --- | --- |
-| `/` Özet | Account REST profil + kimlik bilgisi özeti (sunucuda okunur) | `email/nudge` | — |
+| `/` Özet | Account REST profil + kimlik bilgisi özeti (sunucuda okunur) | `email/nudge`, `email/delivery` | — |
 | `/identity` Kimlik | sky-account `GET identity` | `identity`, `identity/name`, `identity/username`, `identity/ytu-link` | [account-actions.md](account-actions.md) |
-| `/email` E-posta ve giriş | sky-account `email/*` | `email`, `email/pending`, `email/change-request`, `email/confirm`, `email/primary`, `email/personal`, `email/nudge/dismiss` | [account-actions.md](account-actions.md) |
+| `/email` E-posta ve giriş | sky-account `email/*`; SkyMail `GET /v1/me/email-delivery` (teslim uyarısı) | `email`, `email/pending`, `email/change-request`, `email/confirm`, `email/primary`, `email/personal`, `email/nudge/dismiss` | [account-actions.md](account-actions.md) |
 | `/club-profile` Kulüp profili | core `/v1/users/me`, `/v1/skypass/wallet` | `club-profile`, `club-profile/picture`, `club-profile/student-card`, `skypass/wallet/google` | [aşağıda](#kulüp-profili) |
 | `/communication-preferences` İletişim tercihleri | core `/v1/users/me/communication-preferences`, `/v1/users/me` (birincil adres), `/v1/users/me/consents` | `communication-preferences`, `promotional-consent` | [aşağıda](#i̇letişim-tercihleri) |
 | `/security` Giriş ve güvenlik | sky-account `GET identity` + kimlik bilgisi uçları | `security`, `security/password`, `security/totp/*`, `security/passkeys/*`, `security/credentials/{reference}` | [account-actions.md](account-actions.md) |

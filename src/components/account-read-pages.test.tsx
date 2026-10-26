@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import OverviewPage from "@/app/(account)/page";
 import PermissionsPage from "@/app/(account)/permissions/page";
@@ -96,7 +96,7 @@ describe("Account REST-backed pages", () => {
   });
 
   it("shows the K4c nudge the e-mail answer names, linking into the e-mail page", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({
       primaryEmailNudge: "add-personal",
       personalEmail: null,
       csrfToken: "session-bound-csrf",
@@ -106,6 +106,30 @@ describe("Account REST-backed pages", () => {
     expect(screen.getByRole("link", { name: "Kişisel adres ekle" })).toHaveAttribute("href", "/email?intent=add-personal");
     expect(fetchSpy).toHaveBeenCalledWith("/api/account/email/nudge", { cache: "no-store", credentials: "same-origin" });
     expect(nudge.compareDocumentPosition(screen.getByRole("heading", { name: "Hesap ayarları" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows one line linking to the e-mail page when SkyMail no longer mails an address", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => new Response(JSON.stringify(
+      String(input) === "/api/account/email/delivery" ? { undeliverable: ["personal"] } : { primaryEmailNudge: null },
+    ), { status: 200, headers: { "content-type": "application/json" } }));
+    render(await OverviewPage());
+    const link = await screen.findByRole("link", { name: "Bir e-posta adresine posta ulaşmıyor." });
+    expect(link).toHaveAttribute("href", "/email");
+    expect(link.closest("p")).toHaveTextContent(/^Bir e-posta adresine posta ulaşmıyor\.$/);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(fetchSpy).toHaveBeenCalledWith("/api/account/email/delivery", { cache: "no-store", credentials: "same-origin" });
+  });
+
+  it.each([
+    ["nothing is undeliverable", () => new Response(JSON.stringify({ undeliverable: [] }), { status: 200, headers: { "content-type": "application/json" } })],
+    ["the answer is not the contract", () => new Response(JSON.stringify({ undeliverable: "personal" }), { status: 200, headers: { "content-type": "application/json" } })],
+    ["the read fails", () => new Response(JSON.stringify({ error: "unavailable" }), { status: 503 })],
+  ])("shows no delivery line when %s", async (_label, answer) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => answer());
+    render(await OverviewPage());
+    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith("/api/account/email/delivery", expect.anything()));
+    expect(screen.queryByText("Bir e-posta adresine posta ulaşmıyor.")).not.toBeInTheDocument();
   });
 
   it("links the overview to the identity page, the Permissions view, the club profile and the in-product security page", async () => {
