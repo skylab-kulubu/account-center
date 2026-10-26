@@ -157,4 +157,24 @@ describe("authentication configuration", () => {
       expect(() => getAuthConfig()).toThrow(/CORE_API_URL/);
     }
   });
+
+  it("keeps SkyMail's inbox URL optional, HTTPS and canonical, with its path", () => {
+    environment("3600");
+    expect(getAuthConfig().skymailApiUrl).toBeNull();
+    process.env.SKYMAIL_API_URL = "https://api.yildizskylab.com/api/skymail";
+    expect(getAuthConfig().skymailApiUrl?.href).toBe("https://api.yildizskylab.com/api/skymail");
+    process.env.SKYMAIL_API_URL = "https://skymail.internal.example";
+    expect(getAuthConfig().skymailApiUrl?.origin).toBe("https://skymail.internal.example");
+    for (const invalid of [
+      "http://api.yildizskylab.com/api/skymail",
+      "https://api.yildizskylab.com/api/skymail/",
+      "https://user:secret@api.yildizskylab.com/api/skymail",
+      "https://api.yildizskylab.com/api/skymail?x=1",
+      "https://api.yildizskylab.com/api/skymail#x",
+      "https://API.yildizskylab.com/api/skymail",
+    ]) {
+      process.env.SKYMAIL_API_URL = invalid;
+      expect(() => getAuthConfig(), invalid).toThrow(/SKYMAIL_API_URL/);
+    }
+  });
 });

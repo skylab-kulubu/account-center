@@ -7,14 +7,20 @@ import { brandCrossBundleError } from "@/server/cross-bundle-error";
 const requiredAccountRoles = ["manage-account", "view-profile"] as const;
 
 /**
- * Exact audience set of an Account Center user token: the
+ * Exact audience sets of an Account Center user token: the
  * `account-center-account-api` scope (K2 realm reconcile) adds the `core`
  * audience (for the person's own core `/v1/users/me` endpoints) without any
- * core roles. Matched with set semantics (order-free; a duplicate, missing or
- * extra audience rejects the token). The pre-K2 `account`-only token is
- * rejected on purpose: the cutover that accepted it (A0b) is over.
+ * core roles, and, once e-skylab-keycloak's iletişim-servisi 04 is released,
+ * `skymail` too (the person's own inbox, SkyMail `/v1/me/inbox`, no role).
+ * Both sets are accepted so that the Keycloak release can follow this one.
+ * Matched with set semantics (order-free; a duplicate, missing or extra
+ * audience rejects the token). The pre-K2 `account`-only token is rejected on
+ * purpose: the cutover that accepted it (A0b) is over.
  */
-export const ACCEPTED_AUDIENCE_SET = ["account", "core"] as const;
+export const ACCEPTED_AUDIENCE_SETS = [
+  ["account", "core"],
+  ["account", "core", "skymail"],
+] as const;
 
 const MAX_AUTHORIZATION_CLIENTS = 64;
 const MAX_AUTHORIZATION_ROLES_PER_CLIENT = 256;
@@ -53,10 +59,10 @@ function carriesCoreResourceAccess(resourceAccess: unknown) {
 
 function hasExactAudienceSet(audience: unknown) {
   const values = typeof audience === "string" ? [audience] : audience;
-  if (!Array.isArray(values) || values.length !== ACCEPTED_AUDIENCE_SET.length) return false;
+  if (!Array.isArray(values)) return false;
   const unique = new Set(values);
-  return unique.size === ACCEPTED_AUDIENCE_SET.length &&
-    ACCEPTED_AUDIENCE_SET.every((required) => unique.has(required));
+  return unique.size === values.length && ACCEPTED_AUDIENCE_SETS.some((accepted) =>
+    accepted.length === unique.size && accepted.every((required) => unique.has(required)));
 }
 
 function validAuthorizationName(value: unknown, shape: RegExp): value is string {

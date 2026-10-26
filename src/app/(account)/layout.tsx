@@ -16,7 +16,11 @@ export default async function AccountLayout({ children }: Readonly<{ children: R
   const embedded = (await cookies()).get(EMBEDDED_APP_COOKIE)?.value === "skyapp";
 
   return (
-    <AccountShell logoutCsrfToken={services.sessions.csrfToken(session.session.id)} embedded={embedded}>
+    <AccountShell
+      logoutCsrfToken={services.sessions.csrfToken(session.session.id)}
+      embedded={embedded}
+      inboxEnabled={services.skymailInbox !== null}
+    >
       <SudoProvider>{children}</SudoProvider>
     </AccountShell>
   );
