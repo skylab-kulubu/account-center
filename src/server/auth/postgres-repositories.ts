@@ -32,6 +32,8 @@ type SessionRow = {
   idle_expires_at: Date;
   absolute_expires_at: Date;
   revoked_at: Date | null;
+  /** Salt of the last rotation (0010); null before the first rotation of this image. */
+  rotation_salt?: Buffer | null;
 };
 
 function activeSession(row: SessionRow, lastSeenAt = row.last_seen_at, idleExpiresAt = row.idle_expires_at): ActiveSession {
@@ -136,7 +138,7 @@ export class PostgresSessionRepository implements SessionRepository {
       const selected = await client.query<SessionRow>(
         `SELECT id, subject, keycloak_sid, handle_hash, previous_handle_hash,
                 previous_handle_expires_at, created_at, rotated_at, last_seen_at,
-                idle_expires_at, absolute_expires_at, revoked_at
+                idle_expires_at, absolute_expires_at, revoked_at, rotation_salt
            FROM account_sessions
           WHERE handle_hash = $1 OR previous_handle_hash = $1
           FOR UPDATE`,
@@ -166,19 +168,41 @@ export class PostgresSessionRepository implements SessionRepository {
         return { proofRejected: true };
       }
 
-      // Re-rotate a valid previous handle so a client can recover when the
-      // response carrying the first replacement cookie was lost or aborted.
-      const rotationDue =
-        input.allowRotation &&
-        (matchedPrevious ||
-          (matchedCurrent &&
-            row.rotated_at.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000));
       const idleExpiresAt = new Date(
         Math.min(
           row.absolute_expires_at.getTime(),
           input.now.getTime() + input.idleTtlSeconds * 1_000,
         ),
       );
+      const touch = () => client.query(
+        `UPDATE account_sessions
+            SET last_seen_at = $2,
+                idle_expires_at = $3
+          WHERE id = $1`,
+        [row.id, input.now, idleExpiresAt],
+      );
+
+      // A valid previous handle is the handle the current one was derived from: a request that still
+      // carries it (its Set-Cookie response was lost, or it was sent beside the rotating request, from
+      // another tab too) gets the same successor back, so every answer in the window sets one cookie.
+      // Nothing changes in the row; the previous handle keeps its own expiry. A row whose current
+      // handle is not that successor (rotated by an older image, without a salt) falls back to a fresh
+      // rotation that keeps the current handle as the previous one, as before.
+      if (matchedPrevious && input.allowRotation && row.rotation_salt
+        && input.successorHash(row.rotation_salt).equals(row.handle_hash)) {
+        await touch();
+        return {
+          session: activeSession(row, input.now, idleExpiresAt),
+          rotated: true,
+          rotationSalt: row.rotation_salt,
+        };
+      }
+
+      const rotationDue =
+        input.allowRotation &&
+        (matchedPrevious ||
+          (matchedCurrent &&
+            row.rotated_at.getTime() <= input.now.getTime() - input.rotateAfterSeconds * 1_000));
 
       if (rotationDue) {
         await client.query(
@@ -186,32 +210,28 @@ export class PostgresSessionRepository implements SessionRepository {
               SET previous_handle_hash = handle_hash,
                   previous_handle_expires_at = $3,
                   handle_hash = $2,
+                  rotation_salt = $6,
                   rotated_at = $4,
                   last_seen_at = $4,
                   idle_expires_at = $5
             WHERE id = $1`,
           [
             row.id,
-            input.replacementHandleHash,
+            input.successorHash(input.newRotationSalt),
             new Date(input.now.getTime() + input.previousHandleGraceSeconds * 1_000),
             input.now,
             idleExpiresAt,
+            input.newRotationSalt,
           ],
         );
-      } else {
-        await client.query(
-          `UPDATE account_sessions
-              SET last_seen_at = $2,
-                  idle_expires_at = $3
-            WHERE id = $1`,
-          [row.id, input.now, idleExpiresAt],
-        );
+        return {
+          session: activeSession(row, input.now, idleExpiresAt),
+          rotated: true,
+          rotationSalt: input.newRotationSalt,
+        };
       }
-
-      return {
-        session: activeSession(row, input.now, idleExpiresAt),
-        rotated: rotationDue,
-      };
+      await touch();
+      return { session: activeSession(row, input.now, idleExpiresAt), rotated: false };
     });
   }
 
