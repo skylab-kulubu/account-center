@@ -695,6 +695,50 @@ a.settings-row:hover .settings-row__chevron {
   margin-top: 18px;
 }
 
+/* SkyMail no longer mails an address: one line under it on /email, one line on the overview. */
+.settings-row__copy small.email-delivery-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fde68a;
+}
+
+.email-delivery-warning svg {
+  flex: 0 0 auto;
+}
+
+.email-delivery-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 26px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
+  border-radius: 10px;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.06);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.email-delivery-notice svg {
+  flex: 0 0 auto;
+}
+
+.email-delivery-notice a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.identity-card + .email-delivery-notice {
+  margin-top: 18px;
+}
+
+.email-delivery-notice + .email-nudge {
+  margin-top: 0;
+}
+
 @media (max-width: 420px) {
   .email-nudge {
     flex-direction: column;

@@ -1,6 +1,6 @@
 "use client";
 
-import { GraduationCap, Link2, Mail, MailCheck, Pencil, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
+import { GraduationCap, Link2, Mail, MailCheck, MailX, Pencil, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
 import { Button } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,6 +14,8 @@ import type { Feedback } from "@/components/security-shared";
 import { SettingsGroup, StatusBadge } from "@/components/settings";
 import { useSudo } from "@/components/sudo-provider";
 import { ActionProgress, RetryableError } from "@/components/ui-states";
+import { emailDeliveryCopy, parseUndeliverable } from "@/lib/email-delivery";
+import type { UndeliverableEmailKind } from "@/lib/email-delivery";
 import {
   checkEmailAddress,
   checkEmailCode,
@@ -48,6 +50,8 @@ export type EmailPayload = {
   csrfToken: string;
   /** K4c: the nudge the BFF says to show, `null` for none (also for an older BFF without the member). */
   primaryEmailNudge: PrimaryEmailNudge | null;
+  /** Which addresses SkyMail no longer mails; `[]` for none (also for an older BFF without the member). */
+  undeliverable: UndeliverableEmailKind[];
 };
 
 export const emailCopy = {
@@ -208,7 +212,38 @@ export function parseEmailPayload(value: unknown): EmailPayload | null {
     personalEmailVerified: value.personalEmailVerified,
     csrfToken: value.csrfToken,
     primaryEmailNudge: parsePrimaryEmailNudge(value.primaryEmailNudge),
+    undeliverable: parseUndeliverable(value.undeliverable),
   };
+}
+
+/**
+ * The rows that carry "Bu adrese posta ulaşmıyor.": an address named by its
+ * own kind, and the Primary e-mail's row (school, personal, or a legacy
+ * primary) when the primary is named.
+ */
+function undeliverableRows(payload: EmailPayload) {
+  const named = new Set(payload.undeliverable);
+  const primary = named.has("primary");
+  return {
+    school: payload.schoolEmail !== null && (named.has("school") || (primary && payload.primary === "school")),
+    personal: payload.personalEmail !== null && (named.has("personal") || (primary && payload.primary === "personal")),
+    legacy: primary && legacyPrimaryOf(payload) !== null,
+  };
+}
+
+/** The warning line under an address; the row names it with `aria-describedby`, the text carries the meaning, not the colour. */
+function DeliveryWarning({ id }: { id: string }) {
+  return (
+    <small id={id} className="email-delivery-warning">
+      <MailX aria-hidden="true" size={13} />
+      {emailDeliveryCopy.address}
+    </small>
+  );
+}
+
+/** The row's grouping: labelled by its address and described by the warning when there is one. */
+function rowGroup(addressId: string, warningId: string, warned: boolean) {
+  return warned ? { role: "group", "aria-labelledby": addressId, "aria-describedby": warningId } as const : {};
 }
 
 /**
@@ -1075,6 +1110,7 @@ export function EmailManager({ intent = null }: {
   const dismissedRef = useRef<string | null>(null);
   const removeBlockedId = useId();
   const legacySchoolId = useId();
+  const rowIds = useId();
   const trigger = useRef<HTMLElement | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const focusNotice = useRef(false);
@@ -1247,6 +1283,15 @@ export function EmailManager({ intent = null }: {
   const schoolFallback = payload.schoolEmail !== null && payload.verifiedYtu;
   const removeBlocked = payload.primary === "personal" && !schoolFallback;
   const nudge = shownNudge(payload);
+  const warned = undeliverableRows(payload);
+  const ids = {
+    school: `${rowIds}-school`,
+    schoolWarning: `${rowIds}-school-warning`,
+    personal: `${rowIds}-personal`,
+    personalWarning: `${rowIds}-personal-warning`,
+    legacy: `${rowIds}-legacy`,
+    legacyWarning: `${rowIds}-legacy-warning`,
+  };
 
   return (
     <>
@@ -1272,15 +1317,16 @@ export function EmailManager({ intent = null }: {
       ) : null}
 
       <SettingsGroup title={emailCopy.school.title} description={emailCopy.school.description}>
-        <div className="settings-row" data-has-trailing="">
+        <div className="settings-row" data-has-trailing="" {...rowGroup(ids.school, ids.schoolWarning, warned.school)}>
           <span className="settings-row__icon"><GraduationCap aria-hidden="true" size={19} /></span>
           <span className="settings-row__copy">
-            <strong className="email-address">{payload.schoolEmail ?? emailCopy.school.missing}</strong>
+            <strong id={ids.school} className="email-address">{payload.schoolEmail ?? emailCopy.school.missing}</strong>
             <small>
               {payload.schoolEmail
                 ? payload.verifiedYtu ? emailCopy.school.verifiedDetail : emailCopy.school.unverifiedDetail
                 : payload.verifiedYtu ? emailCopy.school.verifiedMissingDetail : emailCopy.school.missingDetail}
             </small>
+            {warned.school ? <DeliveryWarning id={ids.schoolWarning} /> : null}
           </span>
           {!payload.verifiedYtu || payload.schoolEmail ? (
             <div className="settings-row__trailing security-row-actions">
@@ -1292,11 +1338,12 @@ export function EmailManager({ intent = null }: {
 
       <SettingsGroup title={emailCopy.personal.title} description={emailCopy.personal.description}>
         {personalEmail ? (
-          <div className="settings-row" data-has-trailing="">
+          <div className="settings-row" data-has-trailing="" {...rowGroup(ids.personal, ids.personalWarning, warned.personal)}>
             <span className="settings-row__icon"><Mail aria-hidden="true" size={19} /></span>
             <span className="settings-row__copy">
-              <strong className="email-address">{personalEmail}</strong>
+              <strong id={ids.personal} className="email-address">{personalEmail}</strong>
               <small>{payload.personalEmailVerified ? emailCopy.personal.verifiedDetail : emailCopy.personal.unverifiedDetail}</small>
+              {warned.personal ? <DeliveryWarning id={ids.personalWarning} /> : null}
             </span>
             <div className="settings-row__trailing security-row-actions">
               <StatusBadge tone={payload.personalEmailVerified ? "positive" : "warning"}>
@@ -1328,13 +1375,14 @@ export function EmailManager({ intent = null }: {
           </div>
         ) : legacyPrimary ? (
           <>
-            <div className="settings-row" data-has-trailing="">
+            <div className="settings-row" data-has-trailing="" {...rowGroup(ids.legacy, ids.legacyWarning, warned.legacy)}>
               <span className="settings-row__icon"><Mail aria-hidden="true" size={19} /></span>
               <span className="settings-row__copy">
-                <strong className="email-address">{legacyPrimary}</strong>
+                <strong id={ids.legacy} className="email-address">{legacyPrimary}</strong>
                 <small id={legacySchool ? legacySchoolId : undefined}>
                   {legacySchool ? emailCopy.add.schoolDomain : emailCopy.legacy.detail}
                 </small>
+                {warned.legacy ? <DeliveryWarning id={ids.legacyWarning} /> : null}
               </span>
               <div className="settings-row__trailing security-row-actions">
                 <StatusBadge tone="warning">{emailCopy.legacy.badge}</StatusBadge>

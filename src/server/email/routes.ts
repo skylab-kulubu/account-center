@@ -21,6 +21,8 @@ import {
 } from "@/lib/email-fields";
 import type { PrimaryEmailChoice } from "@/lib/email-fields";
 import { isPrimaryEmailNudge, primaryEmailNudgeFor } from "@/lib/primary-email-nudge";
+import type { EmailDeliveryPayload } from "@/lib/email-delivery";
+import { undeliverableAddresses, undeliverableKinds } from "@/server/email/delivery";
 import { emailChangeView, emailView, pendingEmailView } from "@/server/email/view";
 import type { EmailChangePayload, EmailPayload, PendingEmailPayload, PrimaryEmailNudgePayload } from "@/server/email/view";
 import {
@@ -336,20 +338,25 @@ async function emailRead(
 }
 
 /**
- * `GET /api/account/email`: both addresses, the primary, the CSRF proof and
- * the K4c nudge. The nudge is optional: when the person's dismissals cannot
- * be read, the page shows none rather than one they may have dismissed.
+ * `GET /api/account/email`: both addresses, the primary, the CSRF proof, the
+ * K4c nudge and which addresses SkyMail no longer mails. The nudge and the
+ * delivery state are optional: when the person's dismissals cannot be read
+ * the page shows no nudge rather than one they may have dismissed, and when
+ * SkyMail cannot be asked it shows no warning.
  */
 export function emailRoute(request: NextRequest) {
   return emailRead(request, async (services, session, auth) => {
-    const [identity, dismissed] = await Promise.all([
+    const [identity, dismissed, undeliverable] = await Promise.all([
       services.skyAccount.identity(auth),
       services.noticeDismissals.list(session.subject).catch(() => null),
+      undeliverableAddresses(services, session, auth.accessToken),
     ]);
+    const view = emailView(identity);
     const payload: EmailPayload = {
-      ...emailView(identity),
+      ...view,
       csrfToken: services.sessions.csrfToken(session.id),
       primaryEmailNudge: dismissed === null ? null : primaryEmailNudgeFor(identity, dismissed),
+      undeliverable: undeliverableKinds(undeliverable, view),
     };
     return noStore(NextResponse.json(payload));
   });
@@ -390,6 +397,38 @@ export async function primaryEmailNudgeRoute(request: NextRequest) {
   } catch {
     return noStore(NextResponse.json(none));
   }
+}
+
+/**
+ * `GET /api/account/email/delivery`: the overview's line, only which kinds
+ * of the person's addresses SkyMail no longer mails (never SkyMail's
+ * addresses or dates). Like the nudge it never ends the session: once the
+ * session is known, any failure is `200 { undeliverable: [] }`. The
+ * addresses are read from the SPI only when SkyMail named any.
+ */
+export async function emailDeliveryRoute(request: NextRequest) {
+  const services = getAuthServices();
+  const authorization = await services.sessionAccess.authenticate(
+    request.cookies.get(SESSION_COOKIE)?.value,
+    { requestId: requestCorrelationId(request) },
+  );
+  if (authorization.status === "unavailable") return accountAccessUnavailableResponse();
+  if (authorization.status === "blocked") return authenticationRequiredResponse(true);
+  if (authorization.status !== "active") return authenticationRequiredResponse();
+
+  const session = authorization.value.session;
+  let payload: EmailDeliveryPayload = { undeliverable: [] };
+  try {
+    const accessToken = await services.account.accessToken(session);
+    const addresses = await undeliverableAddresses(services, session, accessToken);
+    if (addresses.length > 0) {
+      const identity = await services.skyAccount.identity({ accessToken });
+      payload = { undeliverable: undeliverableKinds(addresses, emailView(identity)) };
+    }
+  } catch {
+    // No warning; the overview works without it.
+  }
+  return noStore(NextResponse.json(payload));
 }
 
 /**
