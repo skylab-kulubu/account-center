@@ -789,6 +789,18 @@ describe("e-mail BFF routes", () => {
       expect((await (await read()).json()).undeliverable).toEqual(["primary", "school"]);
     });
 
+    it("ignores a former address SkyMail still finds by the person's subject", async () => {
+      // e.g. the old primary, returned through `recipient_sub` after the person moved to another address.
+      routeMocks.identity.mockResolvedValue({ ...identityFixture, primary: "personal", email: identityFixture.personalEmail });
+      routeMocks.undeliverableAddresses.mockResolvedValue(["ada-old-primary@example.invalid"]);
+      expect((await (await read()).json()).undeliverable).toEqual([]);
+      expect(await (await readDelivery()).json()).toEqual({ undeliverable: [] });
+
+      routeMocks.undeliverableAddresses.mockResolvedValue(["ada-old-primary@example.invalid", "ada@std.yildiz.edu.tr"]);
+      expect((await (await read()).json()).undeliverable).toEqual(["school"]);
+      expect(await (await readDelivery()).json()).toEqual({ undeliverable: ["school"] });
+    });
+
     it("ignores an address that is none of the person's", async () => {
       routeMocks.undeliverableAddresses.mockResolvedValue(["someone-else@example.invalid"]);
       expect((await (await read()).json()).undeliverable).toEqual([]);

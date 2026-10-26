@@ -54,7 +54,13 @@ test("/email names the address SkyMail no longer mails, read through the real BF
   page.on("pageerror", (error) => errors.push(error.message));
   try {
     const set = await mock.put(`${mockCoreUrl}/__e2e/email-delivery/${encodeURIComponent(fixture.subject)}`, {
-      data: { undeliverable: [{ address: personalEmail, since: "2026-10-25T09:00:00Z" }] },
+      data: {
+        undeliverable: [
+          { address: personalEmail, since: "2026-10-25T09:00:00Z" },
+          // A former address SkyMail still finds by the person's `sub`: no longer theirs, no warning.
+          { address: "ada-old@example.invalid", since: "2026-09-01T09:00:00Z" },
+        ],
+      },
     });
     expect(set.status()).toBe(200);
     await page.route("**/api/account/email/pending", (route) => route.fulfill({ json: { pending: null } }));
@@ -67,11 +73,15 @@ test("/email names the address SkyMail no longer mails, read through the real BF
     await expect(page.getByRole("group", { name: schoolEmail })).toHaveCount(0);
     await expectAccessible(page);
 
-    // The overview's own read: only the kind, never SkyMail's address or date.
-    const overview = await page.request.get("/api/account/email/delivery");
-    expect(overview.status()).toBe(200);
-    expect(overview.headers()["cache-control"]).toBe("no-store");
-    expect(await overview.json()).toEqual({ undeliverable: ["personal"] });
+    // The overview's own read, from the page (the session cookie): only the kind, never SkyMail's address or date.
+    const overview = await page.evaluate(async () => {
+      const response = await fetch("/api/account/email/delivery", { cache: "no-store", credentials: "same-origin" });
+      return { status: response.status, cacheControl: response.headers.get("cache-control"), body: await response.text() };
+    });
+    expect(overview.status).toBe(200);
+    expect(overview.cacheControl).toBe("no-store");
+    expect(JSON.parse(overview.body)).toEqual({ undeliverable: ["personal"] });
+    expect(overview.body).not.toMatch(/@|2026/);
     expect(errors).toEqual([]);
   } finally {
     await mock.dispose();
