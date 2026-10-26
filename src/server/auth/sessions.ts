@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   constantTimeEqual,
   hmacSha256,
@@ -149,10 +149,10 @@ export class SessionManager {
   ): Promise<BrowserSession | "proof_rejected" | null> {
     if (!handle || !/^[A-Za-z0-9_-]{43}$/.test(handle)) return null;
     if (options.csrfToken !== undefined && options.csrfToken.length > 128) return "proof_rejected";
-    const replacementHandle = randomOpaqueValue();
     const result = await this.repository.useHandle({
       handleHash: sha256(handle),
-      replacementHandleHash: sha256(replacementHandle),
+      newRotationSalt: randomBytes(16),
+      successorHash: (salt) => sha256(this.#successor(handle, salt)),
       now: this.clock(),
       idleTtlSeconds: this.policy.idleTtlSeconds,
       rotateAfterSeconds: this.policy.rotationSeconds,
@@ -164,10 +164,22 @@ export class SessionManager {
     });
     if (!result) return null;
     if ("proofRejected" in result) return "proof_rejected";
+    const { rotationSalt, ...use } = result;
     return {
-      ...result,
-      ...(result.rotated ? { rotatedHandle: replacementHandle } : {}),
+      ...use,
+      ...(use.rotated && rotationSalt ? { rotatedHandle: this.#successor(handle, rotationSalt) } : {}),
     };
+  }
+
+  /**
+   * The handle that replaces `handle` in a rotation made under `salt`: HMAC under SESSION_SECRET (its own
+   * purpose label, apart from CSRF),
+   * so it is as unguessable as a random handle to whoever lacks the secret, and every request that
+   * presents the same previous handle in its window gets the same successor (one cookie, whatever
+   * order the answers land in). The salt is random per rotation and kept on the row.
+   */
+  #successor(handle: string, salt: Buffer) {
+    return hmacSha256(this.csrfSecret, "session-rotation", `${handle}.${salt.toString("base64url")}`).toString("base64url");
   }
 
   async candidate(handle: string | undefined) {
