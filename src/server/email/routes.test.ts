@@ -801,6 +801,54 @@ describe("e-mail BFF routes", () => {
       expect(await (await readDelivery()).json()).toEqual({ undeliverable: ["school"] });
     });
 
+    it("names no primary that /email has no row for, on the page and the overview alike", async () => {
+      // A pre-v2 primary next to a later personal address: the page shows it only in the primary choice.
+      routeMocks.identity.mockResolvedValue({
+        ...identityFixture,
+        email: "ada@hotmail.invalid",
+        primary: "none",
+        personalEmail: "ada-new@example.invalid",
+      });
+      routeMocks.undeliverableAddresses.mockResolvedValue(["ada@hotmail.invalid"]);
+      expect((await (await read()).json()).undeliverable).toEqual([]);
+      expect(await (await readDelivery()).json()).toEqual({ undeliverable: [] });
+    });
+
+    it("answers /email without the warning when SkyMail is slower than the page's budget", async () => {
+      routeMocks.undeliverableAddresses.mockReturnValue(new Promise(() => undefined));
+      const started = performance.now();
+      const response = await read();
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.undeliverable).toEqual([]);
+      expect(body.schoolEmail).toBe("ada@std.yildiz.edu.tr");
+      expect(performance.now() - started).toBeLessThan(3_000);
+    });
+
+    it("keeps /email open, without the warning, when the token cannot be refreshed after SkyMail's 401", async () => {
+      routeMocks.accessToken.mockImplementation(async (_session: unknown, options?: { forceRefresh?: boolean }) => {
+        if (options?.forceRefresh) throw new AccountReauthenticationRequiredError();
+        return withSkyMail;
+      });
+      routeMocks.undeliverableAddresses.mockRejectedValue(new SkyMailInboxError("unauthorized"));
+      const response = await read();
+      expect(response.status).toBe(200);
+      expect((await response.json()).undeliverable).toEqual([]);
+      expect(routeMocks.revokeSession).not.toHaveBeenCalled();
+      expect(response.cookies.get(SESSION_COOKIE)).toBeUndefined();
+    });
+
+    it("reads the overview's addresses with the token SkyMail accepted after its 401", async () => {
+      const refreshed = token(["account", "core", "skymail"], "refreshed");
+      routeMocks.accessToken.mockImplementation(async (_session: unknown, options?: { forceRefresh?: boolean }) =>
+        options?.forceRefresh ? refreshed : withSkyMail);
+      routeMocks.undeliverableAddresses
+        .mockRejectedValueOnce(new SkyMailInboxError("unauthorized"))
+        .mockResolvedValueOnce(["ada-personal@example.invalid"]);
+      expect(await (await readDelivery()).json()).toEqual({ undeliverable: ["personal"] });
+      expect(routeMocks.identity).toHaveBeenCalledWith({ accessToken: refreshed });
+    });
+
     it("ignores an address that is none of the person's", async () => {
       routeMocks.undeliverableAddresses.mockResolvedValue(["someone-else@example.invalid"]);
       expect((await (await read()).json()).undeliverable).toEqual([]);

@@ -14,7 +14,7 @@ import type { Feedback } from "@/components/security-shared";
 import { SettingsGroup, StatusBadge } from "@/components/settings";
 import { useSudo } from "@/components/sudo-provider";
 import { ActionProgress, RetryableError } from "@/components/ui-states";
-import { emailDeliveryCopy, parseUndeliverable } from "@/lib/email-delivery";
+import { emailDeliveryCopy, parseUndeliverable, undeliverableRows } from "@/lib/email-delivery";
 import type { UndeliverableEmailKind } from "@/lib/email-delivery";
 import {
   checkEmailAddress,
@@ -213,21 +213,6 @@ export function parseEmailPayload(value: unknown): EmailPayload | null {
     csrfToken: value.csrfToken,
     primaryEmailNudge: parsePrimaryEmailNudge(value.primaryEmailNudge),
     undeliverable: parseUndeliverable(value.undeliverable),
-  };
-}
-
-/**
- * The rows that carry "Bu adrese posta ulaşmıyor.": an address named by its
- * own kind, and the Primary e-mail's row (school, personal, or a legacy
- * primary) when the primary is named.
- */
-function undeliverableRows(payload: EmailPayload) {
-  const named = new Set(payload.undeliverable);
-  const primary = named.has("primary");
-  return {
-    school: payload.schoolEmail !== null && (named.has("school") || (primary && payload.primary === "school")),
-    personal: payload.personalEmail !== null && (named.has("personal") || (primary && payload.primary === "personal")),
-    legacy: primary && legacyPrimaryOf(payload) !== null,
   };
 }
 
@@ -1283,7 +1268,7 @@ export function EmailManager({ intent = null }: {
   const schoolFallback = payload.schoolEmail !== null && payload.verifiedYtu;
   const removeBlocked = payload.primary === "personal" && !schoolFallback;
   const nudge = shownNudge(payload);
-  const warned = undeliverableRows(payload);
+  const warned = undeliverableRows(payload, payload.undeliverable);
   const ids = {
     school: `${rowIds}-school`,
     schoolWarning: `${rowIds}-school-warning`,
