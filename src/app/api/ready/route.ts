@@ -13,6 +13,7 @@ export async function GET() {
       actions_ready: boolean;
       deletion_ready: boolean;
       sudo_ready: boolean;
+      rotation_ready: boolean;
       notices_ready: boolean;
       migrations_ready: boolean;
     }>(
@@ -29,8 +30,14 @@ export async function GET() {
              AND table_name = 'account_sessions'
              AND ((column_name = 'sudo_token_ciphertext' AND data_type = 'text')
                OR (column_name = 'sudo_expires_at' AND data_type = 'timestamp with time zone'))) AS sudo_ready,
+         EXISTS (SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'account_sessions'
+             AND column_name = 'rotation_salt'
+             AND data_type = 'bytea') AS rotation_ready,
          to_regclass('public.account_notice_dismissals') IS NOT NULL AS notices_ready,
-         (SELECT count(*) = 8
+         (SELECT count(*) = 9
             FROM account_center_schema_migrations
            WHERE name = ANY($1::text[])) AS migrations_ready`,
       // 0008_drop_native_handoff.sql is intentionally not required: it runs after this code is live.
@@ -43,6 +50,7 @@ export async function GET() {
         "0006_account_sudo.sql",
         "0007_account_deletion_confirmations.sql",
         "0009_account_notice_dismissals.sql",
+        "0010_account_session_rotation_salt.sql",
       ]],
     );
     if (
@@ -51,6 +59,7 @@ export async function GET() {
       !result.rows[0]?.actions_ready ||
       !result.rows[0]?.deletion_ready ||
       !result.rows[0]?.sudo_ready ||
+      !result.rows[0]?.rotation_ready ||
       !result.rows[0]?.notices_ready ||
       !result.rows[0]?.migrations_ready ||
       !await services.accountAccess.ready()
