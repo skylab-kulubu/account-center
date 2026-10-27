@@ -15,6 +15,12 @@ vi.mock("@/components/skypass-wallet-card", () => ({
   ),
 }));
 
+vi.mock("@/components/team-page-consent", () => ({
+  TeamPageConsentSection: ({ initial, csrfToken, returnTo }: { initial: string | null; csrfToken: string; returnTo: string }) => (
+    <div data-testid="team-page-consent" data-csrf={csrfToken} data-initial={String(initial)} data-return-to={returnTo} />
+  ),
+}));
+
 vi.mock("@/components/club-profile-editor", () => ({
   ClubProfileEditor: ({ initial, csrfToken }: { initial: ClubProfileView; csrfToken: string }) => (
     <div data-testid="club-profile-editor" data-csrf={csrfToken}>{initial.faculty}</div>
@@ -57,6 +63,7 @@ function pageData(overrides: Partial<ClubProfilePageData> = {}): ClubProfilePage
     identity,
     clubProfile: { status: "ready", value: clubProfile },
     skyPassWallet: { status: "hidden" },
+    teamPage: { status: "hidden" },
     csrfToken: "session-bound-csrf",
     ...overrides,
   };
@@ -98,6 +105,20 @@ describe("Kulüp profili page", () => {
     const card = screen.getByTestId("skypass-wallet-card");
     expect(card).toHaveAttribute("data-issued", "true");
     expect(card).toHaveAttribute("data-csrf", "session-bound-csrf");
+  });
+
+  it("shows the team page switch only while core records consents", async () => {
+    vi.mocked(loadClubProfilePage).mockResolvedValue(pageData());
+    const { unmount } = render(await ClubProfilePage());
+    expect(screen.queryByTestId("team-page-consent")).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(loadClubProfilePage).mockResolvedValue(pageData({ teamPage: { status: "shown", value: "none" } }));
+    render(await ClubProfilePage());
+    const section = screen.getByTestId("team-page-consent");
+    expect(section).toHaveAttribute("data-initial", "none");
+    expect(section).toHaveAttribute("data-csrf", "session-bound-csrf");
+    expect(section).toHaveAttribute("data-return-to", "/club-profile");
   });
 
   it("shows the unlinked card and missing phone states without ever offering to edit them", async () => {
