@@ -7,11 +7,14 @@ import { toClubProfileProblem } from "@/server/club-profile/problem";
 import type { ClubProfileProblem } from "@/server/club-profile/problem";
 import { clubProfileServiceFor, toClubProfileView } from "@/server/club-profile/service";
 import type { ClubProfileView } from "@/server/club-profile/service";
+import { CoreConsentError } from "@/server/core/consents-client";
 import type { CoreProfile } from "@/server/core/profile-client";
 import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
 import type { AccountProfile } from "@/server/keycloak-account/types";
 import { skyPassWalletServiceFor } from "@/server/skypass-wallet/service";
+import { teamPageConsentServiceFor } from "@/server/team-page-consent/service";
+import type { TeamPageConsentState } from "@/lib/team-page-consent";
 
 export type ClubProfileState =
   | { status: "ready"; value: ClubProfileView }
@@ -34,10 +37,21 @@ export type ClubProfileIdentity = {
  */
 export type SkyPassWalletState = { status: "hidden" } | { status: "ready"; issued: boolean };
 
+/**
+ * The "Ekip sayfaları" switch: `hidden` while core records no consents (no
+ * `CORE_API_URL`, `CONTACT_CONSENT_KEY` unset, a core without the routes or
+ * without the `team_page` purpose) or the club profile could not be read;
+ * `value: null` when core did not answer the list.
+ */
+export type TeamPageSectionState =
+  | { status: "hidden" }
+  | { status: "shown"; value: TeamPageConsentState | null };
+
 export type ClubProfilePageData = {
   identity: { ok: true; value: ClubProfileIdentity } | { ok: false; problem: AccountProblem };
   clubProfile: ClubProfileState;
   skyPassWallet: SkyPassWalletState;
+  teamPage: TeamPageSectionState;
   csrfToken: string;
 };
 
@@ -75,6 +89,21 @@ async function loadSkyPassWallet(
   }
 }
 
+async function loadTeamPage(
+  services: Parameters<typeof teamPageConsentServiceFor>[0],
+  session: SessionIdentity,
+): Promise<TeamPageSectionState> {
+  const consent = teamPageConsentServiceFor(services);
+  if (!consent) return { status: "hidden" };
+  try {
+    return { status: "shown", value: await consent.read(session) };
+  } catch (error) {
+    return error instanceof CoreConsentError && error.failure === "off"
+      ? { status: "hidden" }
+      : { status: "shown", value: null };
+  }
+}
+
 /**
  * Loads the club-profile page for the active session. The core profile is
  * the primary source: it carries the club fields and the shadow of the
@@ -84,7 +113,7 @@ async function loadSkyPassWallet(
  * Account REST instead so the page still shows who the person is next to
  * the club-profile banner. The SkyPass Wallet status is read after the
  * profile (with the token that read just validated), and only when it
- * succeeded.
+ * succeeded; so is the team page consent, beside it.
  */
 export async function loadClubProfilePage(): Promise<ClubProfilePageData> {
   const services = getAuthServices();
@@ -100,10 +129,15 @@ export async function loadClubProfilePage(): Promise<ClubProfilePageData> {
   if (clubProfileService) {
     try {
       const profile = await clubProfileService.read(session);
+      const [skyPassWallet, teamPage] = await Promise.all([
+        loadSkyPassWallet(services, session),
+        loadTeamPage(services, session),
+      ]);
       return {
         identity: { ok: true, value: identityFromCore(profile) },
         clubProfile: { status: "ready", value: toClubProfileView(profile) },
-        skyPassWallet: await loadSkyPassWallet(services, session),
+        skyPassWallet,
+        teamPage,
         csrfToken,
       };
     } catch (error) {
@@ -117,5 +151,5 @@ export async function loadClubProfilePage(): Promise<ClubProfilePageData> {
   } catch (error) {
     identity = { ok: false, problem: toAccountProblem(error) };
   }
-  return { identity, clubProfile, skyPassWallet: { status: "hidden" }, csrfToken };
+  return { identity, clubProfile, skyPassWallet: { status: "hidden" }, teamPage: { status: "hidden" }, csrfToken };
 }

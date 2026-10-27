@@ -11,6 +11,7 @@ import { ClubProfileEditor } from "@/components/club-profile-editor";
 import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
 import { SkyPassWalletCard } from "@/components/skypass-wallet-card";
 import { StudentCardRow } from "@/components/student-card-row";
+import { TeamPageConsentSection } from "@/components/team-page-consent";
 import { accountRoute } from "@/config/account-routes";
 import { loadClubProfilePage } from "@/server/club-profile/page-data";
 import type { ClubProfileState } from "@/server/club-profile/page-data";
@@ -120,6 +121,10 @@ export default async function ClubProfilePage() {
       ) : null}
 
       {club ? <ClubProfileEditor initial={club} csrfToken={data.csrfToken} /> : null}
+
+      {data.teamPage.status === "shown" ? (
+        <TeamPageConsentSection csrfToken={data.csrfToken} initial={data.teamPage.value} returnTo={route.href} />
+      ) : null}
 
       <aside className="read-only-note" aria-label="Kulüp profili sınırları">
         Ad ve soyad kimlik bilgilerinde yönetilir; SKY numarası, öğrenci kartı ve telefon kulüp kayıtlarıdır. Bu sayfadaki
