@@ -301,7 +301,7 @@ export function initialPreferenceScreen() {
 }
 
 /** Core's own-consent texts (`internal/consent`): purpose → versions. */
-const consentTexts = new Map([["event_invitations", ["davet-v1", "davet-v2"]], ["promotional", ["tanitim-v1"]]]);
+const consentTexts = new Map([["event_invitations", ["davet-v1", "davet-v2"]], ["promotional", ["tanitim-v1"]], ["team_page", ["ekip-sayfasi-v1"]]]);
 
 function preferenceProblem(response, status, code, headers = {}) {
   response.writeHead(status, { "content-type": "application/problem+json", "cache-control": "no-store", ...headers });
