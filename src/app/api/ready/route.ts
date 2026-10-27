@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthServices } from "@/server/auth/services";
-import { getDatabasePool } from "@/server/db/pool";
+import { getReadinessPool } from "@/server/db/pool";
 
 export const dynamic = "force-dynamic";
 
@@ -8,13 +8,18 @@ export const dynamic = "force-dynamic";
  * The deploy gate: configuration, schema and, in enforce mode, the access-gate contract.
  * `?gate=skip` (the image's HEALTHCHECK) leaves the access gate out: Swarm restarts an
  * unhealthy task, and a Redis outage would restart every task at once while doing nothing
- * for it (core-backend's /v1/ready?gate=skip makes the same split).
+ * for it (core-backend's /v1/ready?gate=skip makes the same split). The skip holds only after
+ * this process has once seen the gate ready: a new task that never reached Redis (a wrong
+ * address, ACL or contract) stays unhealthy, and the deploy keeps the old one, as core does
+ * by not listening until it reached the gate.
  */
+let gateSeenReady = false;
+
 export async function GET(request: Request) {
-  const checkGate = new URL(request.url).searchParams.get("gate") !== "skip";
+  const checkGate = !gateSeenReady || new URL(request.url).searchParams.get("gate") !== "skip";
   try {
     const services = getAuthServices();
-    const result = await getDatabasePool().query<{
+    const result = await getReadinessPool().query<{
       sessions_ready: boolean;
       controls_ready: boolean;
       actions_ready: boolean;
@@ -69,7 +74,7 @@ export async function GET(request: Request) {
       !result.rows[0]?.rotation_ready ||
       !result.rows[0]?.notices_ready ||
       !result.rows[0]?.migrations_ready ||
-      (checkGate && !await services.accountAccess.ready())
+      (checkGate && !await gateReady(services.accountAccess))
     ) {
       return NextResponse.json(
         { status: "not_ready", service: "account-center" },
@@ -86,4 +91,10 @@ export async function GET(request: Request) {
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
+}
+
+async function gateReady(gate: { ready(): Promise<boolean> }) {
+  const ready = await gate.ready();
+  if (ready) gateSeenReady = true;
+  return ready;
 }

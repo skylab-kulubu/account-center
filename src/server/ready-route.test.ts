@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GET } from "@/app/api/ready/route";
+
+let GET: (request: Request) => Promise<Response>;
 
 const readyMocks = vi.hoisted(() => ({
   gateReady: vi.fn(),
   query: vi.fn(),
+  mainQuery: vi.fn(),
 }));
 
 vi.mock("@/server/auth/services", () => ({
   getAuthServices: () => ({ accountAccess: { ready: readyMocks.gateReady } }),
 }));
 vi.mock("@/server/db/pool", () => ({
-  getDatabasePool: () => ({ query: readyMocks.query }),
+  getDatabasePool: () => ({ query: readyMocks.mainQuery }),
+  getReadinessPool: () => ({ query: readyMocks.query }),
 }));
 
 function probe(query = "") {
@@ -18,8 +21,11 @@ function probe(query = "") {
 }
 
 describe("readiness route", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Each test is a fresh process: the route remembers whether the gate was ever ready.
+    vi.resetModules();
+    ({ GET } = await import("@/app/api/ready/route"));
     readyMocks.gateReady.mockResolvedValue(true);
     readyMocks.query.mockResolvedValue({
       rows: [{ sessions_ready: true, controls_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, rotation_ready: true, notices_ready: true, migrations_ready: true }],
@@ -86,14 +92,36 @@ describe("readiness route", () => {
     expect(readyMocks.gateReady).not.toHaveBeenCalled();
   });
 
-  it("leaves the access gate out for the container health check, so a Redis outage restarts no task", async () => {
+  it("leaves the access gate out for the container health check once the gate was ready, so a Redis outage restarts no task", async () => {
+    expect((await GET(probe("?gate=skip"))).status).toBe(200);
+    readyMocks.gateReady.mockClear();
     readyMocks.gateReady.mockResolvedValue(false);
 
     const response = await GET(probe("?gate=skip"));
 
     expect(response.status).toBe(200);
     expect(readyMocks.gateReady).not.toHaveBeenCalled();
-    expect(readyMocks.query).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a new task that never reached the gate pass the container health check", async () => {
+    readyMocks.gateReady.mockResolvedValue(false);
+
+    for (let i = 0; i < 2; i++) {
+      expect((await GET(probe("?gate=skip"))).status).toBe(503);
+    }
+    expect(readyMocks.gateReady).toHaveBeenCalledTimes(2);
+
+    readyMocks.gateReady.mockResolvedValueOnce(true);
+    expect((await GET(probe())).status).toBe(200);
+    expect((await GET(probe("?gate=skip"))).status).toBe(200);
+  });
+
+  it("reads PostgreSQL on readiness's own connection, never the request pool", async () => {
+    await GET(probe("?gate=skip"));
+    await GET(probe());
+
+    expect(readyMocks.query).toHaveBeenCalledTimes(2);
+    expect(readyMocks.mainQuery).not.toHaveBeenCalled();
   });
 
   it("still reports not ready for the container health check when PostgreSQL validation fails", async () => {
