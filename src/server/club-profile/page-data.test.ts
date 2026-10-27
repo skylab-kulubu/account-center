@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import meFixture from "../../../tests/fixtures/core-users-me.json";
 import { loadClubProfilePage } from "@/server/club-profile/page-data";
+import { CoreConsentError } from "@/server/core/consents-client";
 import { CoreProfileUnavailableError } from "@/server/core/profile-client";
 import { CoreSkyPassWalletError } from "@/server/core/skypass-wallet-client";
 import type { CoreProfile } from "@/server/core/profile-client";
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   csrfToken: vi.fn(),
   getMe: vi.fn(),
   walletStatus: vi.fn(),
+  consentList: vi.fn(),
   services: {} as Record<string, unknown>,
   redirect: vi.fn((destination: string) => {
     throw new Error(`redirect:${destination}`);
@@ -46,6 +48,7 @@ function buildServices(options: { coreEnabled?: boolean } = {}) {
       googleSaveUrl: vi.fn(),
       revokeGoogle: vi.fn(),
     },
+    coreConsents: options.coreEnabled === false ? null : { list: mocks.consentList, grant: vi.fn(), withdraw: vi.fn() },
   };
 }
 
@@ -58,6 +61,7 @@ describe("loadClubProfilePage", () => {
     mocks.csrfToken.mockReturnValue("session-bound-csrf");
     mocks.getMe.mockResolvedValue(profile);
     mocks.walletStatus.mockResolvedValue({ google: { available: false, issued: false } });
+    mocks.consentList.mockResolvedValue([]);
     mocks.profile.mockResolvedValue({
       username: "ada",
       firstName: "Ada",
@@ -87,6 +91,7 @@ describe("loadClubProfilePage", () => {
         value: expect.objectContaining({ faculty: "Elektrik-Elektronik Fakültesi", studentCardLinked: true, phone: "+905551112233" }),
       },
       skyPassWallet: { status: "hidden" },
+      teamPage: { status: "shown", value: "none" },
       csrfToken: "session-bound-csrf",
     });
     expect(JSON.stringify(data)).not.toContain(meFixture.id);
@@ -98,6 +103,36 @@ describe("loadClubProfilePage", () => {
 
     expect((await loadClubProfilePage()).skyPassWallet).toEqual({ status: "ready", issued: true });
     expect(mocks.walletStatus).toHaveBeenCalledWith("server-held-user-token");
+  });
+
+  it("reads the team page consent beside the profile, and hides the switch while core records no consents", async () => {
+    mocks.consentList.mockResolvedValue([
+      { purpose: "promotional", status: "active" },
+      { purpose: "team_page", status: "withdrawn" },
+      { purpose: "team_page", status: "active" },
+    ]);
+    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "shown", value: "active" });
+    expect(mocks.consentList).toHaveBeenCalledWith("server-held-user-token");
+
+    mocks.consentList.mockResolvedValue([{ purpose: "promotional", status: "active" }]);
+    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "shown", value: "none" });
+
+    mocks.consentList.mockRejectedValue(new CoreConsentError("off"));
+    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "hidden" });
+
+    mocks.consentList.mockRejectedValue(new CoreConsentError("unavailable"));
+    const data = await loadClubProfilePage();
+    expect(data.teamPage).toEqual({ status: "shown", value: null });
+    expect(data.clubProfile).toMatchObject({ status: "ready" });
+  });
+
+  it("does not show the team page switch when the profile read failed or core is off", async () => {
+    mocks.getMe.mockRejectedValue(new CoreProfileUnavailableError());
+    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "hidden" });
+    expect(mocks.consentList).not.toHaveBeenCalled();
+
+    mocks.services = buildServices({ coreEnabled: false });
+    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "hidden" });
   });
 
   it("hides the Wallet section when its status cannot be read, without failing the page", async () => {
