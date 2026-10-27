@@ -53,7 +53,9 @@ type SectionProps = {
 /**
  * The "Ekip sayfaları" switch: core's `ekip-sayfasi-v1` text as its label,
  * off unless the person's own consent is active. Turning it on records the
- * grant; turning it off hides the person from the public team pages at once.
+ * grant; turning it off withdraws it, and core hides the person from the
+ * public team pages at once (a Board member keeps their name on the Board's
+ * own page).
  */
 export function TeamPageConsentSection({ initial, csrfToken, returnTo }: SectionProps) {
   const headingId = useId();
@@ -84,7 +86,7 @@ export function TeamPageConsentSection({ initial, csrfToken, returnTo }: Section
         return;
       }
       setState(next);
-      setFeedback({ tone: "success", message: checked ? "Ekip sayfalarında görüneceksin." : "Ekip sayfalarından kaldırıldın." });
+      setFeedback({ tone: "success", message: checked ? "Ekip sayfası izni açıldı." : "Ekip sayfası izni kapatıldı." });
     } finally {
       setPending(false);
     }

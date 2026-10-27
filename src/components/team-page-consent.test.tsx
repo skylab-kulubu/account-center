@@ -45,7 +45,7 @@ describe("Ekip sayfaları switch", () => {
 
     fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
     await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked());
-    expect(screen.getByRole("status")).toHaveTextContent("Ekip sayfalarında görüneceksin.");
+    expect(screen.getByRole("status")).toHaveTextContent("Ekip sayfası izni açıldı.");
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/account/team-page-consent");
     expect(init.method).toBe("POST");
@@ -54,7 +54,7 @@ describe("Ekip sayfaları switch", () => {
 
     fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
     await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).not.toBeChecked());
-    expect(screen.getByRole("status")).toHaveTextContent("Ekip sayfalarından kaldırıldın.");
+    expect(screen.getByRole("status")).toHaveTextContent("Ekip sayfası izni kapatıldı.");
     expect((fetch.mock.calls[1] as [string, RequestInit])[1].method).toBe("DELETE");
   });
 
