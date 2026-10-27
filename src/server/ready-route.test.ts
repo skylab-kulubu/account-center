@@ -13,6 +13,10 @@ vi.mock("@/server/db/pool", () => ({
   getDatabasePool: () => ({ query: readyMocks.query }),
 }));
 
+function probe(query = "") {
+  return new Request(`http://127.0.0.1:3000/api/ready${query}`);
+}
+
 describe("readiness route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -23,7 +27,7 @@ describe("readiness route", () => {
   });
 
   it("reports ready only after config, database, and expected migrations are available", async () => {
-    const response = await GET();
+    const response = await GET(probe());
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "ready", service: "account-center" });
@@ -47,7 +51,7 @@ describe("readiness route", () => {
   });
 
   it("neither checks the retired native handoff tables nor requires their drop migration", async () => {
-    const response = await GET();
+    const response = await GET(probe());
 
     expect(response.status).toBe(200);
     const [sql, [requiredMigrations]] = readyMocks.query.mock.calls[0] as [string, [string[]]];
@@ -67,7 +71,7 @@ describe("readiness route", () => {
   ])("reports not ready for an incomplete schema", async (row) => {
     readyMocks.query.mockResolvedValue({ rows: [row] });
 
-    const response = await GET();
+    const response = await GET(probe());
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ status: "not_ready", service: "account-center" });
@@ -76,16 +80,43 @@ describe("readiness route", () => {
   it("reports not ready when PostgreSQL validation fails", async () => {
     readyMocks.query.mockRejectedValue(new Error("database unavailable"));
 
-    const response = await GET();
+    const response = await GET(probe());
 
     expect(response.status).toBe(503);
     expect(readyMocks.gateReady).not.toHaveBeenCalled();
   });
 
+  it("leaves the access gate out for the container health check, so a Redis outage restarts no task", async () => {
+    readyMocks.gateReady.mockResolvedValue(false);
+
+    const response = await GET(probe("?gate=skip"));
+
+    expect(response.status).toBe(200);
+    expect(readyMocks.gateReady).not.toHaveBeenCalled();
+    expect(readyMocks.query).toHaveBeenCalledOnce();
+  });
+
+  it("still reports not ready for the container health check when PostgreSQL validation fails", async () => {
+    readyMocks.query.mockRejectedValue(new Error("database unavailable"));
+
+    const response = await GET(probe("?gate=skip"));
+
+    expect(response.status).toBe(503);
+  });
+
+  it.each(["?gate=", "?gate=off", "?gate=SKIP"])("checks the access gate for any other gate value (%s)", async (query) => {
+    readyMocks.gateReady.mockResolvedValue(false);
+
+    const response = await GET(probe(query));
+
+    expect(response.status).toBe(503);
+    expect(readyMocks.gateReady).toHaveBeenCalledOnce();
+  });
+
   it("reports not ready when the access-gate contract is unavailable", async () => {
     readyMocks.gateReady.mockResolvedValue(false);
 
-    const response = await GET();
+    const response = await GET(probe());
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ status: "not_ready", service: "account-center" });

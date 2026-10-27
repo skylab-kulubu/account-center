@@ -4,7 +4,14 @@ import { getDatabasePool } from "@/server/db/pool";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+/**
+ * The deploy gate: configuration, schema and, in enforce mode, the access-gate contract.
+ * `?gate=skip` (the image's HEALTHCHECK) leaves the access gate out: Swarm restarts an
+ * unhealthy task, and a Redis outage would restart every task at once while doing nothing
+ * for it (core-backend's /v1/ready?gate=skip makes the same split).
+ */
+export async function GET(request: Request) {
+  const checkGate = new URL(request.url).searchParams.get("gate") !== "skip";
   try {
     const services = getAuthServices();
     const result = await getDatabasePool().query<{
@@ -62,7 +69,7 @@ export async function GET() {
       !result.rows[0]?.rotation_ready ||
       !result.rows[0]?.notices_ready ||
       !result.rows[0]?.migrations_ready ||
-      !await services.accountAccess.ready()
+      (checkGate && !await services.accountAccess.ready())
     ) {
       return NextResponse.json(
         { status: "not_ready", service: "account-center" },
