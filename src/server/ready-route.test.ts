@@ -120,8 +120,39 @@ describe("readiness route", () => {
     await GET(probe("?gate=skip"));
     await GET(probe());
 
-    expect(readyMocks.query).toHaveBeenCalledTimes(2);
+    expect(readyMocks.query).toHaveBeenCalled();
     expect(readyMocks.mainQuery).not.toHaveBeenCalled();
+  });
+
+  it("lets callers arriving while the schema query runs share it, so the public route never queues on the one connection", async () => {
+    let answer!: (value: unknown) => void;
+    readyMocks.query.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+
+    const responses = Promise.all(Array.from({ length: 5 }, (_, i) => GET(probe(i % 2 ? "?gate=skip" : ""))));
+    answer({
+      rows: [{ sessions_ready: true, controls_ready: true, actions_ready: true, deletion_ready: true, sudo_ready: true, rotation_ready: true, notices_ready: true, migrations_ready: true }],
+    });
+
+    expect((await responses).map((response) => response.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(readyMocks.query).toHaveBeenCalledOnce();
+  });
+
+  it("reuses the schema answer for a second, a failure too, then asks again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      readyMocks.query.mockRejectedValueOnce(new Error("database unavailable"));
+      expect((await GET(probe())).status).toBe(503);
+      vi.advanceTimersByTime(900);
+      expect((await GET(probe())).status).toBe(503);
+      expect(readyMocks.query).toHaveBeenCalledOnce();
+
+      vi.advanceTimersByTime(200);
+      expect((await GET(probe())).status).toBe(200);
+      expect((await GET(probe())).status).toBe(200);
+      expect(readyMocks.query).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("still reports not ready for the container health check when PostgreSQL validation fails", async () => {
