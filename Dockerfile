@@ -29,6 +29,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/migrations ./migrations
 COPY --from=builder --chown=nextjs:nodejs /app/maintenance ./maintenance
 USER nextjs
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3000/api/ready >/dev/null || exit 1
+# Process, configuration and PostgreSQL schema only (gate=skip): a Redis outage must not make
+# Swarm restart every task at once. The full /api/ready stays the deploy gate (CI smoke test).
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=6 \
+  CMD wget -qO- "http://127.0.0.1:3000/api/ready?gate=skip" >/dev/null || exit 1
 CMD ["node", "scripts/start.mjs"]

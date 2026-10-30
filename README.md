@@ -95,6 +95,7 @@ Güvenli örnek değerler [`.env.example`](.env.example) dosyasındadır; gerçe
 | --- | --- | --- |
 | `APP_URL` | evet | Canonical, credential'sız HTTPS origin (`https://my.yildizskylab.com`). |
 | `DATABASE_URL` | evet | Kimlik bilgili PostgreSQL URL'si. |
+| `DATABASE_POOL_MAX` | hayır | Görev başına PostgreSQL bağlantı havuzu, 1-100, varsayılan 10. Her kopya (ve start-first deploy sırasında kısa süre ikinci görev) bu kadarını rolün bağlantı sınırından alır; kopya sayısıyla birlikte ayarlanır. |
 | `SESSION_SECRET` | evet | base64/base64url, en az 32 bayt; CSRF, referans, hız sınırı ve oturum ardılı türetme HMAC anahtarı. Değiştirilince oturumlar düşmez; eski anahtarla döndürülmüş bir oturumda önceki tutamakla gelen ilk yeniden döndürme aynı ardılı veremez ve bir kez yeni ardıl üretir, sonraki döndürmeden itibaren aynı-ardıl davranışı geri gelir. |
 | `TOKEN_ENCRYPTION_KEY` | evet | base64/base64url, tam 32 bayt; token, Sudo ve transaction şifreleme anahtarı (AES-256-GCM). |
 | `OIDC_ISSUER` | evet | Canonical `https://<host>/realms/<realm>`; erişim engeli `enforce` iken tam olarak `https://e.yildizskylab.com/realms/e-skylab`. |
@@ -131,7 +132,7 @@ Sürüm akışı, migration sırası, doğrulama ve geri dönüş [rollout-v2.md
   node scripts/prune-auth.mjs
   ```
 
-- `/api/health` yalnız proses canlılığını; `/api/ready` ortam yapılandırmasının ayrıştırılabildiğini, PostgreSQL tablolarını ve migration kayıtlarını ve gerekli erişim engeli sınırını doğrular. Trafik yalnız readiness başarılı olduğunda yönlendirilmelidir.
+- `/api/health` yalnız proses canlılığını; `/api/ready` ortam yapılandırmasının ayrıştırılabildiğini, PostgreSQL tablolarını ve migration kayıtlarını ve gerekli erişim engeli sınırını doğrular. Trafik yalnız readiness başarılı olduğunda yönlendirilmelidir. İmajın `HEALTHCHECK`'i `/api/ready?gate=skip` sorar: erişim engeli Redis'i dışında aynı denetimler. Swarm sağlıksız görevi yeniden başlattığı için Redis kesintisi bütün kopyaları birden yeniden başlatmasın diye; Redis yokken `enforce` modunda kararlar yine `unavailable` döner. Atlama yalnız süreç erişim engelini en az bir kez hazır gördükten sonra geçerlidir: Redis'e hiç ulaşamayan yeni görev sağlıksız kalır, deploy eskisini tutar. Readiness PostgreSQL'i kendi tek bağlantısında okur (görev başına +1 bağlantı, 2 sn sınır): istek havuzu doluyken görev yük altında yeniden başlatılmaz. Parametresiz `/api/ready` deploy kapısı olarak kalır (CI smoke testi, yayın doğrulaması).
 - Keycloak kullanıcı token'ı sözleşmesi `aud` için yalnız `{account, core}` kümesini kabul eder. K2 geçişinde kabul edilen eski `{account}` kümesi ve `token_audience_legacy` log olayı kaldırıldı (A0c): eski biçimli token reddedilir ([Keycloak sözleşmesi](docs/keycloak-26.7.4-contract.md#geçiş-sırası)).
 
 ## Ayrıntılı belgeler
