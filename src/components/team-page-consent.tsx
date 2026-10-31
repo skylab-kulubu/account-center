@@ -4,6 +4,7 @@ import { Button, Notice, ToggleRow } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { PRIVACY_NOTICE_URL } from "@/lib/communication-preferences";
+import { CONSENT_TEXT_URL } from "@/lib/promotional-consent";
 import { isTeamPageConsentState, TEAM_PAGE_TEXT, TEAM_PAGE_TITLE } from "@/lib/team-page-consent";
 import type { TeamPageConsentState } from "@/lib/team-page-consent";
 import { isObject, responseJson, securityRequest } from "@/lib/security-client";
@@ -97,6 +98,8 @@ export function TeamPageConsentSection({ initial, csrfToken, returnTo }: Section
       <div className="settings-section__heading">
         <h2 id={headingId}>{TEAM_PAGE_TITLE}</h2>
         <p>
+          <a href={CONSENT_TEXT_URL} rel="noopener noreferrer" target="_blank">Açık Rıza Metni</a>
+          {" · "}
           <a href={PRIVACY_NOTICE_URL} rel="noopener noreferrer" target="_blank">KVKK aydınlatma metni</a>
         </p>
       </div>
