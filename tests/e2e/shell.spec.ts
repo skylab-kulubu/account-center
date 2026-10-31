@@ -283,6 +283,48 @@ test("public deletion status works without a session and never renders its recei
   expect(browserSurface).not.toContain(receipt);
 });
 
+// The three steps fit a 375 px phone: no label is cut, and the last day is
+// written once.
+test("deletion status steps fit a 375 px screen", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile", "phone-only assertion");
+  await page.setViewportSize({ width: 375, height: 812 });
+  await context.addCookies([{
+    name: "__Host-sky-account-delete-receipt",
+    value: `adr_${"r".repeat(43)}`,
+    url: baseUrl,
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+  }]);
+  await page.route("**/api/account/deletion/status", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      status: "manual_intervention",
+      partial: true,
+      requestedAt: "2026-09-20T12:00:01.000Z",
+      updatedAt: "2026-09-20T12:00:02.000Z",
+      completedAt: null,
+      awaitingManualStep: true,
+      csrfToken: "c".repeat(43),
+    }),
+  }));
+
+  await page.goto("/account-deletion");
+
+  await expect(page.getByRole("heading", { name: "Verilerin siliniyor" })).toBeVisible();
+  await expect(page.getByText(/En geç/)).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "İşlemi yeniden dene" })).toHaveCount(0);
+  const labels = page.locator('[data-slot="stepper"] li p');
+  await expect(labels).toHaveText(["Talep alındı", "Siliniyor", "Tamamlandı"]);
+  const cut = await labels.evaluateAll((nodes) => nodes
+    .filter((node) => node.scrollWidth > node.clientWidth)
+    .map((node) => node.textContent));
+  await testInfo.attach("account-deletion-375", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  expect(cut).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+});
+
 test("uncertain native deletion submit navigates to sessionless recovery without losing its receipt", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only navigation regression");
   const localReceipt = "l".repeat(43);

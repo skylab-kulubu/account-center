@@ -213,14 +213,15 @@ export function AccountDeletionStatus() {
       icon: completed ? CheckCircle2 : Clock3,
       tone: completed ? "success" : "brand",
       eyebrow: "Hesap silme",
-      title: completed ? "Hesabın silindi" : step === 0 ? "Talebin alınıyor" : "Verilerin siliniyor",
+      title: completed ? "Hesabın silindi" : step === 0 ? "Talebin alındı" : "Verilerin siliniyor",
       description: completed ? undefined : `En geç ${deadline}`,
       body: (
         <Stepper
           current={step}
           steps={[
             { id: "received", label: "Talep alındı" },
-            { id: "erasing", label: "Veriler siliniyor" },
+            // Short enough not to be cut at 375 px (tests/e2e/shell.spec.ts).
+            { id: "erasing", label: "Siliniyor" },
             { id: "completed", label: "Tamamlandı" },
           ]}
         />

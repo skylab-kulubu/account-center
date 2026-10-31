@@ -243,10 +243,10 @@ describe("account deletion UI", () => {
   // holds for its team is still being erased.
   it("shows three steps and the request's last day, never core's steps", async () => {
     for (const [status, title, current] of [
-      ["blocking", "Talebin alınıyor", "Talep alındı"],
-      ["pending", "Verilerin siliniyor", "Veriler siliniyor"],
-      ["processing", "Verilerin siliniyor", "Veriler siliniyor"],
-      ["manual_intervention", "Verilerin siliniyor", "Veriler siliniyor"],
+      ["blocking", "Talebin alındı", "Talep alındı"],
+      ["pending", "Verilerin siliniyor", "Siliniyor"],
+      ["processing", "Verilerin siliniyor", "Siliniyor"],
+      ["manual_intervention", "Verilerin siliniyor", "Siliniyor"],
       ["completed", "Hesabın silindi", null],
     ] as const) {
       vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({
@@ -262,7 +262,7 @@ describe("account deletion UI", () => {
       expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
       const steps = screen.getAllByRole("listitem");
       expect(steps).toHaveLength(3);
-      ["Talep alındı", "Veriler siliniyor", "Tamamlandı"].forEach((label, i) => expect(steps[i]).toHaveTextContent(label));
+      ["Talep alındı", "Siliniyor", "Tamamlandı"].forEach((label, i) => expect(steps[i]).toHaveTextContent(label));
       const active = steps.filter((step) => step.getAttribute("aria-current") === "step");
       if (current === null) {
         expect(active).toHaveLength(0);
@@ -271,6 +271,8 @@ describe("account deletion UI", () => {
         expect(active).toHaveLength(1);
         expect(active[0]).toHaveTextContent(current);
         // 21:30 UTC on 31 October is 1 November in Istanbul: the last day is 1 December.
+        // Once: in the page's description, not again in the step.
+        expect(screen.getAllByText(/En geç/)).toHaveLength(1);
         expect(screen.getByText("En geç 01.12.2026")).toBeInTheDocument();
       }
       expect(document.body.textContent).not.toMatch(/erase_|anonymi|identity|adım/i);
