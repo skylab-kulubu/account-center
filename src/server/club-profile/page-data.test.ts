@@ -91,7 +91,7 @@ describe("loadClubProfilePage", () => {
         value: expect.objectContaining({ faculty: "Elektrik-Elektronik Fakültesi", studentCardLinked: true, phone: "+905551112233" }),
       },
       skyPassWallet: { status: "hidden" },
-      teamPage: { status: "shown", value: "none" },
+      teamPage: { status: "shown", value: "shown" },
       csrfToken: "session-bound-csrf",
     });
     expect(JSON.stringify(data)).not.toContain(meFixture.id);
@@ -105,17 +105,17 @@ describe("loadClubProfilePage", () => {
     expect(mocks.walletStatus).toHaveBeenCalledWith("server-held-user-token");
   });
 
-  it("reads the team page consent beside the profile, and hides the switch while core records no consents", async () => {
+  it("reads the team page objection beside the profile, and hides the switch while core records no consents", async () => {
     mocks.consentList.mockResolvedValue([
       { purpose: "promotional", status: "active" },
-      { purpose: "team_page", status: "withdrawn" },
-      { purpose: "team_page", status: "active" },
+      { purpose: "team_page_objection", status: "withdrawn" },
+      { purpose: "team_page_objection", status: "active" },
     ]);
-    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "shown", value: "active" });
+    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "shown", value: "hidden" });
     expect(mocks.consentList).toHaveBeenCalledWith("server-held-user-token");
 
     mocks.consentList.mockResolvedValue([{ purpose: "promotional", status: "active" }]);
-    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "shown", value: "none" });
+    expect((await loadClubProfilePage()).teamPage).toEqual({ status: "shown", value: "shown" });
 
     mocks.consentList.mockRejectedValue(new CoreConsentError("off"));
     expect((await loadClubProfilePage()).teamPage).toEqual({ status: "hidden" });

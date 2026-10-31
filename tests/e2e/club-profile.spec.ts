@@ -504,7 +504,7 @@ test("an iPhone gets a note instead of the Google Wallet button", async ({ brows
   }
 });
 
-const teamPageSwitch = /Ekip sayfalarında görüneyim/;
+const teamPageSwitch = "Ekip sayfalarında görün";
 
 type ConsentState = {
   items: Array<{ purpose: string; status: string }>;
@@ -517,36 +517,36 @@ async function consentState(request: APIRequestContext, subject: string): Promis
   return response.json() as Promise<ConsentState>;
 }
 
-test("the team page switch is off and grants and withdraws team_page through core", async ({ context, page, playwright }, testInfo) => {
+test("the team page switch is on, records the objection off and ends it on through core", async ({ context, page, playwright }, testInfo) => {
   const fixture = await installSession(context, `team-page-${testInfo.project.name}-${testInfo.retry}`);
   const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
   try {
     await gotoClubProfile(page);
     await expect(page.getByRole("heading", { level: 2, name: "Ekip sayfaları" })).toBeVisible();
-    const toggle = page.getByRole("switch", { name: teamPageSwitch });
-    await expect(toggle).not.toBeChecked();
-
-    const granted = page.waitForResponse((candidate) =>
-      candidate.url().endsWith("/api/account/team-page-consent") && candidate.request().method() === "POST");
-    await toggle.click();
-    expect((await granted).status()).toBe(200);
+    const toggle = page.getByRole("switch", { name: teamPageSwitch, exact: true });
     await expect(toggle).toBeChecked();
+
+    const objected = page.waitForResponse((candidate) =>
+      candidate.url().endsWith("/api/account/team-page-consent") && candidate.request().method() === "DELETE");
+    await toggle.click();
+    expect((await objected).status()).toBe(200);
+    await expect(toggle).not.toBeChecked();
     let state = await consentState(inspector, fixture.subject);
     expect(state.requests.at(-1)).toEqual({
       method: "POST",
-      body: { purpose: "team_page", textVersion: "ekip-sayfasi-v1", source: "self" },
+      body: { purpose: "team_page_objection", textVersion: "ekip-sayfasi-itiraz-v1", source: "self" },
     });
 
     await page.reload();
-    const reloaded = page.getByRole("switch", { name: teamPageSwitch });
-    await expect(reloaded).toBeChecked();
-    const withdrawn = page.waitForResponse((candidate) =>
-      candidate.url().endsWith("/api/account/team-page-consent") && candidate.request().method() === "DELETE");
-    await reloaded.click();
-    expect((await withdrawn).status()).toBe(200);
+    const reloaded = page.getByRole("switch", { name: teamPageSwitch, exact: true });
     await expect(reloaded).not.toBeChecked();
+    const lifted = page.waitForResponse((candidate) =>
+      candidate.url().endsWith("/api/account/team-page-consent") && candidate.request().method() === "POST");
+    await reloaded.click();
+    expect((await lifted).status()).toBe(200);
+    await expect(reloaded).toBeChecked();
     state = await consentState(inspector, fixture.subject);
-    expect(state.requests.at(-1)).toEqual({ method: "DELETE", purpose: "team_page" });
+    expect(state.requests.at(-1)).toEqual({ method: "DELETE", purpose: "team_page_objection" });
   } finally {
     await inspector.dispose();
   }
@@ -560,7 +560,7 @@ test("the team page switch is left out while core records no consents", async ({
     expect(off.status()).toBe(200);
     await gotoClubProfile(page);
     await expect(page.getByRole("heading", { name: "Ekip sayfaları" })).toHaveCount(0);
-    await expect(page.getByRole("switch", { name: teamPageSwitch })).toHaveCount(0);
+    await expect(page.getByRole("switch", { name: teamPageSwitch, exact: true })).toHaveCount(0);
   } finally {
     await inspector.dispose();
   }

@@ -22,11 +22,12 @@ import { teamPageConsentServiceFor } from "@/server/team-page-consent/service";
 import type { TeamPageConsentService } from "@/server/team-page-consent/service";
 
 /**
- * Browser BFF routes for the team page consent ("Ekip sayfalarında
- * görüneyim", core `docs/team-page-consent.md`). Writing needs the exact
- * configured origin and the session-bound CSRF proof, like the promotional
- * consent, and no Sudo mode. The purpose, the text version and the source
- * are the BFF's: the browser sends no body.
+ * Browser BFF routes for the team page switch ("Ekip sayfalarında görün",
+ * core `docs/team-page-consent.md`): `POST` turns it on (ends the objection),
+ * `DELETE` turns it off (records it). Writing needs the exact configured
+ * origin and the session-bound CSRF proof, like the promotional consent, and
+ * no Sudo mode. The purpose, the text version and the source are the BFF's:
+ * the browser sends no body.
  */
 
 const PROBLEM_BASE = "https://my.yildizskylab.com/problems/";
@@ -160,26 +161,26 @@ async function authenticateMutation(request: NextRequest): Promise<Authenticated
   return { ok: true, services, consent, sessionUse: authorization.value };
 }
 
-/** `POST /api/account/team-page-consent` → `{ teamPage: "active" }`. */
+/** `POST /api/account/team-page-consent` → `{ teamPage: "shown" }`: the person is shown on the public team pages at once. */
 export async function grantTeamPageConsent(request: NextRequest) {
   const access = await authenticateMutation(request);
   if (!access.ok) return access.response;
   const { services, consent, sessionUse } = access;
   try {
-    const teamPage = await consent.grant(sessionUse.session);
+    const teamPage = await consent.show(sessionUse.session);
     return withRotatedHandle(noStore(NextResponse.json({ teamPage })), sessionUse);
   } catch (error) {
     return failureResponse(request, services, sessionUse, error);
   }
 }
 
-/** `DELETE /api/account/team-page-consent` → `{ teamPage: "none" }`: the person is hidden from the public team pages at once. */
+/** `DELETE /api/account/team-page-consent` → `{ teamPage: "hidden" }`: the person is hidden from the public team pages at once. */
 export async function withdrawTeamPageConsent(request: NextRequest) {
   const access = await authenticateMutation(request);
   if (!access.ok) return access.response;
   const { services, consent, sessionUse } = access;
   try {
-    const teamPage = await consent.withdraw(sessionUse.session);
+    const teamPage = await consent.hide(sessionUse.session);
     return withRotatedHandle(noStore(NextResponse.json({ teamPage })), sessionUse);
   } catch (error) {
     return failureResponse(request, services, sessionUse, error);

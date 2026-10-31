@@ -113,10 +113,10 @@ describe("Kulüp profili page", () => {
     expect(screen.queryByTestId("team-page-consent")).not.toBeInTheDocument();
     unmount();
 
-    vi.mocked(loadClubProfilePage).mockResolvedValue(pageData({ teamPage: { status: "shown", value: "none" } }));
+    vi.mocked(loadClubProfilePage).mockResolvedValue(pageData({ teamPage: { status: "shown", value: "shown" } }));
     render(await ClubProfilePage());
     const section = screen.getByTestId("team-page-consent");
-    expect(section).toHaveAttribute("data-initial", "none");
+    expect(section).toHaveAttribute("data-initial", "shown");
     expect(section).toHaveAttribute("data-csrf", "session-bound-csrf");
     expect(section).toHaveAttribute("data-return-to", "/club-profile");
   });

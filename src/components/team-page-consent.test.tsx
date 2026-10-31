@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TeamPageConsentSection } from "@/components/team-page-consent";
+import { TEAM_PAGE_TEXT } from "@/lib/team-page-consent";
 
-const SWITCH = /Ekip sayfalarında görüneyim/;
+const SWITCH = "Ekip sayfalarında görün";
 
 function respond(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -23,47 +24,54 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderSection(initial: "active" | "none" | null = "none") {
+function renderSection(initial: "shown" | "hidden" | null = "shown") {
   return render(<TeamPageConsentSection csrfToken="csrf-proof" initial={initial} returnTo="/club-profile" />);
 }
 
 describe("Ekip sayfaları switch", () => {
-  it("is off, labelled with core's text and links the Açık Rıza Metni and the aydınlatma metni", () => {
+  it("is on, labelled and described with core's text and links only the aydınlatma metni", () => {
     renderSection();
-    const box = screen.getByRole("switch", {
-      name: "Ekip sayfalarında görüneyim: adım, soyadım, profil fotoğrafım, LinkedIn adresim, üniversitem, fakültem, bölümüm ve ekip liderliğim ekibimin SKY LAB uygulamasındaki sayfasında yayımlansın.",
-    });
-    expect(box).not.toBeChecked();
+    const box = screen.getByRole("switch", { name: "Ekip sayfalarında görün" });
+    expect(box).toBeChecked();
+    expect(box).toHaveAccessibleDescription(
+      "Adın, soyadın, profil fotoğrafın, LinkedIn adresin, üniversiten, fakülten, bölümün ve ekip liderliğin ekibinin SKY LAB uygulamasındaki sayfasında yer alır.",
+    );
     expect(screen.getByRole("heading", { name: "Ekip sayfaları" })).toBeInTheDocument();
-    const consentText = screen.getByRole("link", { name: "Açık Rıza Metni" });
-    expect(consentText).toHaveAttribute("href", "https://yildizskylab.com/acik-riza-metni.pdf");
-    expect(consentText).toHaveAttribute("target", "_blank");
-    expect(screen.getByRole("link", { name: "KVKK aydınlatma metni" })).toHaveAttribute("href", "https://yildizskylab.com/kvkk-metni.pdf");
+    const notice = screen.getByRole("link", { name: "KVKK aydınlatma metni" });
+    expect(notice).toHaveAttribute("href", "https://yildizskylab.com/kvkk-metni.pdf");
+    expect(notice).toHaveAttribute("target", "_blank");
+    expect(screen.queryByRole("link", { name: "Açık Rıza Metni" })).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("turning it on grants, turning it off withdraws, with no body", async () => {
-    fetch.mockResolvedValueOnce(respond({ teamPage: "active" })).mockResolvedValueOnce(respond({ teamPage: "none" }));
+  it("is core's ekip-sayfasi-itiraz-v1 text word for word", () => {
+    expect(TEAM_PAGE_TEXT).toBe(
+      "Ekip sayfalarında görün. Adın, soyadın, profil fotoğrafın, LinkedIn adresin, üniversiten, fakülten, bölümün ve ekip liderliğin ekibinin SKY LAB uygulamasındaki sayfasında yer alır.",
+    );
+  });
+
+  it("turning it off objects, turning it on again ends the objection, with no body", async () => {
+    fetch.mockResolvedValueOnce(respond({ teamPage: "hidden" })).mockResolvedValueOnce(respond({ teamPage: "shown" }));
     renderSection();
 
     fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
-    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked());
-    expect(screen.getByRole("status")).toHaveTextContent("Ekip sayfası izni açıldı.");
+    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).not.toBeChecked());
+    expect(screen.getByRole("status")).toHaveTextContent("Ekip sayfalarında görünmüyorsun.");
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/account/team-page-consent");
-    expect(init.method).toBe("POST");
+    expect(init.method).toBe("DELETE");
     expect(init.headers).toMatchObject({ "x-csrf-token": "csrf-proof" });
     expect(init.body).toBeUndefined();
 
     fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
-    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).not.toBeChecked());
-    expect(screen.getByRole("status")).toHaveTextContent("Ekip sayfası izni kapatıldı.");
-    expect((fetch.mock.calls[1] as [string, RequestInit])[1].method).toBe("DELETE");
+    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked());
+    expect(screen.getByRole("status")).toHaveTextContent("Ekip sayfalarında görünüyorsun.");
+    expect((fetch.mock.calls[1] as [string, RequestInit])[1].method).toBe("POST");
   });
 
   it("keeps the switch as it was and shows the problem when the write fails", async () => {
     fetch.mockResolvedValueOnce(respond({ title: "Ekip sayfası ayarına şu anda ulaşılamıyor", detail: "Biraz sonra yeniden dene.", status: 503 }, 503));
-    renderSection("active");
+    renderSection("shown");
 
     fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
     await screen.findByText("Ekip sayfası ayarına şu anda ulaşılamıyor");
@@ -71,12 +79,12 @@ describe("Ekip sayfaları switch", () => {
   });
 
   it("refuses an answer that does not match the change", async () => {
-    fetch.mockResolvedValueOnce(respond({ teamPage: "none" }));
+    fetch.mockResolvedValueOnce(respond({ teamPage: "shown" }));
     renderSection();
 
     fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
     await screen.findByText("Ekip sayfası ayarı güvenle durduruldu");
-    expect(screen.getByRole("switch", { name: SWITCH })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked();
   });
 
   it("offers a fresh login on a refused session", async () => {

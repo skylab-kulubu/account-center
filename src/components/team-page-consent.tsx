@@ -4,8 +4,7 @@ import { Button, Notice, ToggleRow } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { PRIVACY_NOTICE_URL } from "@/lib/communication-preferences";
-import { CONSENT_TEXT_URL } from "@/lib/promotional-consent";
-import { isTeamPageConsentState, TEAM_PAGE_TEXT, TEAM_PAGE_TITLE } from "@/lib/team-page-consent";
+import { isTeamPageConsentState, TEAM_PAGE_DESCRIPTION, TEAM_PAGE_LABEL, TEAM_PAGE_TITLE } from "@/lib/team-page-consent";
 import type { TeamPageConsentState } from "@/lib/team-page-consent";
 import { isObject, responseJson, securityRequest } from "@/lib/security-client";
 
@@ -52,14 +51,15 @@ type SectionProps = {
 };
 
 /**
- * The "Ekip sayfaları" switch: core's `ekip-sayfasi-v1` text as its label,
- * off unless the person's own consent is active. Turning it on records the
- * grant; turning it off withdraws it, and core hides the person from the
- * public team pages at once (a Board member keeps their name on the Board's
- * own page).
+ * The "Ekip sayfaları" switch: core's `ekip-sayfasi-itiraz-v1` text as its
+ * label and description, on unless the person objected. Turning it off
+ * records the objection and core hides the person from the public team
+ * pages at once (a Board member keeps their name on the Board's own page);
+ * turning it on ends it and core shows them again.
  */
 export function TeamPageConsentSection({ initial, csrfToken, returnTo }: SectionProps) {
   const headingId = useId();
+  const descriptionId = useId();
   const [state, setState] = useState(initial);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -82,12 +82,12 @@ export function TeamPageConsentSection({ initial, csrfToken, returnTo }: Section
         return;
       }
       const next = isObject(body) && isTeamPageConsentState(body.teamPage) ? body.teamPage : null;
-      if (next === null || (next === "active") !== checked) {
+      if (next === null || (next === "shown") !== checked) {
         setFeedback({ tone: "danger", problem: contractProblem });
         return;
       }
       setState(next);
-      setFeedback({ tone: "success", message: checked ? "Ekip sayfası izni açıldı." : "Ekip sayfası izni kapatıldı." });
+      setFeedback({ tone: "success", message: checked ? "Ekip sayfalarında görünüyorsun." : "Ekip sayfalarında görünmüyorsun." });
     } finally {
       setPending(false);
     }
@@ -98,8 +98,6 @@ export function TeamPageConsentSection({ initial, csrfToken, returnTo }: Section
       <div className="settings-section__heading">
         <h2 id={headingId}>{TEAM_PAGE_TITLE}</h2>
         <p>
-          <a href={CONSENT_TEXT_URL} rel="noopener noreferrer" target="_blank">Açık Rıza Metni</a>
-          {" · "}
           <a href={PRIVACY_NOTICE_URL} rel="noopener noreferrer" target="_blank">KVKK aydınlatma metni</a>
         </p>
       </div>
@@ -123,11 +121,13 @@ export function TeamPageConsentSection({ initial, csrfToken, returnTo }: Section
         <Notice tone="warning">Ekip sayfası ayarı okunamadı. Sayfayı yenileyip yeniden dene.</Notice>
       ) : (
         <ToggleRow
-          aria-label={TEAM_PAGE_TEXT}
-          checked={state === "active"}
+          aria-describedby={descriptionId}
+          aria-label={TEAM_PAGE_LABEL}
+          checked={state === "shown"}
+          description={<span id={descriptionId}>{TEAM_PAGE_DESCRIPTION}</span>}
           disabled={pending}
           onCheckedChange={(checked) => void change(checked)}
-          title={TEAM_PAGE_TEXT}
+          title={TEAM_PAGE_LABEL}
         />
       )}
     </section>
