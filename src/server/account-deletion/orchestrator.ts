@@ -117,10 +117,24 @@ export function accountDeletionErrorKind(error: unknown) {
   }
 }
 
+/**
+ * Whether the request waits for an operator to carry out a service's step by
+ * hand, as core says in the answer just read; only while the stored status
+ * is that same manual intervention. Not stored: it is read afresh with every
+ * status.
+ */
+function awaitingManualStep(saved: AcceptedAccountDeletionIntent, current: CoreAccountDeletionStatus) {
+  return saved.status === "manual_intervention" &&
+    current.status === "manual_intervention" &&
+    current.awaitingManualStep === true;
+}
+
 function publicStatus(intent: AcceptedAccountDeletionIntent) {
   return {
     status: intent.status,
     partial: intent.partial,
+    // The status page names the request's last day from it (30 days).
+    requestedAt: intent.requestedAt.toISOString(),
     updatedAt: intent.updatedAt.toISOString(),
     completedAt: intent.completedAt?.toISOString() ?? null,
     receiptExpiresAt: intent.receiptExpiresAt?.toISOString() ?? null,
@@ -396,7 +410,11 @@ export class AccountDeletionOrchestrator {
       ) throw error;
       throw new AccountDeletionUnavailableError();
     }
-    return { ...publicStatus(recorded.saved), receipt: recorded.receipt };
+    return {
+      ...publicStatus(recorded.saved),
+      awaitingManualStep: awaitingManualStep(recorded.saved, current),
+      receipt: recorded.receipt,
+    };
   }
 
   async retry(receipt: string) {
@@ -417,7 +435,7 @@ export class AccountDeletionOrchestrator {
       throw new AccountDeletionUnavailableError();
     }
     const { saved, receipt: coreReceipt } = await this.#recordCoreReceipt(intent, current);
-    return { ...publicStatus(saved), receipt: coreReceipt };
+    return { ...publicStatus(saved), awaitingManualStep: awaitingManualStep(saved, current), receipt: coreReceipt };
   }
 
   receiptCsrfToken(receipt: string) {
