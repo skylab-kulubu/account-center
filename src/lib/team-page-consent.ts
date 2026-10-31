@@ -13,7 +13,7 @@ export const TEAM_PAGE_TEXT_VERSION = "ekip-sayfasi-v1";
 
 /** Core's text of `ekip-sayfasi-v1`, word for word: the switch's label. */
 export const TEAM_PAGE_TEXT =
-  "Ekip sayfalarında görüneyim: adım, soyadım, profil fotoğrafım, LinkedIn adresim, üniversitem, fakültem, bölümüm ve ekip liderliğim ekibimin sitedeki ve SKY LAB uygulamasındaki sayfasında yayımlansın.";
+  "Ekip sayfalarında görüneyim: adım, soyadım, profil fotoğrafım, LinkedIn adresim, üniversitem, fakültem, bölümüm ve ekip liderliğim ekibimin SKY LAB uygulamasındaki sayfasında yayımlansın.";
 
 export const TEAM_PAGE_TITLE = "Ekip sayfaları";
 

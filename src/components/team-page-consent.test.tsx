@@ -28,13 +28,16 @@ function renderSection(initial: "active" | "none" | null = "none") {
 }
 
 describe("Ekip sayfaları switch", () => {
-  it("is off, labelled with core's text and links the aydınlatma metni", () => {
+  it("is off, labelled with core's text and links the Açık Rıza Metni and the aydınlatma metni", () => {
     renderSection();
     const box = screen.getByRole("switch", {
-      name: "Ekip sayfalarında görüneyim: adım, soyadım, profil fotoğrafım, LinkedIn adresim, üniversitem, fakültem, bölümüm ve ekip liderliğim ekibimin sitedeki ve SKY LAB uygulamasındaki sayfasında yayımlansın.",
+      name: "Ekip sayfalarında görüneyim: adım, soyadım, profil fotoğrafım, LinkedIn adresim, üniversitem, fakültem, bölümüm ve ekip liderliğim ekibimin SKY LAB uygulamasındaki sayfasında yayımlansın.",
     });
     expect(box).not.toBeChecked();
     expect(screen.getByRole("heading", { name: "Ekip sayfaları" })).toBeInTheDocument();
+    const consentText = screen.getByRole("link", { name: "Açık Rıza Metni" });
+    expect(consentText).toHaveAttribute("href", "https://yildizskylab.com/acik-riza-metni.pdf");
+    expect(consentText).toHaveAttribute("target", "_blank");
     expect(screen.getByRole("link", { name: "KVKK aydınlatma metni" })).toHaveAttribute("href", "https://yildizskylab.com/kvkk-metni.pdf");
     expect(fetch).not.toHaveBeenCalled();
   });
