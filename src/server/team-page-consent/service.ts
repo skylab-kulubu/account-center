@@ -1,6 +1,6 @@
 import "server-only";
 
-import { TEAM_PAGE_PURPOSE, TEAM_PAGE_TEXT_VERSION } from "@/lib/team-page-consent";
+import { TEAM_PAGE_OBJECTION_PURPOSE, TEAM_PAGE_TEXT_VERSION } from "@/lib/team-page-consent";
 import type { TeamPageConsentState } from "@/lib/team-page-consent";
 import { CoreConsentError } from "@/server/core/consents-client";
 import type { CoreConsentItem, CoreConsentsClient } from "@/server/core/consents-client";
@@ -9,15 +9,19 @@ import type { AccountReadService } from "@/server/keycloak-account/service";
 type SessionIdentity = { id: string; subject: string };
 type TokenSource = Pick<AccountReadService, "accessToken">;
 
-/** `active` when the account's own team page grant is open, else `none`. */
+/**
+ * `hidden` when the account's own team page objection is open, else
+ * `shown`. A `team_page` consent of before 2026-10-31 changes nothing: core
+ * carried its withdrawals over as objections.
+ */
 export function teamPageStateOf(items: readonly CoreConsentItem[]): TeamPageConsentState {
-  return items.some((item) => item.purpose === TEAM_PAGE_PURPOSE && item.status === "active") ? "active" : "none";
+  return items.some((item) => item.purpose === TEAM_PAGE_OBJECTION_PURPOSE && item.status === "active") ? "hidden" : "shown";
 }
 
 /**
- * The signed-in person's team page consent, through core with the session's
+ * The signed-in person's team page switch, through core with the session's
  * own user token (audience `core`), as the promotional consent does. No
- * Sudo mode: turning it off is always one click away on the same page.
+ * Sudo mode: either way is always one click away on the same page.
  */
 export class TeamPageConsentService {
   constructor(
@@ -40,19 +44,20 @@ export class TeamPageConsentService {
     return this.#withToken(session, async (accessToken) => teamPageStateOf(await this.core.list(accessToken)));
   }
 
-  /** Records the grant on `ekip-sayfasi-v1`, named explicitly, from Account Center (`self`). */
-  async grant(session: SessionIdentity): Promise<TeamPageConsentState> {
+  /** Switch on: ends the account's own objection, if any; core shows the person at once. */
+  async show(session: SessionIdentity): Promise<TeamPageConsentState> {
+    await this.#withToken(session, (accessToken) => this.core.withdraw(accessToken, TEAM_PAGE_OBJECTION_PURPOSE));
+    return "shown";
+  }
+
+  /** Switch off: records the objection on `ekip-sayfasi-itiraz-v1`, named explicitly, from Account Center (`self`). */
+  async hide(session: SessionIdentity): Promise<TeamPageConsentState> {
     await this.#withToken(session, (accessToken) => this.core.grant(accessToken, {
-      purpose: TEAM_PAGE_PURPOSE,
+      purpose: TEAM_PAGE_OBJECTION_PURPOSE,
       textVersion: TEAM_PAGE_TEXT_VERSION,
       source: "self",
     }));
-    return "active";
-  }
-
-  async withdraw(session: SessionIdentity): Promise<TeamPageConsentState> {
-    await this.#withToken(session, (accessToken) => this.core.withdraw(accessToken, TEAM_PAGE_PURPOSE));
-    return "none";
+    return "hidden";
   }
 }
 

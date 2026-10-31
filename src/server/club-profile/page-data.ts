@@ -41,9 +41,9 @@ export type SkyPassWalletState = { status: "hidden" } | { status: "ready"; issue
  * The "Ekip sayfaları" switch: `hidden` while core records no consents (no
  * `CORE_API_URL`, `CONTACT_CONSENT_KEY` unset, or a core without the routes)
  * or the club profile could not be read; `value: null` when core did not
- * answer the list. A core with the routes but without the `team_page`
- * purpose shows the switch off and refuses turning it on (`400`): release
- * core first.
+ * answer the list. A core with the routes but without the
+ * `team_page_objection` purpose shows the switch on and refuses turning it
+ * off (`400`): release core first.
  */
 export type TeamPageSectionState =
   | { status: "hidden" }
