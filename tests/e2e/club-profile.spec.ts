@@ -70,23 +70,23 @@ test("club profile fields and picture round-trip through the mock core", async (
     await expect(page.getByText("Öğrenci kartı bağlı", { exact: true })).toBeVisible();
     await expect(page.getByText(/\+905551112233/)).toBeVisible();
     await expect(page.getByText(/Yönetim ekibi günceller/)).toBeVisible();
-    await expect(page.getByLabel("Fakülte")).toHaveValue("Elektrik-Elektronik Fakültesi");
+    await expect(page.getByLabel("Fakülte", { exact: true })).toHaveValue("Elektrik-Elektronik Fakültesi");
     await expect(page.getByRole("img", { name: "Mevcut profil fotoğrafın" })).toBeVisible();
     await expect(page.locator("input[name='firstName'], input[name='phone'], input[name='skyNumber']")).toHaveCount(0);
     const initialState = await mockCoreState(inspector, fixture.subject);
     expect(initialState.requests.map(({ method, path }) => `${method} ${path}`)).toEqual(["GET /v1/users/me"]);
 
     await test.step("edit and save only the changed fields", async () => {
-      await page.getByLabel("Fakülte").fill(" Makine Fakültesi ");
+      await page.getByLabel("Fakülte", { exact: true }).fill(" Makine Fakültesi ");
       await page.getByLabel("LinkedIn bağlantısı").fill("https://www.linkedin.com/in/ada-lovelace-2026");
       const patchResponse = page.waitForResponse((response) =>
         response.url().endsWith("/api/account/club-profile") && response.request().method() === "PATCH");
       await page.getByRole("button", { name: "Kaydet" }).click();
       expect((await patchResponse).status()).toBe(200);
-      const saved = page.getByRole("status");
-      await expect(saved).toContainText("Kulüp bilgilerin kaydedildi.");
+      const saved = page.getByRole("status").filter({ hasText: "Kulüp bilgilerin kaydedildi." });
+      await expect(saved).toBeVisible();
       await expect(saved).toBeFocused();
-      await expect(page.getByLabel("Fakülte")).toHaveValue("Makine Fakültesi");
+      await expect(page.getByLabel("Fakülte", { exact: true })).toHaveValue("Makine Fakültesi");
 
       const state = await mockCoreState(inspector, fixture.subject);
       const patch = state.requests.find(({ method }) => method === "PATCH");
@@ -95,7 +95,7 @@ test("club profile fields and picture round-trip through the mock core", async (
       expect(state.profile.university).toBe("Yıldız Teknik Üniversitesi");
 
       await page.reload();
-      await expect(page.getByLabel("Fakülte")).toHaveValue("Makine Fakültesi");
+      await expect(page.getByLabel("Fakülte", { exact: true })).toHaveValue("Makine Fakültesi");
       await expect(page.getByLabel("LinkedIn bağlantısı")).toHaveValue("https://www.linkedin.com/in/ada-lovelace-2026");
     });
 
@@ -120,7 +120,7 @@ test("club profile fields and picture round-trip through the mock core", async (
         response.url().endsWith("/api/account/club-profile/picture") && response.request().method() === "POST");
       await page.getByRole("button", { name: "Fotoğrafı yükle" }).click();
       expect((await uploadResponse).status()).toBe(200);
-      await expect(page.getByRole("status")).toContainText("Profil fotoğrafın güncellendi.");
+      await expect(page.getByRole("status").filter({ hasText: "Profil fotoğrafın güncellendi." })).toBeVisible();
       const current = page.getByRole("img", { name: "Mevcut profil fotoğrafın" });
       await expect(current).toBeVisible();
 
@@ -149,7 +149,7 @@ test("club profile fields and picture round-trip through the mock core", async (
         response.url().endsWith("/api/account/club-profile/picture") && response.request().method() === "DELETE");
       await dialog.getByRole("button", { name: "Fotoğrafı kaldır" }).click();
       expect((await deleteResponse).status()).toBe(200);
-      await expect(page.getByRole("status")).toContainText("Profil fotoğrafın kaldırıldı.");
+      await expect(page.getByRole("status").filter({ hasText: "Profil fotoğrafın kaldırıldı." })).toBeVisible();
       await expect(page.getByText("Henüz fotoğraf yok")).toBeVisible();
       await expect(page.getByRole("img", { name: "Mevcut profil fotoğrafın" })).toHaveCount(0);
       const removed = await mockCoreState(inspector, fixture.subject);
@@ -235,7 +235,7 @@ test("a YTÜ-linked person sees university, faculty and department from the YTÜ
         response.url().endsWith("/api/account/club-profile") && response.request().method() === "PATCH");
       await page.getByRole("button", { name: "Kaydet" }).click();
       expect((await patchResponse).status()).toBe(200);
-      await expect(page.getByRole("status")).toContainText("Kulüp bilgilerin kaydedildi.");
+      await expect(page.getByRole("status").filter({ hasText: "Kulüp bilgilerin kaydedildi." })).toBeVisible();
       const state = await mockCoreState(inspector, fixture.subject);
       expect(state.requests.find(({ method }) => method === "PATCH")?.body).toEqual({ linkedin: "https://www.linkedin.com/in/ada-ytu" });
     });
@@ -501,5 +501,67 @@ test("an iPhone gets a note instead of the Google Wallet button", async ({ brows
   } finally {
     await inspector.dispose();
     await context.close();
+  }
+});
+
+const teamPageSwitch = /Ekip sayfalarında görüneyim/;
+
+type ConsentState = {
+  items: Array<{ purpose: string; status: string }>;
+  requests: Array<{ method: string; body?: unknown; purpose?: string }>;
+};
+
+async function consentState(request: APIRequestContext, subject: string): Promise<ConsentState> {
+  const response = await request.get(`${mockCoreUrl}/__e2e/consents/${encodeURIComponent(subject)}`);
+  expect(response.status()).toBe(200);
+  return response.json() as Promise<ConsentState>;
+}
+
+test("the team page switch is off and grants and withdraws team_page through core", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `team-page-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    await gotoClubProfile(page);
+    await expect(page.getByRole("heading", { level: 2, name: "Ekip sayfaları" })).toBeVisible();
+    const toggle = page.getByRole("switch", { name: teamPageSwitch });
+    await expect(toggle).not.toBeChecked();
+
+    const granted = page.waitForResponse((candidate) =>
+      candidate.url().endsWith("/api/account/team-page-consent") && candidate.request().method() === "POST");
+    await toggle.click();
+    expect((await granted).status()).toBe(200);
+    await expect(toggle).toBeChecked();
+    let state = await consentState(inspector, fixture.subject);
+    expect(state.requests.at(-1)).toEqual({
+      method: "POST",
+      body: { purpose: "team_page", textVersion: "ekip-sayfasi-v1", source: "self" },
+    });
+
+    await page.reload();
+    const reloaded = page.getByRole("switch", { name: teamPageSwitch });
+    await expect(reloaded).toBeChecked();
+    const withdrawn = page.waitForResponse((candidate) =>
+      candidate.url().endsWith("/api/account/team-page-consent") && candidate.request().method() === "DELETE");
+    await reloaded.click();
+    expect((await withdrawn).status()).toBe(200);
+    await expect(reloaded).not.toBeChecked();
+    state = await consentState(inspector, fixture.subject);
+    expect(state.requests.at(-1)).toEqual({ method: "DELETE", purpose: "team_page" });
+  } finally {
+    await inspector.dispose();
+  }
+});
+
+test("the team page switch is left out while core records no consents", async ({ context, page, playwright }, testInfo) => {
+  const fixture = await installSession(context, `team-page-off-${testInfo.project.name}-${testInfo.retry}`);
+  const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const off = await inspector.put(`${mockCoreUrl}/__e2e/consents/${encodeURIComponent(fixture.subject)}`, { data: { off: true } });
+    expect(off.status()).toBe(200);
+    await gotoClubProfile(page);
+    await expect(page.getByRole("heading", { name: "Ekip sayfaları" })).toHaveCount(0);
+    await expect(page.getByRole("switch", { name: teamPageSwitch })).toHaveCount(0);
+  } finally {
+    await inspector.dispose();
   }
 });

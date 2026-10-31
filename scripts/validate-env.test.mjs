@@ -350,3 +350,11 @@ test("keeps account erasure default-off and requires the exact Core origin when 
     /access gate/i,
   );
 });
+
+test("accepts an optional database pool size between 1 and 100", () => {
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, DATABASE_POOL_MAX: "4" }));
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, DATABASE_POOL_MAX: "" }));
+  for (const value of ["0", "101", "ten", "2.5"]) {
+    assert.throws(() => validateEnvironment({ ...valid, DATABASE_POOL_MAX: value }), /DATABASE_POOL_MAX/);
+  }
+});

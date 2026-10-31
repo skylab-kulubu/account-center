@@ -9,6 +9,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { AccountDataProblem } from "@/components/account-data-problem";
+import { HomeEmailDeliveryWarning } from "@/components/email-delivery-warning";
 import { HomePrimaryEmailNudge } from "@/components/primary-email-nudge";
 import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
 import { accountRoute } from "@/config/account-routes";
@@ -42,6 +43,7 @@ export default async function OverviewPage() {
         </section>
       ) : <AccountDataProblem problem={data.problem} retryHref="/" />}
 
+      <HomeEmailDeliveryWarning />
       <HomePrimaryEmailNudge />
 
       <SettingsGroup title="Hesap ayarları" description="En sık kullanılan hesap ve güvenlik alanları.">

@@ -356,6 +356,13 @@ export function validateDatabaseEnvironment(env) {
   requireDatabaseUrl(value);
 }
 
+/** Mirrors databasePoolMax in src/server/db/pool-size.ts; unset keeps 10. */
+function validateDatabasePoolEnvironment(env) {
+  const value = env.DATABASE_POOL_MAX?.trim();
+  if (!value) return;
+  requireInteger("DATABASE_POOL_MAX", value, 1, 100);
+}
+
 export function validateEnvironment(env) {
   const missing = required.filter((name) => !env[name]?.trim());
   if (missing.length > 0) {
@@ -406,4 +413,5 @@ export function validateEnvironment(env) {
   validateAccountErasureEnvironment(env);
   validateAppAssociationEnvironment(env);
   validateDatabaseEnvironment(env);
+  validateDatabasePoolEnvironment(env);
 }
