@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       requestedAt: result.requestedAt,
       updatedAt: result.updatedAt,
       completedAt: result.completedAt,
+      awaitingManualStep: result.awaitingManualStep,
       csrfToken,
     });
     setAccountDeletionReceiptCookie(response, result.receipt, new Date(result.receiptExpiresAt));

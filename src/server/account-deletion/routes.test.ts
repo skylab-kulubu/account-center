@@ -131,6 +131,7 @@ describe("account deletion BFF routes", () => {
       requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
+      awaitingManualStep: false,
       receiptExpiresAt: "2026-10-20T12:00:01.000Z",
       receipt: coreReceipt,
     });
@@ -140,6 +141,7 @@ describe("account deletion BFF routes", () => {
       requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
+      awaitingManualStep: false,
       receiptExpiresAt: "2026-10-20T12:00:01.000Z",
       receipt: coreReceipt,
     });
@@ -149,6 +151,7 @@ describe("account deletion BFF routes", () => {
       requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:03.000Z",
       completedAt: null,
+      awaitingManualStep: false,
       receiptExpiresAt: "2026-10-20T12:00:01.000Z",
       receipt: coreReceipt,
     });
@@ -456,6 +459,7 @@ describe("account deletion BFF routes", () => {
       requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
+      awaitingManualStep: false,
       csrfToken: "receipt-csrf",
     });
     expect(response.headers.get("cache-control")).toBe("no-store");

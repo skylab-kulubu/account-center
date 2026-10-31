@@ -203,6 +203,7 @@ describe("account deletion UI", () => {
       requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
+      awaitingManualStep: false,
       csrfToken: "c".repeat(43),
     }));
     render(<AccountDeletionStatus />);
@@ -221,6 +222,7 @@ describe("account deletion UI", () => {
       requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
+      awaitingManualStep: false,
       csrfToken: "c".repeat(43),
     }));
     const { container } = render(<AccountDeletionStatus />);
@@ -253,6 +255,7 @@ describe("account deletion UI", () => {
         requestedAt: "2026-10-31T21:30:00.000Z",
         updatedAt: "2026-11-01T10:00:00.000Z",
         completedAt: status === "completed" ? "2026-11-01T10:00:00.000Z" : null,
+        awaitingManualStep: false,
         csrfToken: "c".repeat(43),
       }));
       const view = render(<AccountDeletionStatus />);
@@ -263,12 +266,12 @@ describe("account deletion UI", () => {
       const active = steps.filter((step) => step.getAttribute("aria-current") === "step");
       if (current === null) {
         expect(active).toHaveLength(0);
-        expect(screen.queryByText(/Son tarih/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/En geç/)).not.toBeInTheDocument();
       } else {
         expect(active).toHaveLength(1);
         expect(active[0]).toHaveTextContent(current);
         // 21:30 UTC on 31 October is 1 November in Istanbul: the last day is 1 December.
-        expect(screen.getByText("Son tarih: 01.12.2026")).toBeInTheDocument();
+        expect(screen.getByText("En geç 01.12.2026")).toBeInTheDocument();
       }
       expect(document.body.textContent).not.toMatch(/erase_|anonymi|identity|adım/i);
       view.unmount();
@@ -283,6 +286,7 @@ describe("account deletion UI", () => {
         requestedAt: "2026-09-20T12:00:01.000Z",
         updatedAt: "2026-09-20T12:00:02.000Z",
         completedAt: null,
+        awaitingManualStep: false,
         csrfToken: "c".repeat(43),
       }))
       .mockResolvedValueOnce(Response.json({
@@ -291,6 +295,7 @@ describe("account deletion UI", () => {
         requestedAt: "2026-09-20T12:00:01.000Z",
         updatedAt: "2026-09-20T12:00:03.000Z",
         completedAt: null,
+        awaitingManualStep: false,
         csrfToken: "c".repeat(43),
       }));
     render(<AccountDeletionStatus />);
@@ -306,6 +311,26 @@ describe("account deletion UI", () => {
       },
     ));
     expect(await screen.findByRole("heading", { name: "Verilerin siliniyor" })).toBeInTheDocument();
+  });
+
+  // The CMS has no erase endpoint yet: an operator carries out its step by
+  // hand and the request goes on by itself. The page only says the data is
+  // being erased and by when; a retry would only fail again.
+  it("offers no retry while an operator carries out a step by hand", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({
+      status: "manual_intervention",
+      partial: true,
+      requestedAt: "2026-10-31T21:30:00.000Z",
+      updatedAt: "2026-11-01T10:00:00.000Z",
+      completedAt: null,
+      awaitingManualStep: true,
+      csrfToken: "c".repeat(43),
+    }));
+    render(<AccountDeletionStatus />);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Verilerin siliniyor" })).toBeInTheDocument();
+    expect(screen.getByText("En geç 01.12.2026")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("shows generic retryable and missing-receipt states without upstream details", async () => {

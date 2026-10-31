@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
       requestedAt: result.requestedAt,
       updatedAt: result.updatedAt,
       completedAt: result.completedAt,
+      awaitingManualStep: result.awaitingManualStep,
       csrfToken: services.accountDeletion.receiptCsrfToken(result.receipt),
     });
     setAccountDeletionReceiptCookie(response, result.receipt, new Date(result.receiptExpiresAt));

@@ -264,6 +264,7 @@ test("public deletion status works without a session and never renders its recei
       requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
+      awaitingManualStep: false,
       csrfToken: "c".repeat(43),
     }),
   }));
@@ -272,7 +273,7 @@ test("public deletion status works without a session and never renders its recei
 
   await expect(page).toHaveURL(`${baseUrl}/account-deletion`);
   await expect(page.getByRole("heading", { name: "Verilerin siliniyor" })).toBeVisible();
-  await expect(page.getByText("Son tarih: 20.10.2026")).toBeVisible();
+  await expect(page.getByText("En geç 20.10.2026")).toBeVisible();
   const browserSurface = await page.evaluate(() => [
     document.documentElement.outerHTML,
     JSON.stringify(Object.entries(localStorage)),

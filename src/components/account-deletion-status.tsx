@@ -14,6 +14,8 @@ type StatusPayload = {
   requestedAt: string;
   updatedAt: string;
   completedAt: string | null;
+  /** An operator carries out a service's step by hand (today the CMS's): the person's retry cannot help. */
+  awaitingManualStep: boolean;
   csrfToken: string;
 };
 
@@ -68,6 +70,7 @@ function isPayload(value: unknown): value is StatusPayload {
     (record.completedAt === null || (
       typeof record.completedAt === "string" && Number.isFinite(Date.parse(record.completedAt))
     )) &&
+    typeof record.awaitingManualStep === "boolean" &&
     typeof record.csrfToken === "string" && /^[A-Za-z0-9_-]{43}$/.test(record.csrfToken)
   );
 }
@@ -202,7 +205,7 @@ export function AccountDeletionStatus() {
       actions: recheckButton,
     };
   } else {
-    const { status, requestedAt } = view.value;
+    const { status, requestedAt, awaitingManualStep } = view.value;
     const step = currentStep(status);
     const deadline = deletionDeadline(requestedAt);
     const completed = step === 3;
@@ -211,18 +214,20 @@ export function AccountDeletionStatus() {
       tone: completed ? "success" : "brand",
       eyebrow: "Hesap silme",
       title: completed ? "Hesabın silindi" : step === 0 ? "Talebin alınıyor" : "Verilerin siliniyor",
-      description: completed ? undefined : `Son tarih: ${deadline}`,
+      description: completed ? undefined : `En geç ${deadline}`,
       body: (
         <Stepper
           current={step}
           steps={[
             { id: "received", label: "Talep alındı" },
-            { id: "erasing", label: "Veriler siliniyor", description: completed ? undefined : `Son tarih ${deadline}` },
+            { id: "erasing", label: "Veriler siliniyor" },
             { id: "completed", label: "Tamamlandı" },
           ]}
         />
       ),
-      actions: status === "manual_intervention" ? (
+      // An operator carrying out a step by hand (the CMS's) ends this
+      // manual intervention; the person's retry would only fail again.
+      actions: status === "manual_intervention" && !awaitingManualStep ? (
         <Button aria-busy={retrying} disabled={retrying} onClick={() => void retry()} size="lg" type="button" variant="outline">
           <RefreshCw aria-hidden="true" />
           {retrying ? "Yeniden deneniyor…" : "İşlemi yeniden dene"}
