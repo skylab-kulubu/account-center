@@ -121,6 +121,8 @@ function publicStatus(intent: AcceptedAccountDeletionIntent) {
   return {
     status: intent.status,
     partial: intent.partial,
+    // The status page names the request's last day from it (30 days).
+    requestedAt: intent.requestedAt.toISOString(),
     updatedAt: intent.updatedAt.toISOString(),
     completedAt: intent.completedAt?.toISOString() ?? null,
     receiptExpiresAt: intent.receiptExpiresAt?.toISOString() ?? null,

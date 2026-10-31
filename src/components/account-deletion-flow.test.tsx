@@ -200,6 +200,7 @@ describe("account deletion UI", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
       status: "pending",
       partial: false,
+      requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
       csrfToken: "c".repeat(43),
@@ -208,7 +209,7 @@ describe("account deletion UI", () => {
 
     const waiting = screen.getByRole("heading", { level: 1, name: "Silme isteğinin durumu alınıyor" });
     expect(waiting.parentElement).toHaveAttribute("aria-busy", "true");
-    expect(await screen.findByRole("heading", { level: 1, name: "Silme isteğin sırada" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Verilerin siliniyor" })).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("main")).toBeInTheDocument();
   });
@@ -217,13 +218,14 @@ describe("account deletion UI", () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
       status: "processing",
       partial: true,
+      requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
       csrfToken: "c".repeat(43),
     }));
     const { container } = render(<AccountDeletionStatus />);
 
-    expect(await screen.findByRole("heading", { name: "Hesabın siliniyor" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Verilerin siliniyor" })).toBeInTheDocument();
     expect(request).toHaveBeenCalledWith("/api/account/deletion/status", {
       cache: "no-store",
       credentials: "same-origin",
@@ -234,11 +236,51 @@ describe("account deletion UI", () => {
     expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain("adr_");
   });
 
+  // Three steps, whatever core's twelve are doing: received, being erased
+  // (with the last day, 30 days after the request), done. A request core
+  // holds for its team is still being erased.
+  it("shows three steps and the request's last day, never core's steps", async () => {
+    for (const [status, title, current] of [
+      ["blocking", "Talebin alınıyor", "Talep alındı"],
+      ["pending", "Verilerin siliniyor", "Veriler siliniyor"],
+      ["processing", "Verilerin siliniyor", "Veriler siliniyor"],
+      ["manual_intervention", "Verilerin siliniyor", "Veriler siliniyor"],
+      ["completed", "Hesabın silindi", null],
+    ] as const) {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({
+        status,
+        partial: status !== "completed" && status !== "blocking",
+        requestedAt: "2026-10-31T21:30:00.000Z",
+        updatedAt: "2026-11-01T10:00:00.000Z",
+        completedAt: status === "completed" ? "2026-11-01T10:00:00.000Z" : null,
+        csrfToken: "c".repeat(43),
+      }));
+      const view = render(<AccountDeletionStatus />);
+      expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+      const steps = screen.getAllByRole("listitem");
+      expect(steps).toHaveLength(3);
+      ["Talep alındı", "Veriler siliniyor", "Tamamlandı"].forEach((label, i) => expect(steps[i]).toHaveTextContent(label));
+      const active = steps.filter((step) => step.getAttribute("aria-current") === "step");
+      if (current === null) {
+        expect(active).toHaveLength(0);
+        expect(screen.queryByText(/Son tarih/)).not.toBeInTheDocument();
+      } else {
+        expect(active).toHaveLength(1);
+        expect(active[0]).toHaveTextContent(current);
+        // 21:30 UTC on 31 October is 1 November in Istanbul: the last day is 1 December.
+        expect(screen.getByText("Son tarih: 01.12.2026")).toBeInTheDocument();
+      }
+      expect(document.body.textContent).not.toMatch(/erase_|anonymi|identity|adım/i);
+      view.unmount();
+    }
+  });
+
   it("offers an idempotent retry only for manual intervention", async () => {
     const request = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(Response.json({
         status: "manual_intervention",
         partial: true,
+        requestedAt: "2026-09-20T12:00:01.000Z",
         updatedAt: "2026-09-20T12:00:02.000Z",
         completedAt: null,
         csrfToken: "c".repeat(43),
@@ -246,6 +288,7 @@ describe("account deletion UI", () => {
       .mockResolvedValueOnce(Response.json({
         status: "pending",
         partial: true,
+        requestedAt: "2026-09-20T12:00:01.000Z",
         updatedAt: "2026-09-20T12:00:03.000Z",
         completedAt: null,
         csrfToken: "c".repeat(43),
@@ -262,7 +305,7 @@ describe("account deletion UI", () => {
         headers: { "x-csrf-token": "c".repeat(43) },
       },
     ));
-    expect(await screen.findByRole("heading", { name: "Silme isteğin sırada" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Verilerin siliniyor" })).toBeInTheDocument();
   });
 
   it("shows generic retryable and missing-receipt states without upstream details", async () => {

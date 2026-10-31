@@ -128,6 +128,7 @@ describe("account deletion BFF routes", () => {
     mocks.submit.mockResolvedValue({
       status: "processing",
       partial: true,
+      requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
       receiptExpiresAt: "2026-10-20T12:00:01.000Z",
@@ -136,6 +137,7 @@ describe("account deletion BFF routes", () => {
     mocks.status.mockResolvedValue({
       status: "processing",
       partial: true,
+      requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
       receiptExpiresAt: "2026-10-20T12:00:01.000Z",
@@ -144,6 +146,7 @@ describe("account deletion BFF routes", () => {
     mocks.retry.mockResolvedValue({
       status: "pending",
       partial: true,
+      requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:03.000Z",
       completedAt: null,
       receiptExpiresAt: "2026-10-20T12:00:01.000Z",
@@ -450,6 +453,7 @@ describe("account deletion BFF routes", () => {
     await expect(response.json()).resolves.toEqual({
       status: "processing",
       partial: true,
+      requestedAt: "2026-09-20T12:00:01.000Z",
       updatedAt: "2026-09-20T12:00:02.000Z",
       completedAt: null,
       csrfToken: "receipt-csrf",

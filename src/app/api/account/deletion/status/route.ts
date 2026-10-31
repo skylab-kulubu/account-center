@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.json({
       status: result.status,
       partial: result.partial,
+      requestedAt: result.requestedAt,
       updatedAt: result.updatedAt,
       completedAt: result.completedAt,
       csrfToken,
