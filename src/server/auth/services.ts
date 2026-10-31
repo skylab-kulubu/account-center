@@ -113,6 +113,8 @@ function createAuthServices() {
     coreCommunicationPreferences,
     coreConsents,
     skymailInbox,
+    /** The same SkyMail client, for `GET /v1/me/email-delivery`; `null` when `SKYMAIL_API_URL` is unset. */
+    skymailEmailDelivery: skymailInbox,
     noticeDismissals,
     backchannelLogout: new BackchannelLogoutService(
       new KeycloakBackchannelLogoutVerifier(config),

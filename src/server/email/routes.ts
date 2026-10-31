@@ -21,6 +21,8 @@ import {
 } from "@/lib/email-fields";
 import type { PrimaryEmailChoice } from "@/lib/email-fields";
 import { isPrimaryEmailNudge, primaryEmailNudgeFor } from "@/lib/primary-email-nudge";
+import type { EmailDeliveryPayload } from "@/lib/email-delivery";
+import { undeliverableAddresses, undeliverableKinds } from "@/server/email/delivery";
 import { emailChangeView, emailView, pendingEmailView } from "@/server/email/view";
 import type { EmailChangePayload, EmailPayload, PendingEmailPayload, PrimaryEmailNudgePayload } from "@/server/email/view";
 import {
@@ -336,20 +338,31 @@ async function emailRead(
 }
 
 /**
- * `GET /api/account/email`: both addresses, the primary, the CSRF proof and
- * the K4c nudge. The nudge is optional: when the person's dismissals cannot
- * be read, the page shows none rather than one they may have dismissed.
+ * How long `GET /api/account/email` waits for SkyMail's delivery state; the
+ * addresses are answered without the warning when SkyMail is slower.
+ */
+const EMAIL_PAGE_DELIVERY_BUDGET_MS = 1_500;
+
+/**
+ * `GET /api/account/email`: both addresses, the primary, the CSRF proof, the
+ * K4c nudge and which addresses SkyMail no longer mails. The nudge and the
+ * delivery state are optional: when the person's dismissals cannot be read
+ * the page shows no nudge rather than one they may have dismissed, and when
+ * SkyMail cannot be asked it shows no warning.
  */
 export function emailRoute(request: NextRequest) {
   return emailRead(request, async (services, session, auth) => {
-    const [identity, dismissed] = await Promise.all([
+    const [identity, dismissed, undeliverable] = await Promise.all([
       services.skyAccount.identity(auth),
       services.noticeDismissals.list(session.subject).catch(() => null),
+      undeliverableAddresses(services, session, auth.accessToken, { budgetMs: EMAIL_PAGE_DELIVERY_BUDGET_MS }),
     ]);
+    const view = emailView(identity);
     const payload: EmailPayload = {
-      ...emailView(identity),
+      ...view,
       csrfToken: services.sessions.csrfToken(session.id),
       primaryEmailNudge: dismissed === null ? null : primaryEmailNudgeFor(identity, dismissed),
+      undeliverable: undeliverableKinds(undeliverable.addresses, view),
     };
     return noStore(NextResponse.json(payload));
   });
@@ -390,6 +403,39 @@ export async function primaryEmailNudgeRoute(request: NextRequest) {
   } catch {
     return noStore(NextResponse.json(none));
   }
+}
+
+/**
+ * `GET /api/account/email/delivery`: the overview's line, only which kinds
+ * of the person's addresses SkyMail no longer mails (never SkyMail's
+ * addresses or dates). Like the nudge it never ends the session: once the
+ * session is known, any failure is `200 { undeliverable: [] }`. The
+ * addresses are read from the SPI only when SkyMail named any.
+ */
+export async function emailDeliveryRoute(request: NextRequest) {
+  const services = getAuthServices();
+  const authorization = await services.sessionAccess.authenticate(
+    request.cookies.get(SESSION_COOKIE)?.value,
+    { requestId: requestCorrelationId(request) },
+  );
+  if (authorization.status === "unavailable") return accountAccessUnavailableResponse();
+  if (authorization.status === "blocked") return authenticationRequiredResponse(true);
+  if (authorization.status !== "active") return authenticationRequiredResponse();
+
+  const session = authorization.value.session;
+  let payload: EmailDeliveryPayload = { undeliverable: [] };
+  try {
+    const accessToken = await services.account.accessToken(session);
+    const read = await undeliverableAddresses(services, session, accessToken);
+    if (read.addresses.length > 0) {
+      // The token SkyMail accepted: after its 401 that is the refreshed one, which the SPI accepts too.
+      const identity = await services.skyAccount.identity({ accessToken: read.accessToken });
+      payload = { undeliverable: undeliverableKinds(read.addresses, emailView(identity)) };
+    }
+  } catch {
+    // No warning; the overview works without it.
+  }
+  return noStore(NextResponse.json(payload));
 }
 
 /**

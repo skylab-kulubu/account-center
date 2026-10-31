@@ -25,6 +25,9 @@ const BEARER_TOKEN = /^[\x21-\x7e]{1,8192}$/;
 const REQUEST_TIMEOUT_MS = 5_000;
 /** 100 items of at most 200 + 1000 + 2048 characters fit well inside this. */
 const MAX_RESPONSE_BYTES = 512 * 1_024;
+/** A person has a handful of addresses; a longer `undeliverable` list is not the documented answer. */
+const MAX_UNDELIVERABLE = 50;
+const MAX_ADDRESS_LENGTH = 320;
 
 export type SkyMailInboxFailure =
   /** SkyMail did not accept the bearer (no `aud skymail`, expired). */
@@ -60,6 +63,15 @@ export interface SkyMailInboxClient {
   mark(accessToken: string, id: string, action: InboxItemAction): Promise<InboxItem>;
   /** `read-all` marks every unarchived item read (and seen), `seen-all` seen. */
   markAll(accessToken: string, action: "read-all" | "seen-all"): Promise<number>;
+}
+
+/**
+ * `GET /v1/me/email-delivery` (skymail-backend `docs`, hub rabbitmq-olaylar 10):
+ * the person's own suppressed addresses. Only the address is used; `since`
+ * is checked for shape and dropped.
+ */
+export interface SkyMailEmailDeliveryClient {
+  undeliverableAddresses(accessToken: string): Promise<string[]>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,7 +116,7 @@ export function skyMailBaseUrl(value: URL): URL {
   return base;
 }
 
-export class SkyMailInboxHttpClient implements SkyMailInboxClient {
+export class SkyMailInboxHttpClient implements SkyMailInboxClient, SkyMailEmailDeliveryClient {
   readonly #base: URL;
 
   constructor(baseUrl: URL) {
@@ -164,5 +176,21 @@ export class SkyMailInboxHttpClient implements SkyMailInboxClient {
       throw new SkyMailInboxError("contract");
     }
     return body.updated;
+  }
+
+  async undeliverableAddresses(accessToken: string) {
+    const body = await this.#request("GET", "v1/me/email-delivery", accessToken);
+    const rows = isRecord(body) ? body.undeliverable : undefined;
+    if (!Array.isArray(rows) || rows.length > MAX_UNDELIVERABLE) throw new SkyMailInboxError("contract");
+    return rows.map((row: unknown) => {
+      if (
+        !isRecord(row) ||
+        typeof row.address !== "string" ||
+        row.address.length < 1 ||
+        row.address.length > MAX_ADDRESS_LENGTH ||
+        typeof row.since !== "string"
+      ) throw new SkyMailInboxError("contract");
+      return row.address;
+    });
   }
 }

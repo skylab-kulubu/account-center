@@ -89,4 +89,45 @@ describe("SkyMail inbox HTTP client", () => {
     expect(await failureOf(client.list(token, "a b"))).toBe("invalid_input");
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  describe("email delivery", () => {
+    it("reads the person's own suppressed addresses with their bearer and drops the dates", async () => {
+      const fetch = vi.fn().mockResolvedValue(json({
+        undeliverable: [{ address: "ada@example.com", since: "2026-10-25T09:00:00Z" }],
+      }));
+      vi.stubGlobal("fetch", fetch);
+
+      expect(await new SkyMailInboxHttpClient(base).undeliverableAddresses(token)).toEqual(["ada@example.com"]);
+      const [url, init] = fetch.mock.calls[0] as [URL, RequestInit];
+      expect(url.href).toBe("https://api.yildizskylab.com/api/skymail/v1/me/email-delivery");
+      expect(init).toMatchObject({ method: "GET", redirect: "error", cache: "no-store" });
+      expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${token}`);
+    });
+
+    it("answers an empty list as nothing undeliverable", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ undeliverable: [] })));
+      expect(await new SkyMailInboxHttpClient(base).undeliverableAddresses(token)).toEqual([]);
+    });
+
+    it.each([
+      ["no list", {}],
+      ["a row without a date", { undeliverable: [{ address: "ada@example.com" }] }],
+      ["an empty address", { undeliverable: [{ address: "", since: "2026-10-25T09:00:00Z" }] }],
+      ["too many rows", { undeliverable: Array.from({ length: 51 }, (_, index) => ({ address: `a${index}@example.com`, since: "x" })) }],
+    ])("refuses %s as contract drift", async (_label, body) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body)));
+      expect(await failureOf(new SkyMailInboxHttpClient(base).undeliverableAddresses(token))).toBe("contract");
+    });
+
+    it("maps a refused bearer and an outage", async () => {
+      vi.stubGlobal("fetch", vi.fn()
+        .mockResolvedValueOnce(new Response(null, { status: 401 }))
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockRejectedValueOnce(new TypeError("fetch failed")));
+      const client = new SkyMailInboxHttpClient(base);
+      expect(await failureOf(client.undeliverableAddresses(token))).toBe("unauthorized");
+      expect(await failureOf(client.undeliverableAddresses(token))).toBe("unavailable");
+      expect(await failureOf(client.undeliverableAddresses(token))).toBe("unavailable");
+    });
+  });
 });

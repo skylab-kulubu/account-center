@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { UndeliverableEmailKind } from "@/lib/email-delivery";
 import { secondsLeftUntil } from "@/lib/email-fields";
 import type { PendingEmailChange } from "@/lib/email-fields";
 import type { PrimaryEmailNudge } from "@/lib/primary-email-nudge";
@@ -29,10 +30,15 @@ export type EmailView = {
 
 /**
  * Public JSON of `GET /api/account/email`: the view plus the session CSRF
- * proof and the K4c nudge to show (`null`: none, also when it was dismissed
- * or the dismissals could not be read).
+ * proof, the K4c nudge to show (`null`: none, also when it was dismissed
+ * or the dismissals could not be read) and which of the addresses SkyMail
+ * no longer mails (`[]` also when SkyMail could not be asked).
  */
-export type EmailPayload = EmailView & { csrfToken: string; primaryEmailNudge: PrimaryEmailNudge | null };
+export type EmailPayload = EmailView & {
+  csrfToken: string;
+  primaryEmailNudge: PrimaryEmailNudge | null;
+  undeliverable: UndeliverableEmailKind[];
+};
 
 /**
  * Public JSON of `GET /api/account/email/nudge`, the overview's K4c nudge:

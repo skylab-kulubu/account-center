@@ -301,7 +301,7 @@ export function initialPreferenceScreen() {
 }
 
 /** Core's own-consent texts (`internal/consent`): purpose → versions. */
-const consentTexts = new Map([["event_invitations", ["davet-v1", "davet-v2"]], ["promotional", ["tanitim-v1"]]]);
+const consentTexts = new Map([["event_invitations", ["davet-v1", "davet-v2"]], ["promotional", ["tanitim-v1"]], ["team_page", ["ekip-sayfasi-v1"]]]);
 
 function preferenceProblem(response, status, code, headers = {}) {
   response.writeHead(status, { "content-type": "application/problem+json", "cache-control": "no-store", ...headers });
@@ -382,6 +382,12 @@ export function startMockCore({
     }
     return state;
   };
+
+  /**
+   * subject → the addresses SkyMail no longer mails for the person (`/skymail/v1/me/email-delivery`,
+   * rabbitmq-olaylar 10). Empty until `PUT /__e2e/email-delivery/{sub}` sets `{ undeliverable: [...] }`.
+   */
+  const deliveries = new Map();
 
   /** SkyMail's person endpoints as `docs/inbox.md` serves them: aud skymail, the person's own items. */
   function skymailInbox(request, response, url) {
@@ -683,6 +689,24 @@ export function startMockCore({
         return json(response, 200, inboxFor(decodeURIComponent(inboxInspection[1])));
       }
       if (url.pathname.startsWith("/skymail/v1/me/inbox")) return skymailInbox(request, response, url);
+      const deliveryInspection = /^\/__e2e\/email-delivery\/([^/]+)$/.exec(url.pathname);
+      if (deliveryInspection && request.method === "PUT") {
+        let body;
+        try {
+          body = JSON.parse((await readBody(request)).toString("utf8"));
+        } catch {
+          return problem(response, 400, "Bad Request");
+        }
+        if (!Array.isArray(body?.undeliverable)) return problem(response, 400, "Bad Request");
+        deliveries.set(decodeURIComponent(deliveryInspection[1]), body.undeliverable);
+        return json(response, 200, { undeliverable: body.undeliverable });
+      }
+      if (url.pathname === "/skymail/v1/me/email-delivery" && request.method === "GET") {
+        const claims = decodeBearer(request.headers.authorization, "skymail");
+        if (!claims) return problem(response, 401, "Unauthorized");
+        response.setHeader("cache-control", "no-store");
+        return json(response, 200, { undeliverable: deliveries.get(claims.sub) ?? [] });
+      }
       const consentInspection = /^\/__e2e\/consents\/([^/]+)$/.exec(url.pathname);
       if (consentInspection && request.method === "PUT") {
         let overrides;
