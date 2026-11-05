@@ -11,6 +11,12 @@ type CoreAccountDeletionBase = {
   requestedAt: string;
   updatedAt: string;
   receiptExpiresAt: string;
+  /**
+   * true only under manual_intervention, while an operator carries out a
+   * service's step by hand (today the CMS's): the person's retry cannot
+   * help. Left out otherwise, and by a core from before it.
+   */
+  awaitingManualStep?: boolean;
 };
 
 export type CoreAccountDeletionStatus = CoreAccountDeletionBase & (

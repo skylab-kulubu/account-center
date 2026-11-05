@@ -24,6 +24,12 @@ const statusResponseKeys = [
   "updatedAt",
 ].sort();
 const initiationResponseKeys = [...statusResponseKeys, "receipt"].sort();
+/**
+ * Added later to core's contract (core-backend docs/account-self-delete.md):
+ * true while an operator carries out a service's erasure step by hand. A
+ * core from before it leaves it out; either is accepted, nothing else is.
+ */
+const AWAITING_MANUAL_STEP = "awaitingManualStep";
 
 export class CoreAccountDeletionUnavailableError extends Error {
   constructor() {
@@ -63,7 +69,15 @@ function parseStatus(value: unknown, expectedReceipt?: string): CoreAccountDelet
   }
   const record = value as Record<string, unknown>;
   const expectedKeys = expectedReceipt === undefined ? initiationResponseKeys : statusResponseKeys;
-  if (JSON.stringify(Object.keys(record).sort()) !== JSON.stringify(expectedKeys)) {
+  const keys = Object.keys(record).filter((key) => key !== AWAITING_MANUAL_STEP).sort();
+  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) {
+    throw new CoreAccountDeletionUnavailableError();
+  }
+  const awaitingManualStep = record[AWAITING_MANUAL_STEP];
+  if (
+    awaitingManualStep !== undefined &&
+    (typeof awaitingManualStep !== "boolean" || (awaitingManualStep && record.status !== "manual_intervention"))
+  ) {
     throw new CoreAccountDeletionUnavailableError();
   }
   const receipt = expectedReceipt ?? record.receipt;
@@ -113,6 +127,7 @@ function parseStatus(value: unknown, expectedReceipt?: string): CoreAccountDelet
     status: record.status as Exclude<CoreAccountDeletionStatus["status"], "completed">,
     partial: record.partial as boolean,
     completedAt: null,
+    ...(awaitingManualStep === true ? { awaitingManualStep: true } : {}),
   };
 }
 

@@ -698,4 +698,35 @@ describe("account deletion orchestration", () => {
     await expect(orchestrator.retry(`adr_${"f".repeat(43)}`)).rejects.toThrow(/proof/i);
     expect(core.initiate).toHaveBeenCalledTimes(1);
   });
+
+  // Read afresh from core with every status, never stored: true only while
+  // core says so of the manual intervention the intent holds.
+  it("says a request awaits an operator's manual step only as core says it now", async () => {
+    const awaiting: CoreAccountDeletionStatus = {
+      ...coreStatus,
+      status: "manual_intervention",
+      partial: true,
+      awaitingManualStep: true,
+    };
+    const status = vi.fn()
+      .mockResolvedValueOnce(awaiting)
+      .mockResolvedValueOnce({ ...awaiting, awaitingManualStep: undefined, updatedAt: "2026-09-20T12:00:09.000Z" });
+    const { orchestrator } = fixture({ initiate: vi.fn().mockResolvedValue({ ...awaiting }), status });
+    const fresh = await reauthenticate(orchestrator);
+    await orchestrator.submit({
+      session,
+      proofReference: fresh.proofReference,
+      localReceipt: fresh.localReceipt,
+      confirmation: "HESABIMI SİL",
+    });
+
+    await expect(orchestrator.status(coreReceipt)).resolves.toMatchObject({
+      status: "manual_intervention",
+      awaitingManualStep: true,
+    });
+    await expect(orchestrator.status(coreReceipt)).resolves.toMatchObject({
+      status: "manual_intervention",
+      awaitingManualStep: false,
+    });
+  });
 });
