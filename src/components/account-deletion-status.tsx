@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, LogIn, RefreshCw, ShieldCheck } from "lucide-react";
-import { Button, Notice, TaskPage } from "@skylab-kulubu/skylcn-ui";
+import { Button, Stepper, TaskPage } from "@skylab-kulubu/skylcn-ui";
 import type { TaskPageProps } from "@skylab-kulubu/skylcn-ui";
 
 type DeletionStatus = "blocking" | "pending" | "processing" | "completed" | "manual_intervention";
@@ -11,8 +11,11 @@ type DeletionStatus = "blocking" | "pending" | "processing" | "completed" | "man
 type StatusPayload = {
   status: DeletionStatus;
   partial: boolean;
+  requestedAt: string;
   updatedAt: string;
   completedAt: string | null;
+  /** An operator carries out a service's step by hand (today the CMS's): the person's retry cannot help. */
+  awaitingManualStep: boolean;
   csrfToken: string;
 };
 
@@ -23,39 +26,51 @@ type ViewState =
   | { kind: "unavailable" }
   | { kind: "status"; value: StatusPayload };
 
-const copy: Record<DeletionStatus, { title: string; detail: string }> = {
-  blocking: {
-    title: "Erişimin güvenle kapatılıyor",
-    detail: "SKY LAB uygulamalarına yeni erişim durduruluyor. Ardından silme adımları başlayacak.",
-  },
-  pending: {
-    title: "Silme isteğin sırada",
-    detail: "İsteğin güvenle kaydedildi. Yoğunluğa göre işlem biraz zaman alabilir.",
-  },
-  processing: {
-    title: "Hesabın siliniyor",
-    detail: "Bağlı sistemlerdeki kişisel verilerin sırayla siliniyor veya kimliğinden ayrılıyor.",
-  },
-  completed: {
-    title: "Hesabın silindi",
-    detail: "Silme işlemi tamamlandı. Zorunlu operasyon kayıtları artık hesabınla ilişkilendirilemez.",
-  },
-  manual_intervention: {
-    title: "Ekibimizin incelemesi gerekiyor",
-    detail: "Bazı adımlar otomatik tamamlanamadı. Erişimin kapalı kalacak; işlemi güvenle yeniden deneyebilirsin.",
-  },
-};
+const statuses: readonly DeletionStatus[] = ["blocking", "pending", "processing", "completed", "manual_intervention"];
+
+/**
+ * How long the club has to finish a request: thirty days from the
+ * application (KVKK art. 13(2)). The same as core's DeletionDeadline, whose
+ * received notice names the same day (core-backend
+ * internal/account/deletion_notices.go).
+ */
+const DELETION_DEADLINE_MS = 30 * 24 * 60 * 60 * 1000;
+
+const deadlineDay = new Intl.DateTimeFormat("tr-TR", {
+  timeZone: "Europe/Istanbul",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+/** The last day of a request made at requestedAt: DD.MM.YYYY in Istanbul. */
+export function deletionDeadline(requestedAt: string): string {
+  return deadlineDay.format(new Date(Date.parse(requestedAt) + DELETION_DEADLINE_MS));
+}
+
+/**
+ * The three steps the person sees, whatever core's saga is doing: the
+ * request received, the data being erased, done. A request core holds for
+ * its team (manual_intervention) is still being erased.
+ */
+function currentStep(status: DeletionStatus): number {
+  if (status === "blocking") return 0;
+  if (status === "completed") return 3;
+  return 1;
+}
 
 function isPayload(value: unknown): value is StatusPayload {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   return (
-    typeof record.status === "string" && record.status in copy &&
+    typeof record.status === "string" && statuses.includes(record.status as DeletionStatus) &&
     typeof record.partial === "boolean" &&
+    typeof record.requestedAt === "string" && Number.isFinite(Date.parse(record.requestedAt)) &&
     typeof record.updatedAt === "string" && Number.isFinite(Date.parse(record.updatedAt)) &&
     (record.completedAt === null || (
       typeof record.completedAt === "string" && Number.isFinite(Date.parse(record.completedAt))
     )) &&
+    typeof record.awaitingManualStep === "boolean" &&
     typeof record.csrfToken === "string" && /^[A-Za-z0-9_-]{43}$/.test(record.csrfToken)
   );
 }
@@ -190,31 +205,31 @@ export function AccountDeletionStatus() {
       actions: recheckButton,
     };
   } else {
-    const { status, partial, updatedAt } = view.value;
-    const completed = status === "completed";
+    const { status, requestedAt, awaitingManualStep } = view.value;
+    const step = currentStep(status);
+    const deadline = deletionDeadline(requestedAt);
+    const completed = step === 3;
     page = {
       icon: completed ? CheckCircle2 : Clock3,
       tone: completed ? "success" : "brand",
-      eyebrow: "Hesap silme durumu",
-      title: copy[status].title,
-      description: copy[status].detail,
+      eyebrow: "Hesap silme",
+      title: completed ? "Hesabın silindi" : step === 0 ? "Talebin alındı" : "Verilerin siliniyor",
+      description: completed ? undefined : `En geç ${deadline}`,
       body: (
-        <>
-          {partial && !completed ? (
-            <Notice tone="info">Tamamlanan adımlar korunuyor; hiçbir işlem baştan başlamayacak.</Notice>
-          ) : null}
-          {!completed ? (
-            <p className="m-0 text-center text-xs leading-relaxed text-muted-foreground">
-              Bu sayfayı kapatabilirsin; işlem arka planda güvenle devam eder.
-            </p>
-          ) : null}
-          <small className="text-center text-2xs text-subtle-foreground">
-            Son güncelleme: {new Intl.DateTimeFormat("tr-TR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(updatedAt))}
-          </small>
-        </>
+        <Stepper
+          current={step}
+          steps={[
+            { id: "received", label: "Talep alındı" },
+            // Short enough not to be cut at 375 px (tests/e2e/shell.spec.ts).
+            { id: "erasing", label: "Siliniyor" },
+            { id: "completed", label: "Tamamlandı" },
+          ]}
+        />
       ),
-      actions: status === "manual_intervention" ? (
-        <Button aria-busy={retrying} disabled={retrying} onClick={() => void retry()} size="lg" type="button" variant="solid">
+      // An operator carrying out a step by hand (the CMS's) ends this
+      // manual intervention; the person's retry would only fail again.
+      actions: status === "manual_intervention" && !awaitingManualStep ? (
+        <Button aria-busy={retrying} disabled={retrying} onClick={() => void retry()} size="lg" type="button" variant="outline">
           <RefreshCw aria-hidden="true" />
           {retrying ? "Yeniden deneniyor…" : "İşlemi yeniden dene"}
         </Button>

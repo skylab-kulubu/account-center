@@ -137,10 +137,35 @@ describe("Core self-delete HTTP gateway", () => {
       { ...statusResponse, status: "completed", completedAt: null },
       { ...statusResponse, platformBlocked: false },
       Object.fromEntries(Object.entries(statusResponse).filter(([key]) => key !== "platformBlocked")),
+      { ...statusResponse, awaitingManualStep: "yes" },
+      { ...statusResponse, awaitingManualStep: true },
     ]) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body)));
       await expect(gateway.status(receipt)).rejects.toBeInstanceOf(CoreAccountDeletionUnavailableError);
     }
+  });
+
+  // Added to core's contract later: a core from before leaves it out, a
+  // newer one sends it on every answer; true only under manual intervention.
+  it("reads awaitingManualStep when core sends it and goes without it from an older core", async () => {
+    const gateway = new CoreAccountDeletionHttpGateway(new URL("https://api.yildizskylab.com"));
+    const manual = { ...statusResponse, status: "manual_intervention" };
+    for (const [body, want] of [
+      [manual, undefined],
+      [{ ...manual, awaitingManualStep: false }, undefined],
+      [{ ...manual, awaitingManualStep: true }, true],
+      [{ ...statusResponse, awaitingManualStep: false }, undefined],
+    ] as const) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body)));
+      const status = await gateway.status(receipt);
+      expect(status.awaitingManualStep).toBe(want);
+    }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...valid, awaitingManualStep: false }, { status: 202 })));
+    await expect(gateway.initiate({
+      accessToken: "fresh-user-token",
+      sudoToken,
+      idempotencyKey: "i".repeat(43),
+    })).resolves.toMatchObject({ receipt, status: "processing" });
   });
 
   it("accepts receipt only on initiation and strips platformBlocked from the internal result", async () => {

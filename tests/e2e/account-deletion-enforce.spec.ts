@@ -142,7 +142,7 @@ test("deletes with the Sudo mode proof alone, without a Keycloak step", async ({
 
   await confirmDeletion(page);
   await expect(page).toHaveURL(/\/account-deletion$/);
-  await expect(page.getByRole("heading", { name: "Silme isteğin sırada" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Verilerin siliniyor" })).toBeVisible();
   await expect(page.getByRole("button", { name: /keycloak/i })).toHaveCount(0);
 
   // Core accepted the intake on the sudo token alone; the ID-token proof is gone.
@@ -227,7 +227,7 @@ test("the receipt from prepare never starts a deletion before the typed confirma
     }).toPass();
     await submit.click();
     await expect(page).toHaveURL(/\/account-deletion$/);
-    await expect(page.getByRole("heading", { name: "Silme isteğin sırada" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Verilerin siliniyor" })).toBeVisible();
     expect(await coreIntakes(inspector, fixture.subject)).toEqual([
       { sudoProof: true, legacyReauthToken: false, outcome: "accepted" },
     ]);
