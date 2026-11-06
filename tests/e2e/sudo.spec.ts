@@ -141,7 +141,7 @@ test("password sudo shows the server's Turkish rejection, then verifies and keep
 
   const dialog = await openSudoDialog(page);
   const outcome = awaitSudoResult(page);
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await expect(page.getByRole("main")).toHaveCount(0);
   await expect(dialog.getByRole("tab")).toHaveText(["Parola", "Doğrulama kodu"]);
   await expect(dialog.getByRole("tab", { name: "Parola" })).toHaveAttribute("aria-selected", "true");
   const password = dialog.getByRole("textbox", { name: "Parola" });
@@ -239,7 +239,7 @@ test("lockout and Microsoft fallback states render the Turkish copy and the allo
   await expect(dialog.getByRole("alert")).toContainText("Hesabın geçici olarak kilitlendi.");
   await expect(dialog.getByRole("alert")).toContainText("Yeniden denemek için bekle: 3 dakika.");
   await expect(dialog.getByRole("button", { name: "Doğrula" })).toBeDisabled();
-  await dialog.getByRole("button", { name: "Pencereyi kapat" }).click();
+  await dialog.getByRole("button", { name: "Kapat", exact: true }).click();
   expect(await outcome).toMatchObject({ verified: false });
 
   await page.unroute("**/api/account/sudo/methods");

@@ -1,10 +1,9 @@
 "use client";
 
 import { ShieldCheck, Smartphone, WalletCards, XCircle } from "lucide-react";
-import { Button, Notice } from "@skylab-kulubu/skylcn-ui";
+import { Button, ConfirmDialog, Notice } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
-import { ConfirmationDialog } from "@/components/confirmation-dialog";
 import { StatusBadge } from "@/components/settings";
 import { useSudo } from "@/components/sudo-provider";
 import { ActionProgress } from "@/components/ui-states";
@@ -382,21 +381,20 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
           Telefonunu kaybettiysen ya da değiştirdiysen pası kaldır: eski telefondaki kodlar hemen geçersiz olur.
         </small>
       </div>
-      {confirmRevoke ? (
-        <ConfirmationDialog
-          title="Pas Google Cüzdan’dan kaldırılsın mı?"
-          description="Telefonundaki SkyPass’in kodları hemen kapıyı açmaz olur ve kart Google Cüzdan’da süresi dolmuşlara taşınır. Yeniden eklediğinde yeni bir pas oluşturulur."
-          confirmLabel="Pası kaldır"
-          pendingLabel="Kaldırılıyor"
-          icon={<XCircle size={22} />}
-          pending={pending === "revoke"}
-          onCancel={() => {
-            restoreFocus.current = "revoke";
-            setConfirmRevoke(false);
-          }}
-          onConfirm={() => void revoke()}
-        />
-      ) : null}
+      <ConfirmDialog
+        open={confirmRevoke}
+        onOpenChange={(open) => {
+          if (open) return;
+          restoreFocus.current = "revoke";
+          setConfirmRevoke(false);
+        }}
+        title="Pas Google Cüzdan’dan kaldırılsın mı?"
+        description="Telefonundaki SkyPass’in kodları hemen kapıyı açmaz olur ve kart Google Cüzdan’da süresi dolmuşlara taşınır. Yeniden eklediğinde yeni bir pas oluşturulur."
+        actionLabel="Pası kaldır"
+        destructive
+        pending={pending === "revoke"}
+        onAction={() => void revoke()}
+      />
     </section>
   );
 }

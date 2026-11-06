@@ -278,7 +278,7 @@ describe("SkyPassWalletCard", () => {
     renderCard(true);
 
     fireEvent.click(screen.getByRole("button", { name: /Cüzdandan kaldır/ }));
-    const dialog = screen.getByRole("dialog", { name: "Pas Google Cüzdan’dan kaldırılsın mı?" });
+    const dialog = screen.getByRole("alertdialog", { name: "Pas Google Cüzdan’dan kaldırılsın mı?" });
     expect(fetchMock).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Pası kaldır" }));
@@ -289,7 +289,7 @@ describe("SkyPassWalletCard", () => {
       headers: { "x-csrf-token": "session-bound-csrf" },
     }));
     expect(screen.getByText("Pas yok")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(openMock).not.toHaveBeenCalled();
   });
 
@@ -298,7 +298,7 @@ describe("SkyPassWalletCard", () => {
     renderCard(true);
 
     fireEvent.click(screen.getByRole("button", { name: /Cüzdandan kaldır/ }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Pası kaldır" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Pası kaldır" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/Yaklaşık 20 saniye sonra/);
     expect(screen.getByText("Pas etkin")).toBeInTheDocument();

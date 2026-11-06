@@ -616,10 +616,10 @@ test("session management confirms a revoke and keeps the current browser signed 
 
   const revokeTrigger = page.getByRole("button", { name: "Oturumu kapat" });
   await revokeTrigger.click();
-  const dialog = page.getByRole("dialog", { name: "Oturumu kapat" });
+  const dialog = page.getByRole("alertdialog", { name: "Oturumu kapat" });
   await expect(dialog).toBeVisible();
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
-  await expect(dialog.getByRole("button", { name: "Pencereyi kapat" })).toBeFocused();
+  await expect(page.getByRole("main")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Vazgeç" })).toBeFocused();
   expect(await page.evaluate(() => {
     const outside = document.querySelector<HTMLElement>(".account-sidebar a");
     outside?.focus();
@@ -653,7 +653,7 @@ test("session management confirms a revoke and keeps the current browser signed 
   await page.reload();
   const bulkTrigger = page.getByRole("button", { name: "Diğer tüm oturumları kapat" });
   await bulkTrigger.click();
-  const bulkDialog = page.getByRole("dialog", { name: "Diğer tüm oturumları kapat" });
+  const bulkDialog = page.getByRole("alertdialog", { name: "Diğer tüm oturumları kapat" });
   await bulkDialog.getByRole("button", { name: "Diğer tüm oturumları kapat" }).click();
 
   await expect.poll(() => bulkRevokeStatus).toBe(204);

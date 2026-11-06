@@ -71,7 +71,7 @@ describe("SessionManager", () => {
     render(<SessionManager />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Oturumu kapat" }));
-    const dialog = screen.getByRole("dialog", { name: "Oturumu kapat" });
+    const dialog = screen.getByRole("alertdialog", { name: "Oturumu kapat" });
     expect(within(dialog).getByText(/cihazındaki hesabına erişim sona erecek/i)).toBeVisible();
     fireEvent.click(within(dialog).getByRole("button", { name: "Oturumu kapat" }));
 
@@ -99,7 +99,7 @@ describe("SessionManager", () => {
 
     const trigger = await screen.findByRole("button", { name: "Diğer tüm oturumları kapat" });
     fireEvent.click(trigger);
-    const dialog = screen.getByRole("dialog", { name: "Diğer tüm oturumları kapat" });
+    const dialog = screen.getByRole("alertdialog", { name: "Diğer tüm oturumları kapat" });
     expect(request).toHaveBeenCalledTimes(1);
     fireEvent.click(within(dialog).getByRole("button", { name: "Diğer tüm oturumları kapat" }));
 
@@ -112,28 +112,19 @@ describe("SessionManager", () => {
     expect(trigger).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("opens a native modal and restores trigger focus after keyboard cancellation", async () => {
+  it("starts on Vazgeç and restores trigger focus after keyboard cancellation", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sessionsResponse());
     render(<SessionManager />);
 
     const trigger = await screen.findByRole("button", { name: "Oturumu kapat" });
     trigger.focus();
     fireEvent.click(trigger);
-    const dialog = screen.getByRole("dialog", { name: "Oturumu kapat" });
-    expect(dialog).toHaveAttribute("open");
-    const close = within(dialog).getByRole("button", { name: "Pencereyi kapat" });
-    const confirm = within(dialog).getByRole("button", { name: "Oturumu kapat" });
-    expect(close).toHaveFocus();
+    const dialog = screen.getByRole("alertdialog", { name: "Oturumu kapat" });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Vazgeç" })).toHaveFocus());
 
-    confirm.focus();
-    fireEvent.keyDown(dialog, { key: "Tab" });
-    expect(close).toHaveFocus();
-    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
-    expect(confirm).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
 
-    fireEvent(dialog, new Event("cancel", { cancelable: true }));
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
@@ -178,7 +169,7 @@ describe("SessionManager", () => {
     render(<SessionManager />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Oturumu kapat" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Oturumu kapat" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Oturumu kapat" }));
 
     expect(await screen.findByText("Oturumların değişmedi. Kısa bir süre sonra yeniden deneyebilirsin.")).toBeInTheDocument();
     expect(screen.getByText("iPhone · iOS · 26.0")).toBeInTheDocument();

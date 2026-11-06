@@ -456,7 +456,7 @@ test("passkey registration converts the relayed options for navigator.credential
   await page.getByRole("button", { name: "Passkey ekle" }).click();
   const dialog = page.getByRole("dialog", { name: "Passkey ekle" });
   await expect(dialog).toBeVisible();
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await expect(page.getByRole("main")).toHaveCount(0);
   await dialog.getByLabel("Passkey adı").fill("MacBook");
   await dialog.getByRole("button", { name: "Passkey oluştur" }).click();
   await expect(dialog.getByText("Aynı adda bir passkey zaten var. Başka bir ad seç.")).toBeVisible();

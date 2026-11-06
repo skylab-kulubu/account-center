@@ -1,7 +1,7 @@
 "use client";
 
-import { AlertCircle, Fingerprint, KeyRound, LockKeyhole, ShieldCheck, Smartphone, Mail, X } from "lucide-react";
-import { Button } from "@skylab-kulubu/skylcn-ui";
+import { AlertCircle, Fingerprint, KeyRound, ShieldCheck, Smartphone, Mail } from "lucide-react";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@skylab-kulubu/skylcn-ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
@@ -169,29 +169,6 @@ function formatWait(seconds: number) {
   return `${seconds} saniye`;
 }
 
-function trapFocus(event: KeyboardEvent<HTMLDialogElement>) {
-  if (event.key !== "Tab") return;
-  const controls = Array.from(
-    event.currentTarget.querySelectorAll<HTMLElement>(
-      // skylcn's Button (Base UI) keeps tabindex="0" while disabled, so [tabindex] skips disabled controls too
-      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])",
-    ),
-  );
-  const first = controls.at(0);
-  const last = controls.at(-1);
-  if (!first || !last) return;
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  } else if (!event.currentTarget.contains(document.activeElement)) {
-    event.preventDefault();
-    (event.shiftKey ? last : first).focus();
-  }
-}
-
 type SudoDialogProps = {
   /** Same-origin path to return to after the Microsoft fallback; the server allowlists it. */
   returnTo: string;
@@ -216,7 +193,6 @@ export function SudoDialog({
 }: SudoDialogProps) {
   const router = useRouter();
   const baseId = useId();
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [methods, setMethods] = useState<MethodsPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -279,20 +255,6 @@ export function SudoDialog({
     loadStarted.current = true;
     void load();
   }, [load]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (typeof dialog.showModal === "function") {
-      if (!dialog.open) dialog.showModal();
-    } else {
-      dialog.setAttribute("open", "");
-    }
-    return () => {
-      if (typeof dialog.close === "function" && dialog.open) dialog.close();
-      else dialog.removeAttribute("open");
-    };
-  }, []);
 
   useEffect(() => {
     if (waitSeconds <= 0) return;
@@ -474,211 +436,190 @@ export function SudoDialog({
   };
 
   const busy = pending || waitSeconds > 0;
-  const titleId = `${baseId}-title`;
-  const descriptionId = `${baseId}-description`;
-
   return (
-    <dialog
-      ref={dialogRef}
-      className="confirmation-dialog sudo-dialog"
-      aria-busy={pending}
-      aria-labelledby={titleId}
-      aria-describedby={descriptionId}
-      onKeyDown={trapFocus}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!pending) onDismiss();
-      }}
-    >
-      <button
-        className="confirmation-dialog__close"
-        type="button"
-        aria-label="Pencereyi kapat"
-        disabled={pending}
-        onClick={onDismiss}
-      >
-        <X aria-hidden="true" size={18} />
-      </button>
-      <span className="confirmation-dialog__icon sudo-dialog__icon" aria-hidden="true">
-        <LockKeyhole size={22} />
-      </span>
-      <h2 id={titleId}>{title}</h2>
-      <p id={descriptionId}>{description}</p>
-
-      {loading ? (
-        <div className="sudo-dialog__state">
-          <ActionProgress label={copy.loading} />
-        </div>
-      ) : loadError ? (
-        <div className="sudo-dialog__state">
-          <p className="sudo-dialog__feedback" data-tone="danger" role="alert">
-            <AlertCircle aria-hidden="true" size={16} />
-            <span>{loadError}</span>
-          </p>
-          <Button className="sudo-dialog__retry" type="button" onClick={() => void load()} size="lg" variant="outline">
-            Yeniden dene
-          </Button>
-        </div>
-      ) : methods && methods.methods.length === 0 ? (
-        <div className="sudo-dialog__fallback">
-          <p><strong>{copy.fallbackLead}</strong></p>
-          <p>{methods.fallback === "microsoft" ? copy.fallbackDetail : "Kullanabileceğin bir doğrulama yöntemi bulunamadı. Yönetim ekibiyle iletişime geç."}</p>
-          {methods.fallback === "microsoft" ? <form action="/api/account/sudo/reauthenticate" method="post">
-            <input type="hidden" name="csrfToken" value={methods.csrfToken} />
-            <input type="hidden" name="returnTo" value={returnTo} />
-            <Button type="submit" size="lg" variant="solid">
-              <ShieldCheck aria-hidden="true" size={16} />
-              Microsoft ile yeniden doğrula
-            </Button>
-          </form> : null}
-        </div>
-      ) : methods && tab ? (
-        <>
-          <div className="sudo-tabs" role="tablist" aria-label="Doğrulama yöntemi">
-            {methods.methods.map((method) => {
-              const selected = method === tab;
-              const Icon = method === "password" ? KeyRound : method === "passkey" ? Fingerprint : method === "email-code" ? Mail : Smartphone;
-              return (
-                <button
-                  key={method}
-                  className="sudo-tab"
-                  type="button"
-                  role="tab"
-                  id={`${baseId}-tab-${method}`}
-                  aria-selected={selected}
-                  aria-controls={`${baseId}-panel-${method}`}
-                  tabIndex={selected ? 0 : -1}
-                  disabled={pending}
-                  onClick={() => {
-                    setAutoFocusPanel(false);
-                    setTab(method);
-                    setFeedback(null);
-                  }}
-                  onKeyDown={onTabKeyDown}
-                >
-                  <Icon aria-hidden="true" size={15} />
-                  {tabLabels[method]}
-                </button>
-              );
-            })}
-          </div>
-          {feedback ? (
-            <p className="sudo-dialog__feedback" data-tone={feedback.tone} role="alert">
-              <AlertCircle aria-hidden="true" size={16} />
-              <span>
-                {feedback.detail}
-                {waitSeconds > 0 ? ` ${copy.waitPrefix} ${formatWait(waitSeconds)}.` : null}
-              </span>
-            </p>
-          ) : null}
-          <div
-            className="sudo-panel"
-            role="tabpanel"
-            id={`${baseId}-panel-${tab}`}
-            aria-labelledby={`${baseId}-tab-${tab}`}
-          >
-            {tab === "password" ? (
-              <form className="sudo-form" onSubmit={(event) => void submitSecret(event, "password")}>
-                <div className="sudo-field">
-                  <label htmlFor={`${baseId}-password`}>Parola</label>
-                  <input
-                    key="password"
-                    id={`${baseId}-password`}
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    autoFocus={autoFocusPanel}
-                    required
-                    maxLength={1_024}
-                    disabled={busy}
-                    value={password}
-                    onChange={(event) => setPassword(event.currentTarget.value)}
-                  />
-                </div>
-                <Button type="submit" disabled={busy || password.length === 0} size="lg" variant="solid">
-                  {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
-                </Button>
-              </form>
-            ) : tab === "totp" ? (
-              <form className="sudo-form" onSubmit={(event) => void submitSecret(event, "totp")}>
-                <div className="sudo-field">
-                  <label htmlFor={`${baseId}-code`}>Doğrulama kodu</label>
-                  <small id={`${baseId}-code-hint`}>Doğrulama uygulamandaki güncel kodu gir.</small>
-                  <input
-                    key="code"
-                    id={`${baseId}-code`}
-                    name="code"
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9 ]*"
-                    autoComplete="one-time-code"
-                    aria-describedby={`${baseId}-code-hint`}
-                    autoFocus={autoFocusPanel}
-                    required
-                    maxLength={12}
-                    disabled={busy}
-                    value={code}
-                    onChange={(event) => setCode(event.currentTarget.value)}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  disabled={busy || !/^\d{4,10}$/.test(code.replace(/\s+/g, ""))}
-                  size="lg"
-                  variant="solid"
-                >
-                  {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
-                </Button>
-              </form>
-            ) : tab === "email-code" ? (
-              <div className="sudo-form">
-                <p className="sudo-panel__hint">Kod, şu anki birincil e-posta adresine gönderilir ve 10 dakika geçerlidir.</p>
-                {emailSent ? (
-                  <>
-                    <p role="status">Kod birincil e-posta adresine gönderildi. Açık olan bu pencereye yaz.</p>
-                    <form className="sudo-form" onSubmit={(event) => void submitSecret(event, "email-code")}>
-                      <div className="sudo-field">
-                        <label htmlFor={`${baseId}-email-code`}>E-posta doğrulama kodu</label>
-                        <small id={`${baseId}-email-hint`}>E-postandaki 6 haneli kodu gir. Kodu kimseyle paylaşma.</small>
-                        <input ref={emailInput} id={`${baseId}-email-code`} name="code" type="text" inputMode="numeric"
-                          autoComplete="one-time-code" aria-describedby={`${baseId}-email-hint`} maxLength={20}
-                          required disabled={busy} value={code} onChange={(event) => setCode(event.currentTarget.value)} />
-                      </div>
-                      <Button type="submit" disabled={busy || !/^\d{6}$/.test(code.replace(/\s+/g, ""))} size="lg" variant="solid">
-                        {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
-                      </Button>
-                    </form>
-                  </>
-                ) : null}
-                <Button type="button" disabled={busy || resendSeconds > 0} onClick={() => void sendEmailCode()} size="lg" variant={emailSent ? "outline" : "solid"}>
-                  {pending ? <ActionProgress label="Kod gönderiliyor" /> : emailSent
-                    ? `Yeniden kod gönder${resendSeconds > 0 ? ` (${resendSeconds} saniye)` : ""}` : "E-postama kod gönder"}
-                </Button>
-              </div>
-            ) : (
-              <div className="sudo-form">
-                <p className="sudo-panel__hint">
-                  Passkey&rsquo;inle doğrulamak için cihazının kilidini (parmak izi, yüz tanıma ya da cihaz şifresi) kullan.
-                </p>
-                <Button type="button" autoFocus={autoFocusPanel} disabled={busy} onClick={() => void runPasskey()} size="lg" variant="solid">
-                  {pending ? <ActionProgress label="Passkey bekleniyor" /> : (
-                    <><Fingerprint aria-hidden="true" size={16} />Passkey ile doğrula</>
-                  )}
-                </Button>
-              </div>
-            )}
-          </div>
-          {methods.fallback === "microsoft" ? (
-            <form className="sudo-form sudo-dialog__fallback" action="/api/account/sudo/reauthenticate" method="post">
-              <input type="hidden" name="csrfToken" value={methods.csrfToken} />
-              <input type="hidden" name="returnTo" value={returnTo} />
-              <Button type="submit" disabled={pending} size="lg" variant="outline">
-                <ShieldCheck aria-hidden="true" size={16} />Microsoft ile yeniden doğrula
+    <Dialog open disablePointerDismissal onOpenChange={(open) => { if (!open && !pending) onDismiss(); }}>
+      <DialogContent className="sudo-dialog" aria-busy={pending} hideClose={pending} finalFocus={false}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="account-dialog__body">
+          {loading ? (
+            <div className="sudo-dialog__state">
+              <ActionProgress label={copy.loading} />
+            </div>
+          ) : loadError ? (
+            <div className="sudo-dialog__state">
+              <p className="sudo-dialog__feedback" data-tone="danger" role="alert">
+                <AlertCircle aria-hidden="true" size={16} />
+                <span>{loadError}</span>
+              </p>
+              <Button className="sudo-dialog__retry" type="button" onClick={() => void load()} size="lg" variant="outline">
+                Yeniden dene
               </Button>
-            </form>
+            </div>
+          ) : methods && methods.methods.length === 0 ? (
+            <div className="sudo-dialog__fallback">
+              <p><strong>{copy.fallbackLead}</strong></p>
+              <p>{methods.fallback === "microsoft" ? copy.fallbackDetail : "Kullanabileceğin bir doğrulama yöntemi bulunamadı. Yönetim ekibiyle iletişime geç."}</p>
+              {methods.fallback === "microsoft" ? <form action="/api/account/sudo/reauthenticate" method="post">
+                <input type="hidden" name="csrfToken" value={methods.csrfToken} />
+                <input type="hidden" name="returnTo" value={returnTo} />
+                <Button type="submit" size="lg" variant="solid">
+                  <ShieldCheck aria-hidden="true" size={16} />
+                  Microsoft ile yeniden doğrula
+                </Button>
+              </form> : null}
+            </div>
+          ) : methods && tab ? (
+            <>
+              <div className="sudo-tabs" role="tablist" aria-label="Doğrulama yöntemi">
+                {methods.methods.map((method) => {
+                  const selected = method === tab;
+                  const Icon = method === "password" ? KeyRound : method === "passkey" ? Fingerprint : method === "email-code" ? Mail : Smartphone;
+                  return (
+                    <button
+                      key={method}
+                      className="sudo-tab"
+                      type="button"
+                      role="tab"
+                      id={`${baseId}-tab-${method}`}
+                      aria-selected={selected}
+                      aria-controls={`${baseId}-panel-${method}`}
+                      tabIndex={selected ? 0 : -1}
+                      disabled={pending}
+                      onClick={() => {
+                        setAutoFocusPanel(false);
+                        setTab(method);
+                        setFeedback(null);
+                      }}
+                      onKeyDown={onTabKeyDown}
+                    >
+                      <Icon aria-hidden="true" size={15} />
+                      {tabLabels[method]}
+                    </button>
+                  );
+                })}
+              </div>
+              {feedback ? (
+                <p className="sudo-dialog__feedback" data-tone={feedback.tone} role="alert">
+                  <AlertCircle aria-hidden="true" size={16} />
+                  <span>
+                    {feedback.detail}
+                    {waitSeconds > 0 ? ` ${copy.waitPrefix} ${formatWait(waitSeconds)}.` : null}
+                  </span>
+                </p>
+              ) : null}
+              <div
+                className="sudo-panel"
+                role="tabpanel"
+                id={`${baseId}-panel-${tab}`}
+                aria-labelledby={`${baseId}-tab-${tab}`}
+              >
+                {tab === "password" ? (
+                  <form className="sudo-form" onSubmit={(event) => void submitSecret(event, "password")}>
+                    <div className="sudo-field">
+                      <label htmlFor={`${baseId}-password`}>Parola</label>
+                      <input
+                        key="password"
+                        id={`${baseId}-password`}
+                        name="password"
+                        type="password"
+                        autoComplete="current-password"
+                        autoFocus={autoFocusPanel}
+                        required
+                        maxLength={1_024}
+                        disabled={busy}
+                        value={password}
+                        onChange={(event) => setPassword(event.currentTarget.value)}
+                      />
+                    </div>
+                    <Button type="submit" disabled={busy || password.length === 0} size="lg" variant="solid">
+                      {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
+                    </Button>
+                  </form>
+                ) : tab === "totp" ? (
+                  <form className="sudo-form" onSubmit={(event) => void submitSecret(event, "totp")}>
+                    <div className="sudo-field">
+                      <label htmlFor={`${baseId}-code`}>Doğrulama kodu</label>
+                      <small id={`${baseId}-code-hint`}>Doğrulama uygulamandaki güncel kodu gir.</small>
+                      <input
+                        key="code"
+                        id={`${baseId}-code`}
+                        name="code"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9 ]*"
+                        autoComplete="one-time-code"
+                        aria-describedby={`${baseId}-code-hint`}
+                        autoFocus={autoFocusPanel}
+                        required
+                        maxLength={12}
+                        disabled={busy}
+                        value={code}
+                        onChange={(event) => setCode(event.currentTarget.value)}
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      disabled={busy || !/^\d{4,10}$/.test(code.replace(/\s+/g, ""))}
+                      size="lg"
+                      variant="solid"
+                    >
+                      {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
+                    </Button>
+                  </form>
+                ) : tab === "email-code" ? (
+                  <div className="sudo-form">
+                    <p className="sudo-panel__hint">Kod, şu anki birincil e-posta adresine gönderilir ve 10 dakika geçerlidir.</p>
+                    {emailSent ? (
+                      <>
+                        <p role="status">Kod birincil e-posta adresine gönderildi. Açık olan bu pencereye yaz.</p>
+                        <form className="sudo-form" onSubmit={(event) => void submitSecret(event, "email-code")}>
+                          <div className="sudo-field">
+                            <label htmlFor={`${baseId}-email-code`}>E-posta doğrulama kodu</label>
+                            <small id={`${baseId}-email-hint`}>E-postandaki 6 haneli kodu gir. Kodu kimseyle paylaşma.</small>
+                            <input ref={emailInput} id={`${baseId}-email-code`} name="code" type="text" inputMode="numeric"
+                              autoComplete="one-time-code" aria-describedby={`${baseId}-email-hint`} maxLength={20}
+                              required disabled={busy} value={code} onChange={(event) => setCode(event.currentTarget.value)} />
+                          </div>
+                          <Button type="submit" disabled={busy || !/^\d{6}$/.test(code.replace(/\s+/g, ""))} size="lg" variant="solid">
+                            {pending ? <ActionProgress label="Doğrulanıyor" /> : "Doğrula"}
+                          </Button>
+                        </form>
+                      </>
+                    ) : null}
+                    <Button type="button" disabled={busy || resendSeconds > 0} onClick={() => void sendEmailCode()} size="lg" variant={emailSent ? "outline" : "solid"}>
+                      {pending ? <ActionProgress label="Kod gönderiliyor" /> : emailSent
+                        ? `Yeniden kod gönder${resendSeconds > 0 ? ` (${resendSeconds} saniye)` : ""}` : "E-postama kod gönder"}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="sudo-form">
+                    <p className="sudo-panel__hint">
+                      Passkey&rsquo;inle doğrulamak için cihazının kilidini (parmak izi, yüz tanıma ya da cihaz şifresi) kullan.
+                    </p>
+                    <Button type="button" autoFocus={autoFocusPanel} disabled={busy} onClick={() => void runPasskey()} size="lg" variant="solid">
+                      {pending ? <ActionProgress label="Passkey bekleniyor" /> : (
+                        <><Fingerprint aria-hidden="true" size={16} />Passkey ile doğrula</>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {methods.fallback === "microsoft" ? (
+                <form className="sudo-form sudo-dialog__fallback" action="/api/account/sudo/reauthenticate" method="post">
+                  <input type="hidden" name="csrfToken" value={methods.csrfToken} />
+                  <input type="hidden" name="returnTo" value={returnTo} />
+                  <Button type="submit" disabled={pending} size="lg" variant="outline">
+                    <ShieldCheck aria-hidden="true" size={16} />Microsoft ile yeniden doğrula
+                  </Button>
+                </form>
+              ) : null}
+            </>
           ) : null}
-        </>
-      ) : null}
-    </dialog>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }

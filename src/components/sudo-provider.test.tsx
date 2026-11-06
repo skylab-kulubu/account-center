@@ -87,7 +87,7 @@ describe("SudoProvider", () => {
     render(<SudoProvider><Consumer onResult={onResult} /></SudoProvider>);
 
     fireEvent.click(screen.getByRole("button", { name: "Hassas işlem" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Pencereyi kapat" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Kapat" }));
     await waitFor(() => expect(onResult).toHaveBeenCalledWith(false));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

@@ -1,10 +1,9 @@
 "use client";
 
 import { Fingerprint } from "lucide-react";
-import { Button } from "@skylab-kulubu/skylcn-ui";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@skylab-kulubu/skylcn-ui";
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
-import { ModalDialog } from "@/components/modal-dialog";
 import { FeedbackAlert, feedbackFor, sharedCopy, useWaitSeconds } from "@/components/security-shared";
 import type { Feedback } from "@/components/security-shared";
 import { ActionProgress } from "@/components/ui-states";
@@ -217,59 +216,57 @@ export function PasskeyAddDialog({
     }
   };
 
-  const titleId = `${baseId}-title`;
-  const descriptionId = `${baseId}-description`;
   return (
-    <ModalDialog
-      titleId={titleId}
-      descriptionId={descriptionId}
-      className="security-dialog"
-      pending={pending}
-      icon={<Fingerprint size={22} />}
-      iconClassName="sudo-dialog__icon"
-      onDismiss={onDismiss}
-    >
-      <h2 id={titleId}>{passkeyCopy.title}</h2>
-      <p id={descriptionId}>{passkeyCopy.description}</p>
-      {!supported ? (
-        <FeedbackAlert feedback={{ tone: "warning", detail: passkeyCopy.unsupported }} />
-      ) : (
-        <form className="sudo-form security-dialog__form" onSubmit={(event) => void register(event)}>
-          <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
-          <div className="sudo-field">
-            <label htmlFor={`${baseId}-label`}>Passkey adı</label>
-            <small id={`${baseId}-label-hint`}>{passkeyCopy.labelHint}</small>
-            <input
-              id={`${baseId}-label`}
-              name="label"
-              type="text"
-              autoComplete="off"
-              autoFocus
-              required
-              maxLength={MAX_LABEL_LENGTH}
-              disabled={busy}
-              aria-describedby={labelError ? `${baseId}-label-error` : `${baseId}-label-hint`}
-              aria-invalid={labelError ? true : undefined}
-              value={label}
-              onChange={(event) => {
-                setLabel(event.currentTarget.value);
-                setLabelError(null);
-              }}
-            />
-            {labelError ? <small id={`${baseId}-label-error`} className="security-field-error">{labelError}</small> : null}
-          </div>
-          <div className="confirmation-dialog__actions">
-            <Button type="button" disabled={pending} onClick={onDismiss} size="lg" variant="outline">
-              Vazgeç
-            </Button>
-            <Button type="submit" disabled={busy || label.trim().length === 0} size="lg" variant="solid">
-              {pending ? <ActionProgress label={passkeyCopy.waiting} /> : (
-                <><Fingerprint aria-hidden="true" size={16} />Passkey oluştur</>
-              )}
-            </Button>
-          </div>
-        </form>
-      )}
-    </ModalDialog>
+    <Dialog open disablePointerDismissal onOpenChange={(open) => { if (!open && !pending) onDismiss(); }}>
+      <DialogContent className="security-dialog" aria-busy={pending} hideClose={pending} finalFocus={false}>
+        <DialogHeader>
+          <DialogTitle>{passkeyCopy.title}</DialogTitle>
+          <DialogDescription>{passkeyCopy.description}</DialogDescription>
+        </DialogHeader>
+        {!supported ? (
+          <DialogBody className="account-dialog__body">
+            <FeedbackAlert feedback={{ tone: "warning", detail: passkeyCopy.unsupported }} />
+          </DialogBody>
+        ) : (
+          <form className="security-dialog__form" onSubmit={(event) => void register(event)}>
+            <DialogBody className="account-dialog__body sudo-form">
+              <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
+              <div className="sudo-field">
+                <label htmlFor={`${baseId}-label`}>Passkey adı</label>
+                <small id={`${baseId}-label-hint`}>{passkeyCopy.labelHint}</small>
+                <input
+                  id={`${baseId}-label`}
+                  name="label"
+                  type="text"
+                  autoComplete="off"
+                  autoFocus
+                  required
+                  maxLength={MAX_LABEL_LENGTH}
+                  disabled={busy}
+                  aria-describedby={labelError ? `${baseId}-label-error` : `${baseId}-label-hint`}
+                  aria-invalid={labelError ? true : undefined}
+                  value={label}
+                  onChange={(event) => {
+                    setLabel(event.currentTarget.value);
+                    setLabelError(null);
+                  }}
+                />
+                {labelError ? <small id={`${baseId}-label-error`} className="security-field-error">{labelError}</small> : null}
+              </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button type="button" disabled={pending} onClick={onDismiss} variant="outline">
+                Vazgeç
+              </Button>
+              <Button type="submit" disabled={busy || label.trim().length === 0} variant="solid">
+                {pending ? <ActionProgress label={passkeyCopy.waiting} /> : (
+                  <><Fingerprint aria-hidden="true" size={16} />Passkey oluştur</>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -7,9 +7,8 @@ import {
   MonitorSmartphone,
   ShieldCheck,
   Smartphone,
-  X,
 } from "lucide-react";
-import { Button } from "@skylab-kulubu/skylcn-ui";
+import { Button, ConfirmDialog } from "@skylab-kulubu/skylcn-ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { framedStateCard } from "@/components/framed-state";
@@ -169,97 +168,6 @@ function SessionCard({
   );
 }
 
-function ConfirmationDialog({
-  confirmation,
-  pending,
-  onCancel,
-  onConfirm,
-}: {
-  confirmation: Confirmation;
-  pending: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const all = confirmation.kind === "all";
-  const title = all ? "Diğer tüm oturumları kapat" : "Oturumu kapat";
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-    return () => {
-      if (typeof dialog.close === "function" && dialog.open) dialog.close();
-      else dialog.removeAttribute("open");
-    };
-  }, []);
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="confirmation-dialog"
-      aria-busy={pending}
-      aria-labelledby="session-confirmation-title"
-      onKeyDown={(event) => {
-        if (event.key !== "Tab") return;
-        const controls = Array.from(
-          event.currentTarget.querySelectorAll<HTMLElement>(
-            "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])",
-          ),
-        );
-        const first = controls.at(0);
-        const last = controls.at(-1);
-        if (!first || !last) return;
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        } else if (!event.currentTarget.contains(document.activeElement)) {
-          event.preventDefault();
-          (event.shiftKey ? last : first).focus();
-        }
-      }}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!pending) onCancel();
-      }}
-    >
-      <button
-        className="confirmation-dialog__close"
-        type="button"
-        aria-label="Pencereyi kapat"
-        autoFocus
-        disabled={pending}
-        onClick={onCancel}
-      >
-        <X aria-hidden="true" size={18} />
-      </button>
-      <span className="confirmation-dialog__icon" aria-hidden="true">
-        <LogOut size={22} />
-      </span>
-      <h2 id="session-confirmation-title">{title}</h2>
-      <p>
-        {all
-          ? "Bu cihaz dışındaki tüm açık oturumlarda hesabına erişim sona erecek. Şu an kullandığın oturum açık kalacak."
-          : `${confirmation.deviceName} cihazındaki hesabına erişim sona erecek. Şu an kullandığın oturum açık kalacak.`}
-      </p>
-      <div className="confirmation-dialog__actions">
-        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
-          Vazgeç
-        </Button>
-        <Button type="button" disabled={pending} onClick={onConfirm} size="lg" variant="destructive">
-          {pending ? <ActionProgress label="Kapatılıyor" /> : (
-            <><LogOut aria-hidden="true" size={16} />{title}</>
-          )}
-        </Button>
-      </div>
-    </dialog>
-  );
-}
-
 const unavailableProblem: SafeProblem = {
   title: "Oturumlar yüklenemedi",
   detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden deneyebilirsin.",
@@ -271,6 +179,8 @@ export function SessionManager() {
   const [problem, setProblem] = useState<SafeProblem | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  /** The last question asked: its words stay on the dialog while it animates out. */
+  const [shownConfirmation, setShownConfirmation] = useState<Confirmation | null>(null);
   const [pending, setPending] = useState(false);
   const [actionProblem, setActionProblem] = useState<SafeProblem | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -281,6 +191,7 @@ export function SessionManager() {
 
   const openConfirmation = useCallback((next: Confirmation, trigger: HTMLElement) => {
     confirmationTrigger.current = trigger;
+    setShownConfirmation(next);
     setConfirmation(next);
   }, []);
 
@@ -406,6 +317,8 @@ export function SessionManager() {
 
   const sessions = payload?.sessions ?? [];
   const otherCount = sessions.filter((session) => !session.current).length;
+  const confirmationTitle = shownConfirmation?.kind === "all" ? "Diğer tüm oturumları kapat" : "Oturumu kapat";
+
   return (
     <>
       {success ? (
@@ -466,14 +379,18 @@ export function SessionManager() {
           Diğer tüm oturumları kapat
         </Button>
       </section>
-      {confirmation ? (
-        <ConfirmationDialog
-          confirmation={confirmation}
-          pending={pending}
-          onCancel={closeConfirmation}
-          onConfirm={() => void revoke()}
-        />
-      ) : null}
+      <ConfirmDialog
+        open={confirmation !== null}
+        onOpenChange={(open) => { if (!open) closeConfirmation(); }}
+        title={confirmationTitle}
+        description={shownConfirmation?.kind === "one"
+          ? `${shownConfirmation.deviceName} cihazındaki hesabına erişim sona erecek. Şu an kullandığın oturum açık kalacak.`
+          : "Bu cihaz dışındaki tüm açık oturumlarda hesabına erişim sona erecek. Şu an kullandığın oturum açık kalacak."}
+        actionLabel={confirmationTitle}
+        destructive
+        pending={pending}
+        onAction={() => void revoke()}
+      />
     </>
   );
 }
