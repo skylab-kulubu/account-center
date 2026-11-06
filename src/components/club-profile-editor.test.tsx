@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClubProfileEditor, parseClubProfileView } from "@/components/club-profile-editor";
 import { CLUB_PROFILE_PICTURE_MAX_BYTES } from "@/config/club-profile";
@@ -383,6 +383,20 @@ describe("ClubProfileEditor picture", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("says the removal still runs when the server does not answer", () => {
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => undefined));
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Fotoğrafı kaldır" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Fotoğrafı kaldır" }));
+      act(() => vi.advanceTimersByTime(25_000));
+      expect(within(screen.getByRole("alertdialog")).getByRole("status")).toHaveTextContent("Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("removes the picture after confirmation and shows the empty state", async () => {

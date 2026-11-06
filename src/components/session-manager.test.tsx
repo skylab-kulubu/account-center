@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@/components/session-manager";
 
@@ -46,6 +46,7 @@ function sessionsResponse(sessions = [currentSession, otherSession]) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.restoreAllMocks();
 });
@@ -169,9 +170,41 @@ describe("SessionManager", () => {
     render(<SessionManager />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Oturumu kapat" }));
-    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Oturumu kapat" }));
+    const dialog = screen.getByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Oturumu kapat" }));
 
-    expect(await screen.findByText("Oturumların değişmedi. Kısa bir süre sonra yeniden deneyebilirsin.")).toBeInTheDocument();
-    expect(screen.getByText("iPhone · iOS · 26.0")).toBeInTheDocument();
+    // The refusal is said where it was asked, and the dialog stays until the person leaves it.
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Oturumların değişmedi. Kısa bir süre sonra yeniden deneyebilirsin.");
+    expect(screen.getByRole("alertdialog")).toBe(dialog);
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Vazgeç" })).toHaveFocus());
+    expect(document.body).toHaveTextContent("iPhone · iOS · 26.0");
+  });
+
+  it("tells a network failure inside the dialog too", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(sessionsResponse())
+      .mockRejectedValueOnce(new TypeError("offline"));
+    render(<SessionManager />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Oturumu kapat" }));
+    const dialog = screen.getByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Oturumu kapat" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Oturum kapatılamadı");
+  });
+
+  it("points at the list when the server does not answer", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(sessionsResponse())
+      .mockReturnValueOnce(new Promise(() => undefined));
+    render(<SessionManager />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Oturumu kapat" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const dialog = screen.getByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Oturumu kapat" }));
+    act(() => vi.advanceTimersByTime(25_000));
+
+    expect(within(dialog).getByRole("status")).toHaveTextContent("Sunucu yanıt vermedi. İstek iptal edilmedi; sonucu oturum listesinden denetle.");
   });
 });

@@ -168,6 +168,22 @@ function SessionCard({
   );
 }
 
+const revokeFallback: SafeProblem = {
+  title: "Oturum kapatılamadı",
+  detail: "Oturumların değişmedi. Kısa bir süre sonra yeniden deneyebilirsin.",
+};
+
+/** A refused revoke, so that the confirmation dialog stays open and says why. */
+class RevokeFailure extends Error {
+  constructor(readonly problem: SafeProblem) {
+    super(problem.title);
+  }
+}
+
+function revokeProblemOf(error: unknown) {
+  return error instanceof RevokeFailure ? error.problem : revokeFallback;
+}
+
 const unavailableProblem: SafeProblem = {
   title: "Oturumlar yüklenemedi",
   detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden deneyebilirsin.",
@@ -197,6 +213,8 @@ export function SessionManager() {
 
   const closeConfirmation = useCallback(() => {
     setConfirmation(null);
+    // The dialog also closes itself after a successful revoke; the effect below places focus then.
+    if (successFocusTarget.current) return;
     const trigger = confirmationTrigger.current;
     confirmationTrigger.current = null;
     queueMicrotask(() => {
@@ -275,22 +293,14 @@ export function SessionManager() {
         return;
       }
       if (response.status !== 204) {
-        const body = await responseJson(response);
-        setActionProblem(parseProblem(body, {
-          title: "Oturum kapatılamadı",
-          detail: "Oturumların değişmedi. Kısa bir süre sonra yeniden deneyebilirsin.",
-        }));
-        return;
+        throw new RevokeFailure(parseProblem(await responseJson(response), revokeFallback));
       }
       successFocusTarget.current = all ? "trigger" : "feedback";
       setConfirmation(null);
       setSuccess(all ? "Diğer oturumlar kapatıldı." : "Oturum kapatıldı.");
       await load(true);
-    } catch {
-      setActionProblem({
-        title: "Oturum kapatılamadı",
-        detail: "Oturumların değişmedi. Kısa bir süre sonra yeniden deneyebilirsin.",
-      });
+    } catch (error) {
+      throw new RevokeFailure(revokeProblemOf(error));
     } finally {
       setPending(false);
     }
@@ -387,9 +397,15 @@ export function SessionManager() {
           ? `${shownConfirmation.deviceName} cihazındaki hesabına erişim sona erecek. Şu an kullandığın oturum açık kalacak.`
           : "Bu cihaz dışındaki tüm açık oturumlarda hesabına erişim sona erecek. Şu an kullandığın oturum açık kalacak."}
         actionLabel={confirmationTitle}
+        stallMessage="Sunucu yanıt vermedi. İstek iptal edilmedi; sonucu oturum listesinden denetle."
         destructive
         pending={pending}
-        onAction={() => void revoke()}
+        onAction={revoke}
+        failureMessage={(error) => {
+          const problem = revokeProblemOf(error);
+          return <><strong>{problem.title}</strong> {problem.detail}</>;
+        }}
+        onLateFailure={(error) => setActionProblem(revokeProblemOf(error))}
       />
     </>
   );

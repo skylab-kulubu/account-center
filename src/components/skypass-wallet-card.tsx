@@ -391,6 +391,7 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
         title="Pas Google Cüzdan’dan kaldırılsın mı?"
         description="Telefonundaki SkyPass’in kodları hemen kapıyı açmaz olur ve kart Google Cüzdan’da süresi dolmuşlara taşınır. Yeniden eklediğinde yeni bir pas oluşturulur."
         actionLabel="Pası kaldır"
+        stallMessage="Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür."
         destructive
         pending={pending === "revoke"}
         onAction={() => void revoke()}

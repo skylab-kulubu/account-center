@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isAppleMobile, SkyPassWalletCard } from "@/components/skypass-wallet-card";
 
@@ -70,6 +70,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -291,6 +292,17 @@ describe("SkyPassWalletCard", () => {
     expect(screen.getByText("Pas yok")).toBeInTheDocument();
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(openMock).not.toHaveBeenCalled();
+  });
+
+  it("says the request still runs when the server does not answer", () => {
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    renderCard(true);
+    fireEvent.click(screen.getByRole("button", { name: /Cüzdandan kaldır/ }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Pası kaldır" }));
+    act(() => vi.advanceTimersByTime(25_000));
+
+    expect(within(screen.getByRole("alertdialog")).getByRole("status")).toHaveTextContent("Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür.");
   });
 
   it("keeps the pass shown as active when the revoke fails", async () => {

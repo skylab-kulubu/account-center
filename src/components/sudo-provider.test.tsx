@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isSudoRequired,
@@ -90,6 +91,35 @@ describe("SudoProvider", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Kapat" }));
     await waitFor(() => expect(onResult).toHaveBeenCalledWith(false));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("gives focus to the dialog underneath when the control that asked cannot take it back", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(methods());
+    function Underneath() {
+      const { ensureSudo } = useSudo();
+      const [waiting, setWaiting] = useState(false);
+      return (
+        <div role="dialog" aria-label="Alttaki" tabIndex={-1}>
+          <button
+            type="button"
+            disabled={waiting}
+            onClick={() => {
+              setWaiting(true);
+              void ensureSudo();
+            }}
+          >
+            Kaldır
+          </button>
+        </div>
+      );
+    }
+    render(<SudoProvider><Underneath /></SudoProvider>);
+    const action = screen.getByRole("button", { name: "Kaldır" });
+    action.focus();
+    fireEvent.click(action);
+    fireEvent.click(await screen.findByRole("button", { name: "Kapat" }));
+
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Alttaki" })).toHaveFocus());
   });
 
   it("serves callers outside the React tree through the window events", async () => {

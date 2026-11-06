@@ -127,6 +127,7 @@ export function StudentCardRow({ initialLinked, csrfToken }: { initialLinked: bo
         title="Kart kaydı kaldırılsın mı?"
         description="Kartın çip numarası silinir; kapıda bu kartla giriş yapamazsın. İstersen sky-app’ten yeniden bağlayabilirsin."
         actionLabel="Kartı kaldır"
+        stallMessage="Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür."
         destructive
         pending={pending}
         onAction={() => void remove()}

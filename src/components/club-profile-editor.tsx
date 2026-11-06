@@ -631,6 +631,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
         title="Profil fotoğrafını kaldır"
         description="Fotoğrafın kulüp uygulamalarından kaldırılacak. İstediğin zaman yeni bir fotoğraf yükleyebilirsin."
         actionLabel="Fotoğrafı kaldır"
+        stallMessage="Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür."
         destructive
         pending={pending === "remove"}
         onAction={() => void remove()}

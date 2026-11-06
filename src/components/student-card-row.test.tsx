@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StudentCardRow } from "@/components/student-card-row";
 
@@ -10,6 +10,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.unstubAllGlobals();
 });
@@ -64,6 +65,17 @@ describe("StudentCardRow", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profiline şu anda ulaşılamıyor");
     expect(screen.getByText("Öğrenci kartı bağlı")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Kartı kaldır" })).toBeInTheDocument();
+  });
+
+  it("says the request still runs when the server does not answer", () => {
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    renderRow();
+    fireEvent.click(screen.getByRole("button", { name: "Kartı kaldır" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Kartı kaldır" }));
+    act(() => vi.advanceTimersByTime(25_000));
+
+    expect(within(screen.getByRole("alertdialog")).getByRole("status")).toHaveTextContent("Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür.");
   });
 
   it("links to login when the session has ended", async () => {
