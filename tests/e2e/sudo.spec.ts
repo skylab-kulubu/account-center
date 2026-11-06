@@ -221,6 +221,49 @@ test("verification-code sudo switches tabs by keyboard, posts the digits only, a
   expect(errors).toEqual([]);
 });
 
+test("a rejected password and a cancelled passkey disable the focused control, and Tab stays in the dialog", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `sudo-disabled-focus-${testInfo.retry}`, page);
+  const errors = failOnPageErrors(page);
+  await page.addInitScript(() => {
+    navigator.credentials.get = async () => {
+      throw new DOMException("The person cancelled.", "NotAllowedError");
+    };
+  });
+  await mockMethods(page, { methods: ["password", "passkey"], fallback: null, active: null, csrfToken });
+  await page.route("**/api/account/sudo/password", (route) => route.fulfill({
+    status: 401,
+    json: { error: "invalid_credentials", detail: "Parola veya doğrulama kodu yanlış." },
+  }));
+  await page.route("**/api/account/sudo/webauthn/options", (route) => route.fulfill({
+    json: {
+      challenge: base64Url(randomBytes(32)),
+      rpId: "yildizskylab.com",
+      allowCredentials: [],
+      userVerification: "required",
+    },
+  }));
+  await gotoAuthenticatedPage(page, "/security");
+  const dialog = await openSudoDialog(page);
+  const tabStaysInside = async () => {
+    for (let index = 0; index < 5; index += 1) {
+      await page.keyboard.press("Tab");
+      await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    }
+  };
+
+  await dialog.getByRole("textbox", { name: "Parola" }).fill("wrong-password");
+  await dialog.getByRole("button", { name: "Doğrula" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Parola veya doğrulama kodu yanlış.");
+  await tabStaysInside();
+
+  await dialog.getByRole("tab", { name: "Passkey" }).click();
+  await dialog.getByRole("button", { name: "Passkey ile doğrula" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Passkey doğrulaması tamamlanmadı");
+  await tabStaysInside();
+  expect(errors).toEqual([]);
+});
+
 test("lockout and Microsoft fallback states render the Turkish copy and the allowlisted return form", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
   await installAuthenticatedSession(context, `sudo-states-${testInfo.retry}`, page);

@@ -620,9 +620,20 @@ test("session management confirms a revoke and keeps the current browser signed 
   await expect(dialog).toBeVisible();
   await expect(page.getByRole("main")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Vazgeç" })).toBeFocused();
-  // A click on the backdrop neither closes the question nor reaches the page behind it.
-  await page.mouse.click(5, 5);
+  // A click on a link behind the backdrop neither closes the question nor reaches the link.
+  const behind = page.locator(".account-sidebar a").first();
+  const behindBox = await behind.boundingBox();
+  expect(behindBox).not.toBeNull();
+  await behind.evaluate((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      link.setAttribute("data-e2e-clicked", "true");
+    });
+  });
+  await page.mouse.click(behindBox!.x + behindBox!.width / 2, behindBox!.y + behindBox!.height / 2);
   await expect(dialog).toBeVisible();
+  await expect(behind).not.toHaveAttribute("data-e2e-clicked", "true");
+  await expect(page).toHaveURL(/\/sessions$/);
   // The focus guards hand focus back a frame later, hence the poll.
   for (let index = 0; index < 5; index += 1) {
     await page.keyboard.press("Tab");
