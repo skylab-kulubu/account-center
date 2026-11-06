@@ -13,6 +13,7 @@
  */
 @import "@skylab-kulubu/skylcn-ui/theme-base.css";
 @import "@skylab-kulubu/skylcn-ui/sources/button.css";
+@import "@skylab-kulubu/skylcn-ui/sources/dialog.css";
 @import "@skylab-kulubu/skylcn-ui/sources/feedback.css";
 @import "@skylab-kulubu/skylcn-ui/sources/form-extra.css";
 @import "@skylab-kulubu/skylcn-ui/sources/skylab-loader.css";
@@ -1126,84 +1127,21 @@ a.settings-row:hover .settings-row__chevron {
   font-weight: 620;
 }
 
-.confirmation-dialog::backdrop {
-  background: rgba(2, 2, 4, 0.72);
-  backdrop-filter: blur(9px);
-}
-
-.confirmation-dialog {
-  position: fixed;
-  inset: 0;
-  width: min(100%, 420px);
-  max-width: calc(100% - 40px);
-  margin: auto;
-  padding: 26px;
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  color: inherit;
-  background: #151319;
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
-}
-
-.confirmation-dialog__close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border: 0;
-  border-radius: 8px;
-  color: var(--ink-muted);
-  background: transparent;
-  cursor: pointer;
-}
-
-.confirmation-dialog__close:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.confirmation-dialog__icon {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--destructive) 18%, transparent);
-  border-radius: 10px;
-  color: var(--danger);
-  background: var(--danger-muted);
-}
-
-.confirmation-dialog h2 {
-  margin: 18px 0 0;
-  color: var(--ink);
-  font-size: 1rem;
-  font-weight: 620;
-}
-
-.confirmation-dialog p {
+/* The paragraphs inside a skylcn Dialog; the title and description are skylcn's own. */
+.account-dialog__body p {
   margin: 9px 0 0;
   color: var(--ink-muted);
   font-size: 0.74rem;
   line-height: 1.6;
 }
 
-.confirmation-dialog__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 9px;
-  margin-top: 22px;
+.account-dialog__body > :first-child {
+  margin-top: 0;
 }
 
-.sudo-dialog {
-  width: min(100%, 460px);
-}
-
-.sudo-dialog__icon {
-  color: var(--primary);
-  border-color: color-mix(in srgb, var(--primary) 18%, transparent);
-  background: var(--primary-muted);
+/* Nothing to say between the title and the buttons: only the gap skylcn's ConfirmDialog leaves. */
+.account-dialog__body:empty {
+  padding-block: 8px;
 }
 
 .sudo-notice {
@@ -2106,12 +2044,10 @@ a.settings-row:hover .settings-row__chevron {
   line-height: 1.45;
 }
 
-.security-dialog {
-  width: min(100%, 460px);
-}
-
 .security-dialog__form {
-  margin-top: 18px;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .security-dialog .security-feedback {
@@ -2120,10 +2056,6 @@ a.settings-row:hover .settings-row__chevron {
 
 .security-dialog .security-dialog__form .security-feedback {
   margin-top: 0;
-}
-
-.security-dialog .confirmation-dialog__actions {
-  margin-top: 20px;
 }
 
 /* ---------- Identity page (ad soyad, kullanıcı adı, YTÜ durumu) ---------- */
@@ -2700,19 +2632,6 @@ a.email-link-action {
   }
 
   .form-actions button {
-    width: 100%;
-  }
-
-  .confirmation-dialog {
-    padding: 22px;
-  }
-
-  .confirmation-dialog__actions {
-    align-items: stretch;
-    flex-direction: column-reverse;
-  }
-
-  .confirmation-dialog__actions button {
     width: 100%;
   }
 

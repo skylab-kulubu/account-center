@@ -13,12 +13,11 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { Button, Notice } from "@skylab-kulubu/skylcn-ui";
+import { Button, ConfirmDialog, Notice } from "@skylab-kulubu/skylcn-ui";
 import Image from "next/image";
 import Link from "next/link";
 import type { ChangeEvent, FormEvent } from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ConfirmationDialog } from "@/components/confirmation-dialog";
 import { SettingsRow, StatusBadge } from "@/components/settings";
 import { ActionProgress } from "@/components/ui-states";
 import {
@@ -622,21 +621,21 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
         </form>
       </section>
 
-      {confirmRemoval ? (
-        <ConfirmationDialog
-          title="Profil fotoğrafını kaldır"
-          description="Fotoğrafın kulüp uygulamalarından kaldırılacak. İstediğin zaman yeni bir fotoğraf yükleyebilirsin."
-          confirmLabel="Fotoğrafı kaldır"
-          pendingLabel="Kaldırılıyor"
-          icon={<Trash2 size={22} />}
-          pending={pending === "remove"}
-          onCancel={() => {
-            setConfirmRemoval(false);
-            focusAfterUpdate.current = { kind: "remove-trigger" };
-          }}
-          onConfirm={() => void remove()}
-        />
-      ) : null}
+      <ConfirmDialog
+        open={confirmRemoval}
+        onOpenChange={(open) => {
+          if (open) return;
+          setConfirmRemoval(false);
+          focusAfterUpdate.current = { kind: "remove-trigger" };
+        }}
+        title="Profil fotoğrafını kaldır"
+        description="Fotoğrafın kulüp uygulamalarından kaldırılacak. İstediğin zaman yeni bir fotoğraf yükleyebilirsin."
+        actionLabel="Fotoğrafı kaldır"
+        stallMessage="Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür."
+        destructive
+        pending={pending === "remove"}
+        onAction={() => void remove()}
+      />
     </>
   );
 }

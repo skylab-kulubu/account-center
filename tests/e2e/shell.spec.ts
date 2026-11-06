@@ -616,18 +616,28 @@ test("session management confirms a revoke and keeps the current browser signed 
 
   const revokeTrigger = page.getByRole("button", { name: "Oturumu kapat" });
   await revokeTrigger.click();
-  const dialog = page.getByRole("dialog", { name: "Oturumu kapat" });
+  const dialog = page.getByRole("alertdialog", { name: "Oturumu kapat" });
   await expect(dialog).toBeVisible();
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
-  await expect(dialog.getByRole("button", { name: "Pencereyi kapat" })).toBeFocused();
-  expect(await page.evaluate(() => {
-    const outside = document.querySelector<HTMLElement>(".account-sidebar a");
-    outside?.focus();
-    return document.activeElement === outside;
-  })).toBe(false);
+  await expect(page.getByRole("main")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Vazgeç" })).toBeFocused();
+  // A click on a link behind the backdrop neither closes the question nor reaches the link.
+  const behind = page.locator(".account-sidebar a").first();
+  const behindBox = await behind.boundingBox();
+  expect(behindBox).not.toBeNull();
+  await behind.evaluate((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      link.setAttribute("data-e2e-clicked", "true");
+    });
+  });
+  await page.mouse.click(behindBox!.x + behindBox!.width / 2, behindBox!.y + behindBox!.height / 2);
+  await expect(dialog).toBeVisible();
+  await expect(behind).not.toHaveAttribute("data-e2e-clicked", "true");
+  await expect(page).toHaveURL(/\/sessions$/);
+  // The focus guards hand focus back a frame later, hence the poll.
   for (let index = 0; index < 5; index += 1) {
     await page.keyboard.press("Tab");
-    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
   }
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
@@ -653,11 +663,13 @@ test("session management confirms a revoke and keeps the current browser signed 
   await page.reload();
   const bulkTrigger = page.getByRole("button", { name: "Diğer tüm oturumları kapat" });
   await bulkTrigger.click();
-  const bulkDialog = page.getByRole("dialog", { name: "Diğer tüm oturumları kapat" });
+  const bulkDialog = page.getByRole("alertdialog", { name: "Diğer tüm oturumları kapat" });
   await bulkDialog.getByRole("button", { name: "Diğer tüm oturumları kapat" }).click();
 
   await expect.poll(() => bulkRevokeStatus).toBe(204);
   await expect(page.getByText("Diğer oturumlar kapatıldı.")).toBeVisible();
+  // The action button carries the trigger's name until the closing dialog has left the page.
+  await expect(bulkDialog).toBeHidden();
   await expect(bulkTrigger).toBeFocused();
   await expect(bulkTrigger).toHaveAttribute("aria-disabled", "true");
 });

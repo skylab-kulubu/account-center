@@ -303,7 +303,7 @@ test("username change: confirmation dialog, 428 → sudo dialog → success, the
   await form.getByRole("button", { name: "Devam et" }).click();
   const confirmation = page.getByRole("dialog", { name: "Kullanıcı adın değişsin mi?" });
   await expect(confirmation).toBeVisible();
-  await expect.poll(() => confirmation.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await expect(page.getByRole("main")).toHaveCount(0);
   await expect(confirmation).toContainText("Yeni kullanıcı adın ada.byron olacak.");
   await expect(confirmation).toContainText("Giriş yaparken yeni adını kullanacaksın.");
   await expect(confirmation).toContainText("Eski adın boşa çıkar ve başkası alabilir.");
@@ -406,7 +406,7 @@ async function openYtuDialog(page: Page) {
   await page.getByRole("button", { name: "YTÜ hesabımı bağla" }).click();
   const dialog = page.getByRole("dialog", { name: "YTÜ hesabın bağlansın mı?" });
   await expect(dialog).toBeVisible();
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await expect(page.getByRole("main")).toHaveCount(0);
   return dialog;
 }
 

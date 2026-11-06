@@ -1,9 +1,9 @@
 "use client";
 
-import { Nfc, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@skylab-kulubu/skylcn-ui";
+import { Nfc } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ConfirmationDialog } from "@/components/confirmation-dialog";
 import { StatusBadge } from "@/components/settings";
 
 const CARD_ROUTE = "/api/account/club-profile/student-card";
@@ -117,21 +117,21 @@ export function StudentCardRow({ initialLinked, csrfToken }: { initialLinked: bo
           ) : null}
         </div>
       </div>
-      {confirming ? (
-        <ConfirmationDialog
-          title="Kart kaydı kaldırılsın mı?"
-          description="Kartın çip numarası silinir; kapıda bu kartla giriş yapamazsın. İstersen sky-app’ten yeniden bağlayabilirsin."
-          confirmLabel="Kartı kaldır"
-          pendingLabel="Kaldırılıyor"
-          icon={<Trash2 size={22} />}
-          pending={pending}
-          onCancel={() => {
-            focusAfter.current = "trigger";
-            setConfirming(false);
-          }}
-          onConfirm={() => void remove()}
-        />
-      ) : null}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={(open) => {
+          if (open) return;
+          focusAfter.current = "trigger";
+          setConfirming(false);
+        }}
+        title="Kart kaydı kaldırılsın mı?"
+        description="Kartın çip numarası silinir; kapıda bu kartla giriş yapamazsın. İstersen sky-app’ten yeniden bağlayabilirsin."
+        actionLabel="Kartı kaldır"
+        stallMessage="Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür."
+        destructive
+        pending={pending}
+        onAction={() => void remove()}
+      />
     </>
   );
 }

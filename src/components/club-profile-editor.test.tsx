@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClubProfileEditor, parseClubProfileView } from "@/components/club-profile-editor";
 import { CLUB_PROFILE_PICTURE_MAX_BYTES } from "@/config/club-profile";
@@ -375,15 +375,28 @@ describe("ClubProfileEditor picture", () => {
     const trigger = screen.getByRole("button", { name: "Fotoğrafı kaldır" });
     trigger.focus();
     fireEvent.click(trigger);
-    const dialog = screen.getByRole("dialog", { name: "Profil fotoğrafını kaldır" });
-    expect(dialog).toHaveAttribute("open");
-    expect(within(dialog).getByRole("button", { name: "Pencereyi kapat" })).toHaveFocus();
+    const dialog = screen.getByRole("alertdialog", { name: "Profil fotoğrafını kaldır" });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Vazgeç" })).toHaveFocus());
     expect(request).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Vazgeç" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("says the removal still runs when the server does not answer", () => {
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => undefined));
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Fotoğrafı kaldır" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Fotoğrafı kaldır" }));
+      act(() => vi.advanceTimersByTime(25_000));
+      expect(within(screen.getByRole("alertdialog")).getByRole("status")).toHaveTextContent("Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("removes the picture after confirmation and shows the empty state", async () => {
@@ -391,7 +404,7 @@ describe("ClubProfileEditor picture", () => {
     renderEditor();
 
     fireEvent.click(screen.getByRole("button", { name: "Fotoğrafı kaldır" }));
-    const dialog = screen.getByRole("dialog", { name: "Profil fotoğrafını kaldır" });
+    const dialog = screen.getByRole("alertdialog", { name: "Profil fotoğrafını kaldır" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Fotoğrafı kaldır" }));
 
     await waitFor(() => expect(request).toHaveBeenCalledWith("/api/account/club-profile/picture", expect.objectContaining({
@@ -401,7 +414,7 @@ describe("ClubProfileEditor picture", () => {
     const feedback = await screen.findByRole("status");
     expect(feedback).toHaveTextContent("Profil fotoğrafın kaldırıldı.");
     await waitFor(() => expect(feedback).toHaveFocus());
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByText("Henüz fotoğraf yok")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Fotoğrafı kaldır" })).not.toBeInTheDocument();
@@ -415,10 +428,10 @@ describe("ClubProfileEditor picture", () => {
     renderEditor();
 
     fireEvent.click(screen.getByRole("button", { name: "Fotoğrafı kaldır" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Fotoğrafı kaldır" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Fotoğrafı kaldır" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profiline şu anda ulaşılamıyor");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(screen.getByRole("img", { name: "Mevcut profil fotoğrafın" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Fotoğrafı kaldır" })).toHaveFocus());
   });
