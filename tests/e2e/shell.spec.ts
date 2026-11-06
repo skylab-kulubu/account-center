@@ -664,10 +664,35 @@ test("session management confirms a revoke and keeps the current browser signed 
   const bulkTrigger = page.getByRole("button", { name: "Diğer tüm oturumları kapat" });
   await bulkTrigger.click();
   const bulkDialog = page.getByRole("alertdialog", { name: "Diğer tüm oturumları kapat" });
+  await page.evaluate(() => {
+    const log: Array<[number, string]> = [];
+    (window as unknown as { __exitLog: typeof log }).__exitLog = log;
+    const start = performance.now();
+    let last = "";
+    const tick = () => {
+      const popup = document.querySelector<HTMLElement>("[data-slot=confirm-dialog]");
+      const state = JSON.stringify({
+        popup: Boolean(popup),
+        attrs: popup ? popup.getAttributeNames().filter((name) => name.startsWith("data-")) : null,
+        mainHidden: document.querySelector("main")?.closest("[aria-hidden=true]")?.tagName ?? null,
+        success: (document.body.textContent ?? "").includes("Diğer oturumlar kapatıldı."),
+        animations: popup ? popup.getAnimations().map((animation) => `${(animation as CSSTransition).transitionProperty}:${animation.playState}:${String(animation.effect?.getTiming().duration)}`) : null,
+        active: `${document.activeElement?.tagName}:${(document.activeElement?.textContent ?? "").slice(0, 24)}`,
+      });
+      if (state !== last) {
+        log.push([Math.round(performance.now() - start), state]);
+        last = state;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
   await bulkDialog.getByRole("button", { name: "Diğer tüm oturumları kapat" }).click();
 
   await expect.poll(() => bulkRevokeStatus).toBe(204);
   await expect(page.getByText("Diğer oturumlar kapatıldı.")).toBeVisible();
+  await page.waitForTimeout(3_000);
+  throw new Error(`EXITLOG ${JSON.stringify(await page.evaluate(() => (window as unknown as { __exitLog: unknown }).__exitLog))}`);
   await expect(bulkTrigger).toBeFocused();
   await expect(bulkTrigger).toHaveAttribute("aria-disabled", "true");
 });
