@@ -559,7 +559,7 @@ test("removing credentials confirms first, warns about the last passkey without 
   await expect(totpDialog.getByRole("note")).toHaveCount(0);
   for (let index = 0; index < 4; index += 1) {
     await page.keyboard.press("Tab");
-    expect(await totpDialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect.poll(() => totpDialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
   }
   await page.keyboard.press("Escape");
   await expect(totpDialog).toBeHidden();

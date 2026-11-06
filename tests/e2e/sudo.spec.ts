@@ -208,7 +208,7 @@ test("verification-code sudo switches tabs by keyboard, posts the digits only, a
   await expect(totpTab).toBeFocused();
   for (let index = 0; index < 6; index += 1) {
     await page.keyboard.press("Tab");
-    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
   }
   const code = dialog.getByRole("textbox", { name: "Doğrulama kodu" });
   await expect(code).toHaveAttribute("inputmode", "numeric");
