@@ -141,7 +141,7 @@ test("password sudo shows the server's Turkish rejection, then verifies and keep
 
   const dialog = await openSudoDialog(page);
   const outcome = awaitSudoResult(page);
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await expect(page.getByRole("main")).toHaveCount(0);
   await expect(dialog.getByRole("tab")).toHaveText(["Parola", "Doğrulama kodu"]);
   await expect(dialog.getByRole("tab", { name: "Parola" })).toHaveAttribute("aria-selected", "true");
   const password = dialog.getByRole("textbox", { name: "Parola" });
@@ -208,7 +208,7 @@ test("verification-code sudo switches tabs by keyboard, posts the digits only, a
   await expect(totpTab).toBeFocused();
   for (let index = 0; index < 6; index += 1) {
     await page.keyboard.press("Tab");
-    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
   }
   const code = dialog.getByRole("textbox", { name: "Doğrulama kodu" });
   await expect(code).toHaveAttribute("inputmode", "numeric");
@@ -218,6 +218,49 @@ test("verification-code sudo switches tabs by keyboard, posts the digits only, a
   await expect(dialog).toBeHidden();
   expect(await outcome).toMatchObject({ verified: true });
   expect(codes).toEqual([{ code: "123456" }]);
+  expect(errors).toEqual([]);
+});
+
+test("a rejected password and a cancelled passkey disable the focused control, and Tab stays in the dialog", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `sudo-disabled-focus-${testInfo.retry}`, page);
+  const errors = failOnPageErrors(page);
+  await page.addInitScript(() => {
+    navigator.credentials.get = async () => {
+      throw new DOMException("The person cancelled.", "NotAllowedError");
+    };
+  });
+  await mockMethods(page, { methods: ["password", "passkey"], fallback: null, active: null, csrfToken });
+  await page.route("**/api/account/sudo/password", (route) => route.fulfill({
+    status: 401,
+    json: { error: "invalid_credentials", detail: "Parola veya doğrulama kodu yanlış." },
+  }));
+  await page.route("**/api/account/sudo/webauthn/options", (route) => route.fulfill({
+    json: {
+      challenge: base64Url(randomBytes(32)),
+      rpId: "yildizskylab.com",
+      allowCredentials: [],
+      userVerification: "required",
+    },
+  }));
+  await gotoAuthenticatedPage(page, "/security");
+  const dialog = await openSudoDialog(page);
+  const tabStaysInside = async () => {
+    for (let index = 0; index < 5; index += 1) {
+      await page.keyboard.press("Tab");
+      await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    }
+  };
+
+  await dialog.getByRole("textbox", { name: "Parola" }).fill("wrong-password");
+  await dialog.getByRole("button", { name: "Doğrula" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Parola veya doğrulama kodu yanlış.");
+  await tabStaysInside();
+
+  await dialog.getByRole("tab", { name: "Passkey" }).click();
+  await dialog.getByRole("button", { name: "Passkey ile doğrula" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Passkey doğrulaması tamamlanmadı");
+  await tabStaysInside();
   expect(errors).toEqual([]);
 });
 
@@ -239,7 +282,7 @@ test("lockout and Microsoft fallback states render the Turkish copy and the allo
   await expect(dialog.getByRole("alert")).toContainText("Hesabın geçici olarak kilitlendi.");
   await expect(dialog.getByRole("alert")).toContainText("Yeniden denemek için bekle: 3 dakika.");
   await expect(dialog.getByRole("button", { name: "Doğrula" })).toBeDisabled();
-  await dialog.getByRole("button", { name: "Pencereyi kapat" }).click();
+  await dialog.getByRole("button", { name: "Kapat", exact: true }).click();
   expect(await outcome).toMatchObject({ verified: false });
 
   await page.unroute("**/api/account/sudo/methods");

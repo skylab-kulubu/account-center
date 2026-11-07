@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StudentCardRow } from "@/components/student-card-row";
 
@@ -10,6 +10,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.unstubAllGlobals();
 });
@@ -30,7 +31,7 @@ describe("StudentCardRow", () => {
     renderRow();
 
     fireEvent.click(screen.getByRole("button", { name: "Kartı kaldır" }));
-    const dialog = screen.getByRole("dialog", { name: "Kart kaydı kaldırılsın mı?" });
+    const dialog = screen.getByRole("alertdialog", { name: "Kart kaydı kaldırılsın mı?" });
     expect(dialog).toHaveTextContent("çip numarası silinir");
     expect(fetchMock).not.toHaveBeenCalled();
 
@@ -44,13 +45,13 @@ describe("StudentCardRow", () => {
     }));
     expect(screen.getByText("Öğrenci kartı bağlı değil")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Kartı kaldır" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("does nothing when the dialog is cancelled", () => {
     renderRow();
     fireEvent.click(screen.getByRole("button", { name: "Kartı kaldır" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Vazgeç/ }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /Vazgeç/ }));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByText("Öğrenci kartı bağlı")).toBeInTheDocument();
   });
@@ -59,18 +60,29 @@ describe("StudentCardRow", () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ title: "Kulüp profiline şu anda ulaşılamıyor" }), { status: 503 }));
     renderRow();
     fireEvent.click(screen.getByRole("button", { name: "Kartı kaldır" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Kartı kaldır" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Kartı kaldır" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profiline şu anda ulaşılamıyor");
     expect(screen.getByText("Öğrenci kartı bağlı")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Kartı kaldır" })).toBeInTheDocument();
   });
 
+  it("says the request still runs when the server does not answer", () => {
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    renderRow();
+    fireEvent.click(screen.getByRole("button", { name: "Kartı kaldır" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Kartı kaldır" }));
+    act(() => vi.advanceTimersByTime(25_000));
+
+    expect(within(screen.getByRole("alertdialog")).getByRole("status")).toHaveTextContent("Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür.");
+  });
+
   it("links to login when the session has ended", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ title: "Oturumun sona erdi" }), { status: 401 }));
     renderRow();
     fireEvent.click(screen.getByRole("button", { name: "Kartı kaldır" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Kartı kaldır" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Kartı kaldır" }));
 
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", "/login?returnTo=%2Fclub-profile");
