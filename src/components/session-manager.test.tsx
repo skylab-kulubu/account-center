@@ -177,7 +177,7 @@ describe("SessionManager", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Oturumların değişmedi. Kısa bir süre sonra yeniden deneyebilirsin.");
     expect(screen.getByRole("alertdialog")).toBe(dialog);
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Vazgeç" })).toHaveFocus());
-    expect(document.body).toHaveTextContent("iPhone · iOS · 26.0");
+    expect(screen.getByText("iPhone · iOS · 26.0")).toBeInTheDocument();
   });
 
   it("tells a network failure inside the dialog too", async () => {
