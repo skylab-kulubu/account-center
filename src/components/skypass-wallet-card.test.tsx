@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isAppleMobile, SkyPassWalletCard } from "@/components/skypass-wallet-card";
 
@@ -70,6 +70,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -278,7 +279,7 @@ describe("SkyPassWalletCard", () => {
     renderCard(true);
 
     fireEvent.click(screen.getByRole("button", { name: /Cüzdandan kaldır/ }));
-    const dialog = screen.getByRole("dialog", { name: "Pas Google Cüzdan’dan kaldırılsın mı?" });
+    const dialog = screen.getByRole("alertdialog", { name: "Pas Google Cüzdan’dan kaldırılsın mı?" });
     expect(fetchMock).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Pası kaldır" }));
@@ -289,8 +290,19 @@ describe("SkyPassWalletCard", () => {
       headers: { "x-csrf-token": "session-bound-csrf" },
     }));
     expect(screen.getByText("Pas yok")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(openMock).not.toHaveBeenCalled();
+  });
+
+  it("says the request still runs when the server does not answer", () => {
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    renderCard(true);
+    fireEvent.click(screen.getByRole("button", { name: /Cüzdandan kaldır/ }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Pası kaldır" }));
+    act(() => vi.advanceTimersByTime(25_000));
+
+    expect(within(screen.getByRole("alertdialog")).getByRole("status")).toHaveTextContent("Sunucu yanıt vermedi. İstek iptal edilmedi; sonuç gelince burada görünür.");
   });
 
   it("keeps the pass shown as active when the revoke fails", async () => {
@@ -298,7 +310,7 @@ describe("SkyPassWalletCard", () => {
     renderCard(true);
 
     fireEvent.click(screen.getByRole("button", { name: /Cüzdandan kaldır/ }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Pası kaldır" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Pası kaldır" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/Yaklaşık 20 saniye sonra/);
     expect(screen.getByText("Pas etkin")).toBeInTheDocument();

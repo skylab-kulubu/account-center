@@ -456,7 +456,7 @@ test("passkey registration converts the relayed options for navigator.credential
   await page.getByRole("button", { name: "Passkey ekle" }).click();
   const dialog = page.getByRole("dialog", { name: "Passkey ekle" });
   await expect(dialog).toBeVisible();
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await expect(page.getByRole("main")).toHaveCount(0);
   await dialog.getByLabel("Passkey adı").fill("MacBook");
   await dialog.getByRole("button", { name: "Passkey oluştur" }).click();
   await expect(dialog.getByText("Aynı adda bir passkey zaten var. Başka bir ad seç.")).toBeVisible();
@@ -559,7 +559,7 @@ test("removing credentials confirms first, warns about the last passkey without 
   await expect(totpDialog.getByRole("note")).toHaveCount(0);
   for (let index = 0; index < 4; index += 1) {
     await page.keyboard.press("Tab");
-    expect(await totpDialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect.poll(() => totpDialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
   }
   await page.keyboard.press("Escape");
   await expect(totpDialog).toBeHidden();
@@ -592,6 +592,42 @@ test("removing credentials confirms first, warns about the last passkey without 
   }
   expect(page.url()).toBe(`${baseUrl}/security`);
   expect(network.hosts().has(keycloakHost)).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test("closing the Sudo dialog over a removal leaves focus in the removal dialog, not on the page behind it", async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "desktop-only assertion");
+  await installAuthenticatedSession(context, `security-sudo-focus-${testInfo.retry}`);
+  const errors = failOnPageErrors(page);
+  await mockInventory(page, {
+    password: true,
+    totp: [{ reference: reference("totp"), label: "Telefon", createdAt: "2026-09-21T13:10:41.130Z" }],
+    passkeys: [],
+  });
+  await mockSudo(page, { methods: ["totp"] });
+  await page.route(/\/api\/account\/security\/credentials\/[^/?]+$/, (route) => route.fulfill({
+    status: 428,
+    json: { error: "sudo_required", reason: "missing", methods: ["totp"], fallback: null },
+  }));
+
+  await gotoSecurity(page);
+  await page.getByRole("button", { name: "Telefon — Kaldır" }).click();
+  const removal = page.getByRole("dialog", { name: "Doğrulama uygulaması kaldırılsın mı?" });
+  await removal.getByRole("button", { name: "Kaldır" }).click();
+
+  const sudo = page.getByRole("dialog", { name: "Kimliğini doğrula" });
+  await expect(sudo.getByRole("textbox", { name: "Doğrulama kodu" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(sudo).toBeHidden();
+  await expect(removal).toBeVisible();
+  await expect(removal.getByRole("button", { name: "Kaldır" })).toBeEnabled();
+
+  // The page behind is only aria-hidden: Tab from a lost focus would walk onto the skip link and the menu.
+  for (let index = 0; index < 5; index += 1) {
+    await page.keyboard.press("Tab");
+    await expect.poll(() => removal.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  }
+  await expect(removal).toBeVisible();
   expect(errors).toEqual([]);
 });
 

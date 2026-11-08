@@ -417,7 +417,8 @@ describe("IdentityManager", () => {
       expect(dialog).toHaveTextContent("Onayladıktan sonra kimliğini doğrulaman istenir");
       expect(dialog).toHaveTextContent("e.yildizskylab.com ve Microsoft sayfalarına gideceksin");
       expect(request).toHaveBeenCalledTimes(1);
-      expect(screen.getByRole("button", { name: "Adı düzenle" })).toBeDisabled();
+      // `hidden`: the modal hides the page behind it from the accessibility tree.
+      expect(screen.getByRole("button", { name: "Adı düzenle", hidden: true })).toBeDisabled();
 
       fireEvent.click(within(dialog).getByRole("button", { name: "Onayla ve devam et" }));
       await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizationUrl));

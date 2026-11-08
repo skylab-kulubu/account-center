@@ -121,6 +121,7 @@ export function SudoProvider({ children }: { children: ReactNode }) {
   const expiresAtRef = useRef<Date | null>(null);
   const waiters = useRef<Array<(verified: boolean) => void>>([]);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const closing = useRef(false);
 
   const remember = useCallback((deadline: Date | null) => {
     expiresAtRef.current = deadline;
@@ -130,6 +131,7 @@ export function SudoProvider({ children }: { children: ReactNode }) {
   const settle = useCallback((verified: boolean) => {
     const pending = waiters.current;
     waiters.current = [];
+    closing.current = true;
     setOpen(false);
     for (const resolve of pending) resolve(verified);
     const target = returnFocus.current;
@@ -138,6 +140,17 @@ export function SudoProvider({ children }: { children: ReactNode }) {
       if (target?.isConnected) target.focus();
     });
   }, []);
+
+  // The control that asked for the proof may be disabled while its action waits, so the focus
+  // above can fail and the closed dialog leaves it on <body>. A dialog underneath takes it then:
+  // the page behind is only aria-hidden, and Tab from nowhere would walk onto it.
+  useEffect(() => {
+    if (open || !closing.current) return;
+    closing.current = false;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]');
+    dialogs[dialogs.length - 1]?.focus();
+  }, [open]);
 
   const invalidateSudo = useCallback(() => remember(null), [remember]);
 
