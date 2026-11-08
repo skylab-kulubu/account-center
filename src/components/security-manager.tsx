@@ -9,11 +9,10 @@ import {
   Smartphone,
   Trash2,
 } from "lucide-react";
-import { Button } from "@skylab-kulubu/skylcn-ui";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@skylab-kulubu/skylcn-ui";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { framedStateCard } from "@/components/framed-state";
-import { ModalDialog } from "@/components/modal-dialog";
 import { PasskeyAddDialog } from "@/components/security-passkey-dialog";
 import { PasswordForm } from "@/components/security-password-form";
 import {
@@ -158,49 +157,44 @@ function RemoveDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const baseId = useId();
   const kind = flow.section === "totp" ? securityCopy.totp.kind : securityCopy.passkeys.kind;
   const name = credentialName(flow.credential, kind);
   const lastPasskeyWithoutPassword = flow.section === "passkeys" &&
     !payload.password &&
     payload.passkeys.length === 1;
-  const titleId = `${baseId}-title`;
-  const descriptionId = `${baseId}-description`;
   return (
-    <ModalDialog
-      titleId={titleId}
-      descriptionId={descriptionId}
-      className="security-dialog"
-      pending={pending}
-      icon={<Trash2 size={22} />}
-      onDismiss={onCancel}
-    >
-      <h2 id={titleId}>{securityCopy.remove.title(kind)}</h2>
-      <p id={descriptionId}>{securityCopy.remove.body(name)}</p>
-      {lastPasskeyWithoutPassword ? (
-        <p className="security-feedback" data-tone="warning" role="note">
-          <AlertTriangle aria-hidden="true" size={16} />
-          <span>{securityCopy.remove.lastPasskey}</span>
-        </p>
-      ) : null}
-      <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
-      <div className="confirmation-dialog__actions">
-        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
-          Vazgeç
-        </Button>
-        <Button
-          type="button"
-          disabled={pending || waitSeconds > 0}
-          onClick={onConfirm}
-          size="lg"
-          variant="destructive"
-        >
-          {pending ? <ActionProgress label="Kaldırılıyor" /> : (
-            <><Trash2 aria-hidden="true" size={16} />{securityCopy.remove.confirm}</>
-          )}
-        </Button>
-      </div>
-    </ModalDialog>
+    <Dialog open disablePointerDismissal onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
+      <DialogContent className="security-dialog" aria-busy={pending} hideClose={pending} finalFocus={false}>
+        <DialogHeader>
+          <DialogTitle>{securityCopy.remove.title(kind)}</DialogTitle>
+          <DialogDescription>{securityCopy.remove.body(name)}</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="account-dialog__body">
+          {lastPasskeyWithoutPassword ? (
+            <p className="security-feedback" data-tone="warning" role="note">
+              <AlertTriangle aria-hidden="true" size={16} />
+              <span>{securityCopy.remove.lastPasskey}</span>
+            </p>
+          ) : null}
+          <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" disabled={pending} onClick={onCancel} variant="outline">
+            Vazgeç
+          </Button>
+          <Button
+            type="button"
+            disabled={pending || waitSeconds > 0}
+            onClick={onConfirm}
+            variant="destructive"
+          >
+            {pending ? <ActionProgress label="Kaldırılıyor" /> : (
+              <><Trash2 aria-hidden="true" size={16} />{securityCopy.remove.confirm}</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

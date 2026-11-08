@@ -1,13 +1,12 @@
 "use client";
 
 import { GraduationCap, Link2, Mail, MailCheck, MailX, Pencil, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
-import { Button } from "@skylab-kulubu/skylcn-ui";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { framedStateCard } from "@/components/framed-state";
-import { ModalDialog } from "@/components/modal-dialog";
 import { parsePrimaryEmailNudge, PrimaryEmailNudgeCard } from "@/components/primary-email-nudge";
 import { FeedbackAlert, feedbackFor, loginPath, sharedCopy, useWaitSeconds } from "@/components/security-shared";
 import type { Feedback } from "@/components/security-shared";
@@ -976,7 +975,6 @@ function RemoveDialog({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const baseId = useId();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   /** The SPI kept a primary personal address because no linked school address can take over. */
@@ -1014,44 +1012,40 @@ function RemoveDialog({
     }
   };
 
-  const titleId = `${baseId}-title`;
-  const descriptionId = `${baseId}-description`;
   return (
-    <ModalDialog
-      titleId={titleId}
-      descriptionId={descriptionId}
-      className="security-dialog"
-      pending={pending}
-      icon={<Trash2 size={22} />}
-      onDismiss={onCancel}
-    >
-      <h2 id={titleId}>{emailCopy.remove.title}</h2>
-      <p id={descriptionId}>{emailCopy.remove.body(payload.personalEmail)}</p>
-      {payload.primary === "personal" ? (
-        <ul className="security-hints identity-consequences">
-          <li>{emailCopy.remove.primary}</li>
-        </ul>
-      ) : null}
-      <p className="identity-consequences__sudo">{emailCopy.remove.sudo}</p>
-      <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
-      {noFallback && !payload.verifiedYtu ? <div className="email-primary__blocked"><YtuLink /></div> : null}
-      <div className="confirmation-dialog__actions">
-        <Button type="button" disabled={pending} onClick={onCancel} size="lg" variant="outline">
-          Vazgeç
-        </Button>
-        <Button
-          type="button"
-          disabled={pending || waitSeconds > 0}
-          onClick={() => void remove()}
-          size="lg"
-          variant="destructive"
-        >
-          {pending ? <ActionProgress label={emailCopy.remove.removing} /> : (
-            <><Trash2 aria-hidden="true" size={16} />{emailCopy.remove.confirm}</>
-          )}
-        </Button>
-      </div>
-    </ModalDialog>
+    <Dialog open disablePointerDismissal onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
+      <DialogContent className="security-dialog" aria-busy={pending} hideClose={pending} finalFocus={false}>
+        <DialogHeader>
+          <DialogTitle>{emailCopy.remove.title}</DialogTitle>
+          <DialogDescription>{emailCopy.remove.body(payload.personalEmail)}</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="account-dialog__body">
+          {payload.primary === "personal" ? (
+            <ul className="security-hints identity-consequences">
+              <li>{emailCopy.remove.primary}</li>
+            </ul>
+          ) : null}
+          <p className="identity-consequences__sudo">{emailCopy.remove.sudo}</p>
+          <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
+          {noFallback && !payload.verifiedYtu ? <div className="email-primary__blocked"><YtuLink /></div> : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" disabled={pending} onClick={onCancel} variant="outline">
+            Vazgeç
+          </Button>
+          <Button
+            type="button"
+            disabled={pending || waitSeconds > 0}
+            onClick={() => void remove()}
+            variant="destructive"
+          >
+            {pending ? <ActionProgress label={emailCopy.remove.removing} /> : (
+              <><Trash2 aria-hidden="true" size={16} />{emailCopy.remove.confirm}</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

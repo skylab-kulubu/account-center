@@ -283,7 +283,7 @@ test("add → code → confirm → primary switch → remove, with the identity 
   await page.getByRole("button", { name: `${personalEmail} — Kaldır` }).click();
   const dialog = page.getByRole("dialog", { name: "Kişisel e-posta kaldırılsın mı?" });
   await expect(dialog).toBeVisible();
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await expect(page.getByRole("main")).toHaveCount(0);
   await expect(dialog).toContainText("Bu adres birincil adresin; kaldırınca kulüp postaları okul e-postana gider.");
   await dialog.getByRole("button", { name: "Kaldır" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Kişisel e-postan kaldırıldı." })).toBeVisible();

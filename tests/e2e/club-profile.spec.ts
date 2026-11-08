@@ -136,9 +136,9 @@ test("club profile fields and picture round-trip through the mock core", async (
     await test.step("remove the picture after confirmation", async () => {
       const trigger = page.getByRole("button", { name: "Fotoğrafı kaldır" });
       await trigger.click();
-      const dialog = page.getByRole("dialog", { name: "Profil fotoğrafını kaldır" });
+      const dialog = page.getByRole("alertdialog", { name: "Profil fotoğrafını kaldır" });
       await expect(dialog).toBeVisible();
-      await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+      await expect(page.getByRole("main")).toHaveCount(0);
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
       await expect(trigger).toBeFocused();
@@ -159,7 +159,7 @@ test("club profile fields and picture round-trip through the mock core", async (
 
     await test.step("remove the card after confirmation", async () => {
       await page.getByRole("button", { name: "Kartı kaldır" }).click();
-      const dialog = page.getByRole("dialog", { name: "Kart kaydı kaldırılsın mı?" });
+      const dialog = page.getByRole("alertdialog", { name: "Kart kaydı kaldırılsın mı?" });
       await expect(dialog).toBeVisible();
       const deleteResponse = page.waitForResponse((response) =>
         response.url().endsWith("/api/account/club-profile/student-card") && response.request().method() === "DELETE");
@@ -462,7 +462,7 @@ test("SkyPass goes to Google Wallet in a new tab and comes off it again", async 
     await test.step("revoking asks first and ends the pass", async () => {
       const section = page.getByRole("region", { name: "Google Cüzdan" });
       await section.getByRole("button", { name: "Cüzdandan kaldır" }).click();
-      const dialog = page.getByRole("dialog", { name: "Pas Google Cüzdan’dan kaldırılsın mı?" });
+      const dialog = page.getByRole("alertdialog", { name: "Pas Google Cüzdan’dan kaldırılsın mı?" });
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: "Pası kaldır" }).click();
       await expect(section.getByRole("status")).toContainText("Pas kaldırıldı");

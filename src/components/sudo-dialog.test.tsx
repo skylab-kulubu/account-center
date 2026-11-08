@@ -51,7 +51,6 @@ describe("SudoDialog", () => {
     render(<SudoDialog returnTo="/security" onVerified={vi.fn()} onDismiss={vi.fn()} />);
 
     const dialog = await screen.findByRole("dialog", { name: "Kimliğini doğrula" });
-    expect(dialog).toHaveAttribute("open");
     const tabs = await within(dialog).findAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Parola", "Doğrulama kodu"]);
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
@@ -288,26 +287,30 @@ describe("SudoDialog", () => {
     expect(await screen.findByLabelText("Parola", { selector: "input" })).toBeInTheDocument();
   });
 
-  it("traps focus, dismisses on Escape and through the close button", async () => {
+  it("ignores a click outside, dismisses on Escape and through the close button, and locks both while a proof runs", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(methods({ methods: ["password"] }));
     const onDismiss = vi.fn();
     render(<SudoDialog returnTo="/security" onVerified={vi.fn()} onDismiss={onDismiss} />);
 
     const dialog = await screen.findByRole("dialog", { name: "Kimliğini doğrula" });
     const input = await within(dialog).findByLabelText("Parola", { selector: "input" });
-    const close = within(dialog).getByRole("button", { name: "Pencereyi kapat" });
     expect(dialog).toHaveAttribute("aria-describedby");
-    fireEvent.change(input, { target: { value: "x" } });
-    const submit = within(dialog).getByRole("button", { name: "Doğrula" });
-    submit.focus();
-    fireEvent.keyDown(dialog, { key: "Tab" });
-    expect(close).toHaveFocus();
-    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
-    expect(submit).toHaveFocus();
 
-    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    fireEvent.pointerDown(document.body);
+    fireEvent.click(document.body);
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
     expect(onDismiss).toHaveBeenCalledTimes(1);
-    fireEvent.click(close);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Kapat" }));
+    expect(onDismiss).toHaveBeenCalledTimes(2);
+
+    vi.mocked(fetch).mockReturnValue(new Promise(() => undefined));
+    fireEvent.change(input, { target: { value: "x" } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(dialog).toHaveAttribute("aria-busy", "true"));
+    expect(within(dialog).queryByRole("button", { name: "Kapat" })).not.toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "Escape" });
     expect(onDismiss).toHaveBeenCalledTimes(2);
   });
 

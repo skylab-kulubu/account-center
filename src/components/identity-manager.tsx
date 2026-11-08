@@ -10,13 +10,12 @@ import {
   UserRound,
   UserRoundPen,
 } from "lucide-react";
-import { Button } from "@skylab-kulubu/skylcn-ui";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { framedStateCard } from "@/components/framed-state";
-import { ModalDialog } from "@/components/modal-dialog";
 import { FeedbackAlert, feedbackFor, loginPath, sharedCopy, useWaitSeconds } from "@/components/security-shared";
 import type { Feedback } from "@/components/security-shared";
 import { SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
@@ -564,14 +563,11 @@ function UsernameForm({
   const dismissConfirmation = () => {
     setCandidate(null);
     onConfirmationChange(false);
-    queueMicrotask(() => input.current?.focus());
   };
 
   const inputId = `${baseId}-username`;
   const hintId = `${inputId}-hint`;
   const errorId = `${inputId}-error`;
-  const dialogTitleId = `${baseId}-confirm-title`;
-  const dialogDescriptionId = `${baseId}-confirm-description`;
   return (
     <>
       <form className="security-panel" aria-labelledby={`${baseId}-title`} noValidate onSubmit={submit}>
@@ -616,28 +612,28 @@ function UsernameForm({
         </div>
       </form>
       {stage === "confirm" && candidate ? (
-        <ModalDialog
-          titleId={dialogTitleId}
-          descriptionId={dialogDescriptionId}
-          className="security-dialog"
-          icon={<Pencil size={22} />}
-          onDismiss={dismissConfirmation}
-        >
-          <h2 id={dialogTitleId}>{identityCopy.username.confirm.title}</h2>
-          <p id={dialogDescriptionId}>{identityCopy.username.confirm.lead(candidate)}</p>
-          <ul className="security-hints identity-consequences">
-            {identityCopy.username.confirm.consequences.map((consequence) => <li key={consequence}>{consequence}</li>)}
-          </ul>
-          <p className="identity-consequences__sudo">{identityCopy.username.confirm.sudo}</p>
-          <div className="confirmation-dialog__actions">
-            <Button type="button" onClick={dismissConfirmation} size="lg" variant="outline">
-              Vazgeç
-            </Button>
-            <Button type="button" onClick={() => void change()} size="lg" variant="solid">
-              {identityCopy.username.confirm.confirm}
-            </Button>
-          </div>
-        </ModalDialog>
+        <Dialog open disablePointerDismissal onOpenChange={(open) => { if (!open) dismissConfirmation(); }}>
+          <DialogContent className="security-dialog" finalFocus={input}>
+            <DialogHeader>
+              <DialogTitle>{identityCopy.username.confirm.title}</DialogTitle>
+              <DialogDescription>{identityCopy.username.confirm.lead(candidate)}</DialogDescription>
+            </DialogHeader>
+            <DialogBody className="account-dialog__body">
+              <ul className="security-hints identity-consequences">
+                {identityCopy.username.confirm.consequences.map((consequence) => <li key={consequence}>{consequence}</li>)}
+              </ul>
+              <p className="identity-consequences__sudo">{identityCopy.username.confirm.sudo}</p>
+            </DialogBody>
+            <DialogFooter>
+              <Button type="button" onClick={dismissConfirmation} variant="outline">
+                Vazgeç
+              </Button>
+              <Button type="button" onClick={() => void change()} variant="solid">
+                {identityCopy.username.confirm.confirm}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </>
   );
@@ -673,7 +669,6 @@ function YtuLinkDialog({
   onCsrfRenewed,
   onAuthenticationRequired,
 }: YtuLinkDialogProps) {
-  const baseId = useId();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const waitSeconds = useWaitSeconds(feedback);
@@ -720,33 +715,30 @@ function YtuLinkDialog({
     }
   };
 
-  const titleId = `${baseId}-title`;
-  const descriptionId = `${baseId}-description`;
   return (
-    <ModalDialog
-      titleId={titleId}
-      descriptionId={descriptionId}
-      className="security-dialog"
-      pending={pending}
-      icon={<Link2 size={22} />}
-      onDismiss={onDismiss}
-    >
-      <h2 id={titleId}>{identityCopy.ytu.confirm.title}</h2>
-      <p id={descriptionId}>{identityCopy.ytu.confirm.lead}</p>
-      <ul className="security-hints identity-consequences">
-        {identityCopy.ytu.confirm.consequences.map((consequence) => <li key={consequence}>{consequence}</li>)}
-      </ul>
-      <p className="identity-consequences__sudo">{identityCopy.ytu.confirm.note}</p>
-      <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
-      <div className="confirmation-dialog__actions">
-        <Button type="button" disabled={pending} onClick={onDismiss} size="lg" variant="outline">
-          Vazgeç
-        </Button>
-        <Button type="button" disabled={busy} onClick={() => void start()} size="lg" variant="solid">
-          {pending ? <ActionProgress label={identityCopy.ytu.confirm.redirecting} /> : identityCopy.ytu.confirm.confirm}
-        </Button>
-      </div>
-    </ModalDialog>
+    <Dialog open disablePointerDismissal onOpenChange={(open) => { if (!open && !pending) onDismiss(); }}>
+      <DialogContent className="security-dialog" aria-busy={pending} hideClose={pending} finalFocus={false}>
+        <DialogHeader>
+          <DialogTitle>{identityCopy.ytu.confirm.title}</DialogTitle>
+          <DialogDescription>{identityCopy.ytu.confirm.lead}</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="account-dialog__body">
+          <ul className="security-hints identity-consequences">
+            {identityCopy.ytu.confirm.consequences.map((consequence) => <li key={consequence}>{consequence}</li>)}
+          </ul>
+          <p className="identity-consequences__sudo">{identityCopy.ytu.confirm.note}</p>
+          <FeedbackAlert feedback={feedback} waitSeconds={waitSeconds} />
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" disabled={pending} onClick={onDismiss} variant="outline">
+            Vazgeç
+          </Button>
+          <Button type="button" disabled={busy} onClick={() => void start()} variant="solid">
+            {pending ? <ActionProgress label={identityCopy.ytu.confirm.redirecting} /> : identityCopy.ytu.confirm.confirm}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
