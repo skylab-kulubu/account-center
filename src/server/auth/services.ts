@@ -29,6 +29,7 @@ import { AccountSessionAccess } from "@/server/access-gate/session-access";
 import { AccountDeletionOrchestrator } from "@/server/account-deletion/orchestrator";
 import { CoreAccountDeletionHttpGateway } from "@/server/account-deletion/core-gateway";
 import { PostgresAccountDeletionRepository } from "@/server/account-deletion/postgres-repository";
+import { CoreAppPreferencesHttpClient } from "@/server/core/app-preferences-client";
 import { CoreCommunicationPreferencesHttpClient } from "@/server/core/communication-preferences-client";
 import { CoreConsentsHttpClient } from "@/server/core/consents-client";
 import { CoreProfileHttpClient } from "@/server/core/profile-client";
@@ -86,6 +87,7 @@ function createAuthServices() {
     ? new CoreCommunicationPreferencesHttpClient(config.coreApiUrl)
     : null;
   const coreConsents = config.coreApiUrl ? new CoreConsentsHttpClient(config.coreApiUrl) : null;
+  const coreAppPreferences = config.coreApiUrl ? new CoreAppPreferencesHttpClient(config.coreApiUrl) : null;
   const skymailInbox = config.skymailApiUrl ? new SkyMailInboxHttpClient(config.skymailApiUrl) : null;
   const accountDeletion = config.accountErasure.mode === "enforce"
     ? new AccountDeletionOrchestrator(
@@ -112,6 +114,7 @@ function createAuthServices() {
     coreSkyPassWallet,
     coreCommunicationPreferences,
     coreConsents,
+    coreAppPreferences,
     skymailInbox,
     /** The same SkyMail client, for `GET /v1/me/email-delivery`; `null` when `SKYMAIL_API_URL` is unset. */
     skymailEmailDelivery: skymailInbox,
