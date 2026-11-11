@@ -36,6 +36,7 @@ describe("AccountShell", () => {
       "E-posta ve giriş",
       "Kulüp profili",
       "İletişim tercihleri",
+      "Uygulama ayarları",
       "Giriş ve güvenlik",
       "Oturumlar ve cihazlar",
       "Yetkilerim",

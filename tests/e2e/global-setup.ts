@@ -23,6 +23,7 @@ const pages = [
   "/club-profile",
   "/communication-preferences",
   "/notifications",
+  "/app-preferences",
   "/delete-account",
   "/account-deletion",
   "/.well-known/assetlinks.json",
@@ -73,6 +74,7 @@ const mutations = [
   "/api/account/deletion/prepare",
   "/api/account/club-profile/picture",
   "/api/account/club-profile/student-card",
+  "/api/account/app-preferences/forms",
   "/api/account/inbox/seen-all",
   "/api/account/inbox/read-all",
   "/api/account/inbox/items/e2e-warm-up/read",
@@ -94,6 +96,7 @@ const authenticatedPages = [
   "/club-profile",
   "/communication-preferences",
   "/notifications",
+  "/app-preferences",
   "/delete-account",
   "/e2e-warm-up-not-found",
 ];
