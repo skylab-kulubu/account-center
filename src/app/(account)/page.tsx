@@ -6,6 +6,7 @@ import {
   Mail,
   MonitorSmartphone,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 import { AccountDataProblem } from "@/components/account-data-problem";
@@ -70,6 +71,12 @@ export default async function OverviewPage() {
           icon={<BellRing aria-hidden="true" size={19} />}
           title="İletişim tercihleri"
           description="Kulüpten ve ekiplerinden hangi duyuru ve haber postalarını alacağını seç."
+        />
+        <SettingsRow
+          href="/app-preferences"
+          icon={<SlidersHorizontal aria-hidden="true" size={19} />}
+          title="Uygulama ayarları"
+          description="Uygulamaların sakladığı görünüm ayarlarını gör ve sıfırla."
         />
         <SettingsRow
           href="/security"

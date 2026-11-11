@@ -8,6 +8,7 @@ import {
   Mail,
   MonitorSmartphone,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -19,6 +20,7 @@ export type AccountRoutePath =
   | "/club-profile"
   | "/communication-preferences"
   | "/notifications"
+  | "/app-preferences"
   | "/security"
   | "/sessions"
   | "/permissions"
@@ -89,6 +91,15 @@ export const accountRoutes = [
     title: "Bildirimlerim",
     description: "Biletler, etkinlikler ve hesabınla ilgili bildirimlerin. Bildirimler 90 gün tutulur.",
     icon: Bell,
+    tone: "default",
+  },
+  {
+    href: "/app-preferences",
+    navigationLabel: "Uygulama ayarları",
+    documentTitle: "Uygulama ayarları",
+    title: "Uygulama ayarları",
+    description: "SKY LAB uygulamalarının senin için sakladığı görünüm ayarları. Sıfırlanan uygulama varsayılan görünümüne döner.",
+    icon: SlidersHorizontal,
     tone: "default",
   },
   {
