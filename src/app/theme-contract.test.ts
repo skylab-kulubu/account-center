@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 function channel(value: number) {
@@ -56,10 +56,43 @@ describe("skylcn-ui theme contract", () => {
     expect(css).not.toContain("@skylab-kulubu/skylcn-ui/theme.css");
     expect(css).not.toMatch(/@source not/);
     const sources = [...css.matchAll(/@import "@skylab-kulubu\/skylcn-ui\/sources\/([a-z-]+)\.css";/g)].map((match) => match[1]);
-    expect(sources).toEqual(["button", "dialog", "feedback", "form-extra", "skylab-loader", "state-card", "switch", "task-page"]);
+    expect(sources).toEqual(["button", "dialog", "form-extra", "notice", "skylab-loader", "state-card", "switch", "task-page"]);
     for (const source of sources) {
       expect(() => createRequire(import.meta.url).resolve(`@skylab-kulubu/skylcn-ui/sources/${source}.css`)).not.toThrow();
     }
+  });
+
+  it("scans the module of every skylcn component the app renders", () => {
+    // A component that moves to a module of its own loses its classes until its sheet is
+    // imported above: Notice left feedback for notice in skylcn-ui 0.2.1.
+    const require = createRequire(import.meta.url);
+    const dist = dirname(require.resolve("@skylab-kulubu/skylcn-ui"));
+    const moduleOf = new Map<string, string>();
+    for (const [, names, file] of readFileSync(join(dist, "index.js"), "utf8").matchAll(/export \{([^}]*)\} from '\.\/([^']+)';/g)) {
+      for (const name of names!.split(",").map((part) => part.trim()).filter(Boolean)) moduleOf.set(name, file!);
+    }
+    const scanned = new Set(
+      [...css.matchAll(/@import "(@skylab-kulubu\/skylcn-ui\/sources\/[a-z-]+\.css)";/g)].flatMap(([, sheet]) =>
+        [...readFileSync(require.resolve(sheet!), "utf8").matchAll(/@source '\.\.\/\.\.\/([^']+)';/g)].map(([, file]) => file!),
+      ),
+    );
+    const rendered = new Map<string, string>();
+    for (const file of readdirSync(resolve(process.cwd(), "src"), { recursive: true, encoding: "utf8" })) {
+      if (!/\.tsx$/.test(file) || /\.test\.tsx$/.test(file)) continue;
+      const source = readFileSync(resolve(process.cwd(), "src", file), "utf8");
+      for (const [, names] of source.matchAll(/import \{([^}]*)\} from "@skylab-kulubu\/skylcn-ui";/g)) {
+        for (const name of names!.split(",").map((part) => part.trim()).filter((part) => part && !part.startsWith("type "))) {
+          expect(moduleOf.has(name), `${name} (${file}) is a skylcn-ui export`).toBe(true);
+          rendered.set(name, moduleOf.get(name)!);
+        }
+      }
+    }
+    // Rendered without their sheet before 0.2.1 too; adding one changes how they look, so it is left to its own change.
+    const notScannedYet = ["components/badge.js", "components/display-extra.js", "components/list.js"];
+    const missing = [...rendered]
+      .filter(([, file]) => file.startsWith("components/") && !scanned.has(file) && !notScannedYet.includes(file))
+      .map(([name, file]) => `${name} needs sources/${file.slice("components/".length).replace(/\.js$/, ".css")}`);
+    expect(missing).toEqual([]);
   });
 
   it("keeps its element rules in the base layer, so skylcn component utilities win over them", () => {

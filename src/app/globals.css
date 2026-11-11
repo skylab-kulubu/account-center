@@ -9,13 +9,13 @@
  * skylcn-ui's theme without its components, plus one stylesheet per skylcn
  * component a page renders, so Tailwind generates only the classes those use.
  * A newly rendered component adds its `sources/<file>.css` here (the file is
- * named after the component's module: Notice lives in feedback).
+ * named after the component's module; Notice has its own since skylcn-ui 0.2.1).
  */
 @import "@skylab-kulubu/skylcn-ui/theme-base.css";
 @import "@skylab-kulubu/skylcn-ui/sources/button.css";
 @import "@skylab-kulubu/skylcn-ui/sources/dialog.css";
-@import "@skylab-kulubu/skylcn-ui/sources/feedback.css";
 @import "@skylab-kulubu/skylcn-ui/sources/form-extra.css";
+@import "@skylab-kulubu/skylcn-ui/sources/notice.css";
 @import "@skylab-kulubu/skylcn-ui/sources/skylab-loader.css";
 @import "@skylab-kulubu/skylcn-ui/sources/state-card.css";
 @import "@skylab-kulubu/skylcn-ui/sources/switch.css";
