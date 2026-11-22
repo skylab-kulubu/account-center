@@ -311,7 +311,15 @@ describe("SessionManager", () => {
 
     now = new Date("2026-09-20T00:01:32Z");
     await expect(manager.authenticate(rotated?.rotatedHandle)).resolves.not.toBeNull();
-    await expect(manager.authenticate(created.handle)).resolves.toBeNull();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Past the window the old handle is reuse: the session is revoked (see the reuse tests below).
+      await expect(manager.authenticate(created.handle)).resolves.toBeNull();
+      expect(repository.record?.revokedAt).toEqual(now);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("revokes the session when its previous handle comes back after the window (reuse detection)", async () => {
