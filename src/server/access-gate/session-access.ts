@@ -24,12 +24,13 @@ export class AccountSessionAccess {
     handle: string | undefined,
     options: { allowRotation?: boolean; requestId?: string } = {},
   ): Promise<SessionAccessOutcome> {
-    const candidate = await this.sessions.candidate(handle);
+    const candidate = await this.sessions.candidate(handle, { requestId: options.requestId });
     if (!candidate) return { status: "missing" };
     const decision = await this.authorizer.authorize(candidate.subject, options.requestId);
     if (decision !== "active") return { status: decision };
     const value = await this.sessions.authenticate(handle, {
       allowRotation: options.allowRotation,
+      requestId: options.requestId,
     });
     return value ? { status: "active", value } : { status: "missing" };
   }
@@ -40,13 +41,14 @@ export class AccountSessionAccess {
     options: { allowRotation?: boolean; requestId?: string } = {},
   ): Promise<SessionAccessOutcome> {
     if (!csrfToken) return { status: "forbidden" };
-    const candidate = await this.sessions.candidate(handle);
+    const candidate = await this.sessions.candidate(handle, { requestId: options.requestId });
     if (!candidate) return { status: "missing" };
     if (!this.sessions.verifyCsrf(candidate.id, csrfToken)) return { status: "forbidden" };
     const decision = await this.authorizer.authorize(candidate.subject, options.requestId);
     if (decision !== "active") return { status: decision };
     return this.sessions.authenticateMutation(handle, csrfToken, {
       allowRotation: options.allowRotation,
+      requestId: options.requestId,
     });
   }
 }

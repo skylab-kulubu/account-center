@@ -10,6 +10,7 @@ import {
   upstreamSessionReference,
 } from "@/server/auth/crypto";
 import type { SecretCipher } from "@/server/auth/crypto";
+import { logAuthEvent } from "@/server/auth/logging";
 import type { SessionRepository } from "@/server/auth/repositories";
 import type { BrowserSession, OidcTokenSet } from "@/server/auth/types";
 import type { ActiveSession } from "@/server/auth/types";
@@ -145,12 +146,13 @@ export class SessionManager {
 
   async #useHandle(
     handle: string | undefined,
-    options: { allowRotation?: boolean; csrfToken?: string } = {},
+    options: { allowRotation?: boolean; csrfToken?: string; requestId?: string } = {},
   ): Promise<BrowserSession | "proof_rejected" | null> {
     if (!handle || !/^[A-Za-z0-9_-]{43}$/.test(handle)) return null;
     if (options.csrfToken !== undefined && options.csrfToken.length > 128) return "proof_rejected";
+    const handleHash = sha256(handle);
     const result = await this.repository.useHandle({
-      handleHash: sha256(handle),
+      handleHash,
       newRotationSalt: randomBytes(16),
       successorHash: (salt) => sha256(this.#successor(handle, salt)),
       now: this.clock(),
@@ -162,7 +164,10 @@ export class SessionManager {
         ? { authorizeSessionId: (sessionId: string) => this.verifyCsrf(sessionId, options.csrfToken) }
         : {}),
     });
-    if (!result) return null;
+    if (!result) {
+      await this.#detectReuse(handleHash, options.requestId);
+      return null;
+    }
     if ("proofRejected" in result) return "proof_rejected";
     const { rotationSalt, ...use } = result;
     return {
@@ -182,14 +187,29 @@ export class SessionManager {
     return hmacSha256(this.csrfSecret, "session-rotation", `${handle}.${salt.toString("base64url")}`).toString("base64url");
   }
 
-  async candidate(handle: string | undefined) {
+  /**
+   * Reuse detection, for a handle that opened no session. If it is a live session's previous handle
+   * whose 30-second window has passed, it was copied, or the browser lost the rotation that replaced
+   * it: either way someone holds a handle the session has moved on from. The session is revoked and
+   * the event logged, as refresh-token reuse detection does (RFC 9700 §4.14.2). Whoever holds the
+   * newer handle signs in again.
+   */
+  async #detectReuse(handleHash: Buffer, requestId: string | undefined) {
+    if (!(await this.repository.revokeOnExpiredPreviousHandle(handleHash, this.clock()))) return;
+    logAuthEvent({ event: "session_reuse_detected", requestId: requestId ?? randomUUID(), outcome: "failure" });
+  }
+
+  async candidate(handle: string | undefined, options: { requestId?: string } = {}) {
     if (!handle || !/^[A-Za-z0-9_-]{43}$/.test(handle)) return null;
-    return this.repository.findByHandle(sha256(handle), this.clock());
+    const handleHash = sha256(handle);
+    const session = await this.repository.findByHandle(handleHash, this.clock());
+    if (!session) await this.#detectReuse(handleHash, options.requestId);
+    return session;
   }
 
   async authenticate(
     handle: string | undefined,
-    options: { allowRotation?: boolean } = {},
+    options: { allowRotation?: boolean; requestId?: string } = {},
   ): Promise<BrowserSession | null> {
     const result = await this.#useHandle(handle, options);
     return result === "proof_rejected" ? null : result;
@@ -198,7 +218,7 @@ export class SessionManager {
   async authenticateMutation(
     handle: string | undefined,
     csrfToken: string | undefined,
-    options: { allowRotation?: boolean } = {},
+    options: { allowRotation?: boolean; requestId?: string } = {},
   ): Promise<
     | { status: "active"; value: BrowserSession }
     | { status: "forbidden" }
