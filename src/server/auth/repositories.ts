@@ -39,6 +39,12 @@ export interface SessionRepository {
   insert(session: NewSessionRecord): Promise<void>;
   findByHandle(handleHash: Buffer, now: Date): Promise<ActiveSession | null>;
   useHandle(input: UseSessionInput): Promise<SessionUseOutcome | null>;
+  /**
+   * Reuse detection: a handle that is the previous handle of a live session but arrives after its
+   * window revokes that session. True when a session was revoked. Only the latest previous handle
+   * is known; an older one matches no row.
+   */
+  revokeOnExpiredPreviousHandle(handleHash: Buffer, now: Date): Promise<boolean>;
   getTokenCiphertext(id: string, now: Date): Promise<string | null>;
   replaceTokenCiphertext(
     id: string,

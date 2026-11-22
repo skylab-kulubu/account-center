@@ -33,6 +33,8 @@ type AuthLog = {
     | "local_logout"
     | "backchannel_logout"
     | "account_session_cleanup"
+    /** A previous session handle came after its window; the session it was rotated out of was revoked. */
+    | "session_reuse_detected"
     | "security_action"
     | "identity_action"
     | "identity_name_core_sync_failed"
