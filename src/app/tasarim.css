@@ -1194,3 +1194,27 @@ html[data-tasarim="b"] {
 [data-tasarim] .deletion-step strong {
   font-size: 15px;
 }
+
+/* Bildirimler, telefon: başlık kesilmesin; düğmeler alta */
+@media (max-width: 860px) {
+  [data-tasarim] .inbox__item > div:not([class*="absolute"]) {
+    flex-wrap: wrap;
+  }
+
+  [data-tasarim] .inbox__item .truncate {
+    white-space: normal;
+  }
+
+  [data-tasarim] .inbox__item > div > div:last-child:has(.inbox__actions) {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* B: geri oku ve sayfa adı yalnız telefonda (masaüstünde menü var) */
+@media (min-width: 861px) {
+  .yk-geri,
+  .yk-ust__baslik {
+    display: none;
+  }
+}
