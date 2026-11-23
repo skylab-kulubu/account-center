@@ -115,7 +115,7 @@ describe("Permissions view model", () => {
         authorization: {},
       });
       expect(model.privileges).toEqual([
-        { kind: "admin", label: "Yönetim", description: expect.stringContaining("takım sınırı olmadan") },
+        { kind: "admin", label: "Yönetim", description: expect.stringContaining("ekip sınırı olmadan") },
         { kind: "board", label: "Yönetim Kurulu", description: expect.stringContaining("Yönetim Kurulu") },
         { kind: "audit", label: "Denetim Kurulu", description: expect.stringContaining("Denetim Kurulu") },
       ]);
@@ -153,7 +153,7 @@ describe("Permissions view model", () => {
         },
       });
       expect(model.applications.map(({ clientId, name }) => ({ clientId, name }))).toEqual([
-        { clientId: "core", name: "SKY LAB Core" },
+        { clientId: "core", name: "SKY LAB hesabı" },
         { clientId: "skymail", name: "SkyMail" },
       ]);
       expect(model.applications[0]?.permissions).toEqual([
@@ -229,7 +229,7 @@ describe("Permissions view model", () => {
       });
       expect(model.applications).toEqual([
         expect.objectContaining({ clientId: "core", unlabelledCount: 1, permissions: [expect.objectContaining({ code: "url:create" })] }),
-        expect.objectContaining({ clientId: "superadmin", name: "Superadmin", unlabelledCount: 1, permissions: [] }),
+        expect.objectContaining({ clientId: "superadmin", name: "Panel", unlabelledCount: 1, permissions: [] }),
       ]);
       expect(JSON.stringify(model.applications)).not.toContain("events:write");
       expect(model.technical.roles).toContainEqual({ clientId: "core", code: "events:write" });

@@ -57,12 +57,11 @@ export const identityCopy = {
     detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden deneyebilirsin.",
   },
   contract: {
-    title: "Kimlik bilgileri güvenle durduruldu",
-    detail: "Kimlik hizmetinin yanıtı desteklenen biçimle eşleşmedi. Hiçbir ham veri gösterilmedi.",
+    title: "Kimlik bilgileri: beklenmeyen yanıt",
+    detail: "Sayfayı yenileyip yeniden dene.",
   },
   name: {
     title: "Ad soyad",
-    description: "Kulüp kayıtlarında, belgelerde ve SKY LAB uygulamalarında görünen adın.",
     missing: "Tanımlı değil",
     locked: "YTÜ hesabından gelir; yönetim ekibi düzeltebilir.",
     lockedBadge: "YTÜ kaydından",
@@ -79,7 +78,6 @@ export const identityCopy = {
   },
   username: {
     title: "Kullanıcı adı",
-    description: "Giriş yaparken parolanla birlikte kullandığın ad. Kullanıcı adını 14 günde bir değiştirebilirsin.",
     change: "Kullanıcı adını değiştir",
     formTitle: "Kullanıcı adını değiştir",
     label: "Yeni kullanıcı adı",
@@ -172,7 +170,6 @@ export const identityCopy = {
     manage: "E-posta ayarları",
     manageDetail: "Kişisel e-posta ekleyebilir ve kulüp postalarının gideceği birincil adresi seçebilirsin.",
   },
-  note: "Ad ve kullanıcı adı değişiklikleri Keycloak'taki SKY LAB kimliğinde yapılır ve her SKY LAB uygulamasında geçerlidir. Kullanıcı adı değişikliği kimliğini yeniden doğrulamanı ister; YTÜ hesabını bağlamak seni kısa süreliğine Microsoft girişine götürür.",
 } as const;
 
 type Flow =
@@ -891,7 +888,7 @@ export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) 
         </div>
       ) : null}
 
-      <SettingsGroup title={identityCopy.name.title} description={identityCopy.name.description}>
+      <SettingsGroup title={identityCopy.name.title}>
         <div className="settings-row" data-has-trailing="">
           <span className="settings-row__icon"><UserRound aria-hidden="true" size={19} /></span>
           <span className="settings-row__copy">
@@ -934,7 +931,7 @@ export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) 
         ) : null}
       </SettingsGroup>
 
-      <SettingsGroup title={identityCopy.username.title} description={identityCopy.username.description}>
+      <SettingsGroup title={identityCopy.username.title}>
         <div className="settings-row" data-has-trailing="">
           <span className="settings-row__icon"><AtSign aria-hidden="true" size={19} /></span>
           <span className="settings-row__copy">
@@ -1036,9 +1033,6 @@ export function IdentityManager({ keycloakOrigin }: { keycloakOrigin: string }) 
         </div>
       </SettingsGroup>
 
-      <aside className="read-only-note" aria-label="Kimlik değişiklikleri hakkında">
-        {identityCopy.note}
-      </aside>
     </>
   );
 }

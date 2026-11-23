@@ -205,7 +205,7 @@ describe("club-profile BFF routes", () => {
 
     it.each([
       [new CoreProfileUnavailableError(), 503, "Kulüp profiline şu anda ulaşılamıyor"],
-      [new CoreProfileContractError(), 502, "Kulüp profili güvenle durduruldu"],
+      [new CoreProfileContractError(), 502, "Kulüp profili: beklenmeyen yanıt"],
       [new CoreProfileForbiddenError(), 403, "Kulüp profili işlemine izin verilmedi"],
       [new CoreProfileNotFoundError(), 404, "Kulüp profili bulunamadı"],
     ])("maps %s to a no-store problem without upstream detail", async (error, status, title) => {

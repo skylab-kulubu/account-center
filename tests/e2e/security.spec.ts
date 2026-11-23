@@ -102,7 +102,7 @@ async function gotoSecurity(page: Page) {
   const refresh = page.waitForResponse((response) => response.url().endsWith("/api/auth/session/refresh"));
   await page.goto("/security");
   expect((await refresh).status()).toBe(204);
-  await expect(page.getByRole("heading", { level: 1, name: "Giriş ve güvenlik" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Güvenlik" })).toBeVisible();
   await page.waitForLoadState("networkidle");
 }
 

@@ -5,9 +5,9 @@ import {
   TeamsSection,
   TechnicalDetails,
 } from "@/components/permissions-view";
-import { AccountPageHeader } from "@/components/settings";
 import { accountRoute } from "@/config/account-routes";
 import { loadPermissions } from "@/server/permissions/page-data";
+import { AccountPageHeader } from "@/components/settings";
 
 const route = accountRoute("/permissions");
 
@@ -26,9 +26,6 @@ export default async function PermissionsPage() {
           <TechnicalDetails technical={data.value.technical} />
         </>
       ) : <AccountDataProblem problem={data.problem} retryHref="/permissions" />}
-      <aside className="read-only-note" aria-label="Yetkileri değiştirme">
-        Bu görünüm salt okunurdur; takım, rol ve uygulama yetkileri Superadmin’den yönetilir. Değişiklik için yönetim ekibiyle iletişime geç.
-      </aside>
     </div>
   );
 }

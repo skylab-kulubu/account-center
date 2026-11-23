@@ -1,7 +1,7 @@
 import { InboxList, InboxNotice } from "@/components/inbox-list";
-import { AccountPageHeader } from "@/components/settings";
 import { accountRoute } from "@/config/account-routes";
 import { loadInboxPage } from "@/server/inbox/page-data";
+import { AccountPageHeader } from "@/components/settings";
 
 const route = accountRoute("/notifications");
 

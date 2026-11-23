@@ -97,9 +97,9 @@ export function toCommunicationPreferencesProblem(error: unknown): Communication
     case "contract":
       return {
         type: `${PROBLEM_BASE}communication-preferences-contract`,
-        title: "İletişim tercihleri güvenle durduruldu",
+        title: "İletişim tercihleri: beklenmeyen yanıt",
         status: 502,
-        detail: "Core yanıtı desteklenen sözleşmeyle eşleşmedi; hiçbir ham bilgi gösterilmedi.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "rejected":
     case "invalid_input":

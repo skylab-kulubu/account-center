@@ -30,8 +30,8 @@ const fallbackProblem: Problem = {
 };
 
 const contractProblem: Problem = {
-  title: "Tanıtım izni güvenle durduruldu",
-  detail: "Sunucu yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+  title: "Tanıtım izni: beklenmeyen yanıt",
+  detail: "Sayfayı yenileyip yeniden dene.",
   status: 502,
 };
 

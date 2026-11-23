@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   AtSign,
-  CircleUserRound,
   Hash,
   Nfc,
   Phone,
@@ -27,8 +26,7 @@ function ClubProfileNotice({ state }: { state: Exclude<ClubProfileState, { statu
       <div className="club-profile-notice" data-tone="neutral" role="status">
         <strong>Kulüp profili bu ortamda kapalı</strong>
         <span>
-          Bu ortamda core bağlantısı tanımlı değil; SKY numarası, öğrenci kartı, telefon ve kulüp bilgileri burada görünmez.
-          Kimlik bilgilerin bundan etkilenmez.
+          SKY numarası, öğrenci kartı, telefon ve kulüp bilgileri burada görünmez.
         </span>
       </div>
     );
@@ -66,18 +64,7 @@ export default async function ClubProfilePage() {
     <div className="page-stack">
       <AccountPageHeader route={route} />
 
-      {data.identity.ok && identity ? (
-        <section className="identity-card" aria-labelledby="club-identity-heading">
-          <span className="identity-card__avatar" aria-hidden="true">
-            <CircleUserRound size={27} strokeWidth={1.6} />
-          </span>
-          <span className="identity-card__copy">
-            <span id="club-identity-heading">{identity.displayName ?? "SKY LAB hesabı"}</span>
-            <small>{identity.email ?? "Birincil e-posta tanımlı değil"}</small>
-          </span>
-          <StatusBadge>SKY LAB kimliği</StatusBadge>
-        </section>
-      ) : !data.identity.ok ? <AccountDataProblem problem={data.identity.problem} retryHref="/club-profile" /> : null}
+      {!data.identity.ok ? <AccountDataProblem problem={data.identity.problem} retryHref="/club-profile" /> : null}
 
       {clubNotice ? (
         <div className="settings-section">
@@ -85,19 +72,17 @@ export default async function ClubProfilePage() {
         </div>
       ) : null}
 
-      <SettingsGroup title="Üyelik" description="Bu alanlar kulüp kayıtlarından gelir.">
+      <SettingsGroup title="Üyelik">
         <SettingsRow
           icon={<Hash aria-hidden="true" size={19} />}
           title="SKY numarası"
           description={skyNumber ?? (club ? "Henüz verilmedi" : coreCopy)}
-          trailing={<StatusBadge>Core</StatusBadge>}
         />
         {club ? <StudentCardRow initialLinked={club.studentCardLinked} csrfToken={data.csrfToken} /> : (
           <SettingsRow
             icon={<Nfc aria-hidden="true" size={19} />}
             title="Öğrenci kartı"
             description={coreCopy}
-            trailing={<StatusBadge>Core</StatusBadge>}
           />
         )}
         <SettingsRow
@@ -110,9 +95,9 @@ export default async function ClubProfilePage() {
           icon={<Phone aria-hidden="true" size={19} />}
           title="Telefon"
           description={club
-            ? `${club.phone ?? "Kayıtlı değil"} · Yönetim ekibi günceller; doğrulama geldiğinde buradan düzenleyebileceksin.`
+            ? club.phone ?? "Kayıtlı değil"
             : coreCopy}
-          trailing={<StatusBadge>Salt okunur</StatusBadge>}
+          trailing={<StatusBadge>Yönetim ekibi günceller</StatusBadge>}
         />
       </SettingsGroup>
 
@@ -125,11 +110,6 @@ export default async function ClubProfilePage() {
       {data.teamPage.status === "shown" ? (
         <TeamPageConsentSection csrfToken={data.csrfToken} initial={data.teamPage.value} returnTo={route.href} />
       ) : null}
-
-      <aside className="read-only-note" aria-label="Kulüp profili sınırları">
-        Ad ve soyad kimlik bilgilerinde yönetilir; SKY numarası, öğrenci kartı ve telefon kulüp kayıtlarıdır. Bu sayfadaki
-        değişiklikler yeniden doğrulama istemez.
-      </aside>
     </div>
   );
 }

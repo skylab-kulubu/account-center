@@ -166,7 +166,6 @@ describe("EmailManager", () => {
     expect(within(primary).getByRole("radio", { name: /Okul e-postası/ })).toBeChecked();
     expect(within(primary).getByRole("radio", { name: /Kişisel e-posta/ })).not.toBeChecked();
     expect(within(primary).getByRole("radio", { name: /Kişisel e-posta/ })).toBeEnabled();
-    expect(screen.getByText("Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da doğrulanmış adreslerin kullanılır; iki adresle de giriş yapabilirsin.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Birincil adresi kaydet" })).toBeDisabled();
 
     expect(api.spy).toHaveBeenCalledWith("/api/account/email", { cache: "no-store", credentials: "same-origin" });
@@ -228,7 +227,7 @@ describe("EmailManager", () => {
     render(<EmailManager />);
     expect(await screen.findByRole("alert")).toHaveTextContent("E-posta adreslerin yüklenemedi");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("E-posta adreslerin güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("E-posta adresleri: beklenmeyen yanıt");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login?returnTo=%2Femail"));
     expect(api.of("email")).toHaveLength(3);
@@ -868,7 +867,7 @@ describe("EmailManager", () => {
     });
   });
   describe("K4c primary e-mail nudge", () => {
-    const nudgeRegion = () => screen.findByRole("region", { name: "Mezun olunca okul postan kapanabilir" });
+    const nudgeRegion = () => screen.findByRole("region", { name: "Okul adresin kapanırsa hesabına ulaşamayabilirsin" });
 
     it("takes a school-primary person with a proven personal address to the primary choice, preselected, then through Sudo mode", async () => {
       const api = mockApi({
@@ -895,7 +894,7 @@ describe("EmailManager", () => {
       await waitFor(() => expect(notice).toHaveFocus());
       expect(sudo.ensureSudo).toHaveBeenCalledWith({ challenged: true });
       expect(api.of("primary").map((call) => call.body)).toEqual([{ which: "personal" }, { which: "personal" }]);
-      expect(screen.queryByRole("region", { name: "Mezun olunca okul postan kapanabilir" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Okul adresin kapanırsa hesabına ulaşamayabilirsin" })).not.toBeInTheDocument();
     });
 
     it("opens the existing add form for a school-primary person without a personal address", async () => {
@@ -915,14 +914,14 @@ describe("EmailManager", () => {
       mockApi({ email: [{ body: payload() }] });
       render(<EmailManager />);
       await screen.findByRole("group", { name: "Birincil e-posta" });
-      expect(screen.queryByRole("region", { name: "Mezun olunca okul postan kapanabilir" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Okul adresin kapanırsa hesabına ulaşamayabilirsin" })).not.toBeInTheDocument();
     });
 
     it("never shows a nudge the addresses contradict", async () => {
       mockApi({ email: [{ body: payload({ primaryEmailNudge: "make-personal-primary" }) }] });
       render(<EmailManager />);
       await screen.findByRole("group", { name: "Birincil e-posta" });
-      expect(screen.queryByRole("region", { name: "Mezun olunca okul postan kapanabilir" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Okul adresin kapanırsa hesabına ulaşamayabilirsin" })).not.toBeInTheDocument();
     });
 
     it("arrives from the home page on the preselected primary choice and drops the intent from the address", async () => {

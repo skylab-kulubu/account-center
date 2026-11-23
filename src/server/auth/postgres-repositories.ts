@@ -235,6 +235,20 @@ export class PostgresSessionRepository implements SessionRepository {
     });
   }
 
+  async revokeOnExpiredPreviousHandle(handleHash: Buffer, now: Date) {
+    const result = await this.pool.query(
+      `UPDATE account_sessions
+          SET revoked_at = $2
+        WHERE previous_handle_hash = $1
+          AND previous_handle_expires_at <= $2
+          AND revoked_at IS NULL
+          AND idle_expires_at > $2
+          AND absolute_expires_at > $2`,
+      [handleHash, now],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async revokeByHandle(handleHash: Buffer, revokedAt: Date) {
     const result = await this.pool.query(
       `UPDATE account_sessions

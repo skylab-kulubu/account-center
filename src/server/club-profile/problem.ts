@@ -202,9 +202,9 @@ export function toClubProfileProblem(error: unknown): ClubProfileProblem {
   if (error instanceof CoreProfileContractError) {
     return {
       type: `${PROBLEM_BASE}club-profile-contract`,
-      title: "Kulüp profili güvenle durduruldu",
+      title: "Kulüp profili: beklenmeyen yanıt",
       status: 502,
-      detail: "Core yanıtı desteklenen sözleşmeyle eşleşmedi. Hiçbir ham kulüp bilgisi gösterilmedi.",
+      detail: "Sayfayı yenileyip yeniden dene.",
     };
   }
   if (error instanceof CoreProfileInvalidInputError) {

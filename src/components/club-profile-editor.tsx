@@ -317,8 +317,8 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
       setFeedback({
         tone: "danger",
         problem: {
-          title: "Kulüp profili güvenle durduruldu",
-          detail: "Sunucu yanıtı desteklenen biçimle eşleşmedi. Sayfayı yenileyip güncel durumu kontrol et.",
+          title: "Kulüp profili: beklenmeyen yanıt",
+          detail: "Sayfayı yenileyip yeniden dene.",
           status: 502,
         },
       });
@@ -449,7 +449,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
       <section className="settings-section" aria-labelledby={pictureHeadingId}>
         <div className="settings-section__heading">
           <h2 id={pictureHeadingId}>Profil fotoğrafı</h2>
-          <p>PNG, JPEG ya da WebP; en fazla 5 MB. Kulüp uygulamalarında görünür, SkyPass kartında fotoğraf yer almaz.</p>
+          <p>PNG, JPEG ya da WebP, en fazla 5 MB.</p>
         </div>
         <div className="profile-picture-card" data-preview={selection ? "" : undefined}>
           <span className="profile-picture-card__avatar" data-empty={shownPicture ? undefined : ""}>
@@ -538,11 +538,6 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
       <section className="settings-section" aria-labelledby={formHeadingId}>
         <div className="settings-section__heading">
           <h2 id={formHeadingId}>Kulüp bilgileri</h2>
-          <p>
-            {profile.ytuLinked
-              ? "Üniversite, fakülte ve bölüm her YTÜ girişinde YTÜ hesabından güncellenir. LinkedIn bağlantın kulüp kayıtlarında ve takım listelerinde kullanılır."
-              : "Üniversite, fakülte, bölüm ve LinkedIn bağlantın kulüp kayıtlarında ve takım listelerinde kullanılır."}
-          </p>
         </div>
         {profile.ytuLinked ? (
           <div className="settings-group" role="group" aria-label="YTÜ hesabından gelen bilgiler">

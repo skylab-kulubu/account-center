@@ -4,7 +4,7 @@ import type { BrowserContext, Page, Request as PlaywrightRequest, Route } from "
 import { seedAuthenticatedSession } from "./auth-session";
 
 /**
- * The e-mail page ("E-posta ve giriş") in the browser: adding a Personal
+ * The e-mail page ("E-posta", under Kişisel bilgiler) in the browser: adding a Personal
  * e-mail behind the real Sudo mode dialog, typing the mailed six-digit code
  * into the same page, switching the Primary e-mail, removing the personal
  * address, and the wrong / exhausted / expired / rate-limited code answers.
@@ -16,6 +16,17 @@ import { seedAuthenticatedSession } from "./auth-session";
  * for real. The mailed code itself only exists at the Keycloak harness's
  * mail sink, so these tests stand in for it with a fixed code.
  */
+
+/**
+ * A page under Kişisel bilgiler, the way a person reaches it: the sub-page's link back to its
+ * section, then the section's row. Works on phones too, where the section menu is tabs.
+ */
+async function openFromPersonalInfo(page: Page, href: "/identity" | "/email") {
+  await page.getByRole("main").getByRole("link", { name: "Kişisel bilgiler" }).click();
+  await expect(page).toHaveURL(`${baseUrl}/personal-info`);
+  await page.getByRole("main").locator(`a[href="${href}"]`).first().click();
+  await expect(page).toHaveURL(`${baseUrl}${href}`);
+}
 
 const baseUrl = "https://127.0.0.1:3100";
 const keycloakHost = "e.yildizskylab.com";
@@ -64,7 +75,7 @@ async function gotoEmail(page: Page) {
   const refresh = page.waitForResponse((response) => response.url().endsWith("/api/auth/session/refresh"));
   const response = await page.goto("/email");
   expect((await refresh).status()).toBe(204);
-  await expect(page.getByRole("heading", { level: 1, name: "E-posta ve giriş" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "E-posta" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Okul e-postası" })).toBeVisible();
   await page.waitForLoadState("networkidle");
   return response;
@@ -240,10 +251,8 @@ test("add → code → confirm → primary switch → remove, with the identity 
 
   // The page is reachable from the account navigation.
   await page.goto("/identity");
-  await page.getByRole("navigation", { name: "Hesap ayarları" }).getByRole("link", { name: "E-posta ve giriş" }).click();
-  await expect(page).toHaveURL(`${baseUrl}/email`);
-  await expect(page.getByRole("heading", { level: 1, name: "E-posta ve giriş" })).toBeVisible();
-  await expect(page.getByText("Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da doğrulanmış adreslerin kullanılır; iki adresle de giriş yapabilirsin.").first()).toBeVisible();
+  await openFromPersonalInfo(page, "/email");
+  await expect(page.getByRole("heading", { level: 1, name: "E-posta" })).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // Add: the address, Sudo mode, then the code panel in the same page.
@@ -273,7 +282,7 @@ test("add → code → confirm → primary switch → remove, with the identity 
   await expect(page.getByRole("group", { name: "Birincil e-posta" }).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
 
   // The identity summary shows the new primary.
-  await page.getByRole("navigation", { name: "Hesap ayarları" }).getByRole("link", { name: "Kimlik" }).click();
+  await openFromPersonalInfo(page, "/identity");
   await expect(page.getByRole("heading", { level: 1, name: "Kimlik" })).toBeVisible();
   await expect(page.getByText(new RegExp(`^${personalEmail.replace(/\./g, "\\.")} · Kulüp postaları bu adrese gelir`))).toBeVisible();
   await page.getByRole("link", { name: "E-posta ayarları" }).click();
@@ -507,7 +516,7 @@ test("changing the personal address that is primary moves the primary to the new
   await expect(page.getByText(newAddress, { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("group", { name: "Birincil e-posta" }).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
 
-  await page.getByRole("navigation", { name: "Hesap ayarları" }).getByRole("link", { name: "Kimlik" }).click();
+  await openFromPersonalInfo(page, "/identity");
   await expect(page.getByText(new RegExp(`^${newAddress.replace(/\./g, "\\.")} · Kulüp postaları bu adrese gelir`))).toBeVisible();
   expect(proofs).toEqual([{ password: sudoPassword }]);
   expect(errors).toEqual([]);
@@ -588,7 +597,7 @@ test("a legacy primary is shown as not yet proven and becomes the personal e-mai
   await expect(page.getByText("Kişisel e-posta olarak doğrulanmamış")).toHaveCount(0);
   await expect(page.getByRole("group", { name: "Birincil e-posta" }).getByRole("radio", { name: /Kişisel e-posta/ })).toBeChecked();
 
-  await page.getByRole("navigation", { name: "Hesap ayarları" }).getByRole("link", { name: "Kimlik" }).click();
+  await openFromPersonalInfo(page, "/identity");
   await expect(page.getByText(new RegExp(`^${legacyAddress.replace(/\./g, "\\.")} · Kulüp postaları bu adrese gelir`))).toBeVisible();
 
   expect(proofs).toEqual([{ password: sudoPassword }]);

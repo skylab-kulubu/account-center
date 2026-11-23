@@ -86,7 +86,6 @@ test("the preferences screen writes each switch to core under its own category",
   try {
     await page.goto("/communication-preferences");
     await expect(page.getByRole("heading", { level: 1, name: "İletişim tercihleri" })).toBeVisible();
-    await expect(page.getByText("Giriş kodu, bilet, sertifika gibi hesap postaların bu ayarlardan etkilenmez.")).toBeVisible();
     await expect(page.getByText(/Postalar birincil adresine gider/)).toBeVisible();
     const table = page.getByRole("table", { name: "Duyuru ve haber postası tercihlerin, kaynak kaynak" });
     await expect(table).toBeVisible();

@@ -19,21 +19,21 @@ import { isObject, responseJson, securityRequest } from "@/lib/security-client";
  * mode there exactly as before.
  */
 export const primaryEmailNudgeCopy = {
-  title: "Mezun olunca okul postan kapanabilir",
+  title: "Okul adresin kapanırsa hesabına ulaşamayabilirsin",
   makePersonalPrimary: {
-    detail: (address: string) =>
-      `Parolanı unutursan sıfırlama bağlantısı birincil adresine, yani okul e-postana gider. Doğruladığın kişisel adresini (${address}) birincil yaparsan okul postan kapandığında da hesabına ulaşabilirsin.`,
+    detail: (address: string) => `Parola sıfırlama birincil adresine gider. ${address} adresini birincil yap.`,
     action: "Kişisel adresi birincil yap",
   },
   addPersonal: {
-    detail: "Parolanı unutursan sıfırlama bağlantısı birincil adresine, yani okul e-postana gider. Kişisel bir adres ekleyip doğrularsan onu birincil yapabilir, okul postan kapandığında da hesabına ulaşabilirsin.",
+    detail: "Parola sıfırlama birincil adresine gider. Kişisel bir adres ekle.",
     action: "Kişisel adres ekle",
   },
   dismiss: "Bir daha gösterme",
   dismissing: "Kaydediliyor",
-  dismissed: "Bu öneriyi bir daha göstermeyeceğiz. Birincil adresini istediğin zaman E-posta ve giriş sayfasından değiştirebilirsin.",
+  dismissed: "Bu öneri bir daha gösterilmeyecek.",
   dismissFailed: "Öneri kapatılamadı. Biraz sonra yeniden dene.",
 } as const;
+
 
 /** The `primaryEmailNudge` member of `GET /api/account/email`; missing (an older BFF) or unknown (a newer one) is no nudge. */
 export function parsePrimaryEmailNudge(value: unknown): PrimaryEmailNudge | null {

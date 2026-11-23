@@ -74,15 +74,15 @@ export function toTeamPageConsentProblem(error: unknown): TeamPageConsentProblem
     case "contract":
       return {
         type: `${PROBLEM_BASE}team-page-consent-contract`,
-        title: "Ekip sayfası ayarı güvenle durduruldu",
+        title: "Ekip sayfası ayarı: beklenmeyen yanıt",
         status: 502,
-        detail: "Core yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "rejected":
     case "invalid_input":
       return {
         type: `${PROBLEM_BASE}team-page-consent-rejected`,
-        title: "Core isteği kabul etmedi",
+        title: "Ekip sayfası ayarı değiştirilemedi",
         status: 400,
         detail: "Sayfayı yenileyip yeniden dene; ayarın değişmedi.",
       };
@@ -91,7 +91,7 @@ export function toTeamPageConsentProblem(error: unknown): TeamPageConsentProblem
         type: `${PROBLEM_BASE}team-page-consent-core-unavailable`,
         title: "Ekip sayfası ayarına şu anda ulaşılamıyor",
         status: 503,
-        detail: "Core yanıt vermedi; ayarın değişmedi. Biraz sonra yeniden dene.",
+        detail: "Ayarın değişmedi. Biraz sonra yeniden dene.",
       };
   }
 }

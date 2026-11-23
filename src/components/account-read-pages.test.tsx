@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import OverviewPage from "@/app/(account)/page";
 import PermissionsPage from "@/app/(account)/permissions/page";
@@ -10,10 +10,13 @@ const pageData = vi.hoisted(() => ({
     ok: true as const,
     value: {
       profile: {
+        username: "ada",
         firstName: "Ada",
         lastName: "Lovelace",
         email: "ada@example.invalid",
         emailVerified: true,
+        attributes: { schoolEmail: null, personalEmail: null, skyNumber: "24017", department: "Matematik", university: null },
+        attributeMetadata: [],
       },
       authentication: { passwordConfigured: true, otpConfigured: false, passkeyCount: 1 },
     },
@@ -42,15 +45,15 @@ const permissionsFixture: PermissionsPageData = {
       { path: "/UYELER/ARGE/WEBLAB", name: "WebLab", role: "leader", roleLabel: "Lider", publicListing: true, doorScan: true },
       { path: "/UYELER/GECEKODU", name: "GECEKODU", role: "member", roleLabel: "Üye", publicListing: false, doorScan: false },
     ],
-    privileges: [{ kind: "board", label: "Yönetim Kurulu", description: "Yönetim Kurulu üyesi olarak kulüp kaynaklarını takım sınırı olmadan yönetebilirsin." }],
+    privileges: [{ kind: "board", label: "Yönetim Kurulu", description: "Yönetim Kurulu üyesi olarak kulüp kaynaklarını ekip sınırı olmadan yönetebilirsin." }],
     applications: [
       {
         clientId: "core",
-        name: "SKY LAB Core",
+        name: "SKY LAB hesabı",
         description: "Superadmin ve SkyApp’in arkasındaki kulüp platformu.",
         permissions: [
           { code: "url:create", label: "Kısa bağlantı oluşturma", description: "skyl.app üzerinde kısa bağlantı oluşturabilirsin." },
-          { code: "certificate:issue", label: "Sertifika verme", description: "Üyesi olduğun takımların etkinliklerinde katılım sertifikası verebilirsin." },
+          { code: "certificate:issue", label: "Sertifika verme", description: "Üyesi olduğun ekiplerin etkinliklerinde katılım sertifikası verebilirsin." },
         ],
         unlabelledCount: 1,
       },
@@ -87,12 +90,18 @@ describe("Account REST-backed pages", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the normalized overview", async () => {
+  it("renders the person and the security status, with the next step for anything missing", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
     render(await OverviewPage());
-    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
-    expect(screen.getByText("ada@example.invalid")).toBeInTheDocument();
-    expect(screen.getByText("E-posta doğrulandı")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Ada Lovelace" })).toBeInTheDocument();
+    expect(screen.getAllByText("ada@example.invalid").length).toBeGreaterThan(0);
+    expect(screen.queryByText("E-posta doğrulanmadı")).not.toBeInTheDocument();
+    const status = screen.getByRole("region", { name: "Güvenlik durumu" });
+    expect(status).toHaveTextContent("1 öneri");
+    expect(status).toHaveTextContent("Parola");
+    // A passkey makes the verification app optional; only the missing personal e-mail is advice
+    expect(status).toHaveTextContent("İsteğe bağlı");
+    expect(within(status).getByRole("link", { name: "Ekle" })).toHaveAttribute("href", "/email");
   });
 
   it("shows the K4c nudge the e-mail answer names, linking into the e-mail page", async () => {
@@ -102,10 +111,10 @@ describe("Account REST-backed pages", () => {
       csrfToken: "session-bound-csrf",
     }), { status: 200, headers: { "content-type": "application/json" } }));
     render(await OverviewPage());
-    const nudge = await screen.findByRole("region", { name: "Mezun olunca okul postan kapanabilir" });
+    const nudge = await screen.findByRole("region", { name: "Okul adresin kapanırsa hesabına ulaşamayabilirsin" });
     expect(screen.getByRole("link", { name: "Kişisel adres ekle" })).toHaveAttribute("href", "/email?intent=add-personal");
     expect(fetchSpy).toHaveBeenCalledWith("/api/account/email/nudge", { cache: "no-store", credentials: "same-origin" });
-    expect(nudge.compareDocumentPosition(screen.getByRole("heading", { name: "Hesap ayarları" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(nudge.compareDocumentPosition(screen.getByRole("heading", { name: "Güvenlik durumu" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows one line linking to the e-mail page when SkyMail no longer mails an address", async () => {
@@ -127,33 +136,35 @@ describe("Account REST-backed pages", () => {
   ])("shows no delivery line when %s", async (_label, answer) => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => answer());
     render(await OverviewPage());
-    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Ada Lovelace" })).toBeInTheDocument();
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith("/api/account/email/delivery", expect.anything()));
     expect(screen.queryByText("Bir e-posta adresine posta ulaşmıyor.")).not.toBeInTheDocument();
   });
 
-  it("links the overview to the identity page, the Permissions view, the club profile and the in-product security page", async () => {
+  it("leads from the overview to every section and the pages people look for most", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
     render(await OverviewPage());
-    const identity = screen.getByRole("link", { name: /Kimlik/ });
-    expect(identity).toHaveAttribute("href", "/identity");
-    expect(identity).toHaveTextContent("Adını, kullanıcı adını ve YTÜ hesabının durumunu yönet.");
-    expect(screen.queryByRole("link", { name: /Kişisel bilgiler/ })).not.toBeInTheDocument();
-    const email = screen.getByRole("link", { name: /E-posta ve giriş/ });
-    expect(email).toHaveAttribute("href", "/email");
-    expect(email).toHaveTextContent("Kişisel e-posta ekle, birincil adresini seç.");
-    expect(screen.getByRole("link", { name: /Yetkilerim/ })).toHaveAttribute("href", "/permissions");
-    expect(screen.getByRole("link", { name: /Kulüp profili/ })).toHaveAttribute("href", "/club-profile");
-    const security = screen.getByRole("link", { name: /Giriş ve güvenlik/ });
-    expect(security).toHaveAttribute("href", "/security");
-    expect(security).toHaveTextContent("Parola, passkey ve doğrulama uygulamasını buradan yönet.");
+    for (const [name, href] of [
+      ["Kişisel bilgiler", "/personal-info"],
+      ["Güvenlik", "/security"],
+      ["Cihazlar", "/sessions"],
+      ["Kulüp profili", "/club-profile"],
+      ["İletişim tercihleri", "/communication-preferences"],
+      ["Veri ve gizlilik", "/privacy"],
+      ["Yetkiler", "/permissions"],
+      ["Uygulama ayarları", "/app-preferences"],
+    ] as const) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    expect(screen.getByText("24017")).toBeInTheDocument();
+    expect(screen.getByText("Matematik")).toBeInTheDocument();
   });
 
   it("renders teams, privilege level and application permissions in human language", async () => {
     vi.mocked(loadPermissions).mockResolvedValue(permissionsFixture);
     render(await PermissionsPage());
 
-    expect(screen.getByRole("heading", { level: 1, name: "Yetkilerim" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Yetkiler" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Takımlarım" })).toBeInTheDocument();
     expect(screen.getByText("WebLab")).toBeInTheDocument();
     expect(screen.getByText("Lider")).toBeInTheDocument();
@@ -164,13 +175,12 @@ describe("Account REST-backed pages", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Yetki seviyesi" })).toBeInTheDocument();
     expect(screen.getByText("Yönetim Kurulu")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Uygulama yetkileri" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "SKY LAB Core" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "SKY LAB hesabı" })).toBeInTheDocument();
     expect(screen.getByText("Kısa bağlantı oluşturma")).toBeInTheDocument();
     expect(screen.getByText("Sertifika verme")).toBeInTheDocument();
     expect(screen.getByText(/1 teknik yetki daha var/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 3, name: "SkyMail" })).toBeInTheDocument();
     expect(screen.getByText("SkyMail’e giriş")).toBeInTheDocument();
-    expect(screen.getByText(/Değişiklik için yönetim ekibiyle iletişime geç\./)).toBeInTheDocument();
     expect(document.querySelector("form, button")).toBeNull();
 
     const outside = textOutsideTechnicalDetails();
@@ -240,11 +250,10 @@ describe("Account REST-backed pages", () => {
     });
     render(await PermissionsPage());
 
-    expect(screen.getByRole("heading", { level: 1, name: "Yetkilerim" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Yetkiler" })).toBeInTheDocument();
     expect(screen.getByText("Yeniden giriş yapman gerekiyor")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", "/login?returnTo=%2Fpermissions");
     expect(screen.queryByText("Takımlarım")).not.toBeInTheDocument();
     expect(document.querySelector("details")).toBeNull();
-    expect(screen.getByText(/Değişiklik için yönetim ekibiyle iletişime geç\./)).toBeInTheDocument();
   });
 });

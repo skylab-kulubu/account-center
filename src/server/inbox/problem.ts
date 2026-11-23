@@ -61,9 +61,9 @@ export function toInboxProblem(error: unknown): InboxProblem {
     case "contract":
       return {
         type: `${PROBLEM_BASE}inbox-contract`,
-        title: "Bildirimler güvenle durduruldu",
+        title: "Bildirimler: beklenmeyen yanıt",
         status: 502,
-        detail: "SkyMail yanıtı desteklenen sözleşmeyle eşleşmedi; hiçbir ham bilgi gösterilmedi.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "rejected":
     case "invalid_input":

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AesGcmSecretCipher } from "@/server/auth/crypto";
 import type { SessionRepository, SessionUseOutcome, UseSessionInput } from "@/server/auth/repositories";
 import type { NewSessionRecord } from "@/server/auth/types";
@@ -81,6 +81,21 @@ class MemorySessions implements SessionRepository {
         absoluteExpiresAt: row.absoluteExpiresAt,
       },
     };
+  }
+
+  async revokeOnExpiredPreviousHandle(handleHash: Buffer, now: Date) {
+    const row = this.record;
+    if (
+      !row ||
+      row.revokedAt ||
+      row.idleExpiresAt <= now ||
+      row.absoluteExpiresAt <= now ||
+      !row.previousHandleHash?.equals(handleHash) ||
+      !row.previousHandleExpiresAt ||
+      row.previousHandleExpiresAt > now
+    ) return false;
+    row.revokedAt = now;
+    return true;
   }
 
   async revokeByHandle(handleHash: Buffer, revokedAt: Date) {
@@ -295,8 +310,97 @@ describe("SessionManager", () => {
     await expect(manager.authenticate(created.handle)).resolves.not.toBeNull();
 
     now = new Date("2026-09-20T00:01:32Z");
-    await expect(manager.authenticate(created.handle)).resolves.toBeNull();
     await expect(manager.authenticate(rotated?.rotatedHandle)).resolves.not.toBeNull();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Past the window the old handle is reuse: the session is revoked (see the reuse tests below).
+      await expect(manager.authenticate(created.handle)).resolves.toBeNull();
+      expect(repository.record?.revokedAt).toEqual(now);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("revokes the session when its previous handle comes back after the window (reuse detection)", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 9)),
+      Buffer.alloc(32, 8),
+      { absoluteTtlSeconds: 3600, upstreamSessionMaxSeconds: 3600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+      () => now,
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const created = await manager.create({ subject: "reuse-user", authenticatedAt, tokens });
+      now = new Date("2026-09-20T00:01:01Z");
+      const rotated = await manager.authenticate(created.handle, { allowRotation: true });
+      expect(rotated?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+      // Inside the window the previous handle is still accepted and nothing is revoked.
+      now = new Date("2026-09-20T00:01:30Z");
+      await expect(manager.candidate(created.handle)).resolves.not.toBeNull();
+      // A handle the session never had is not reuse.
+      await expect(manager.candidate("A".repeat(43))).resolves.toBeNull();
+      expect(repository.record?.revokedAt).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
+
+      // After the window: the session the handle was rotated out of is revoked, the event logged once.
+      now = new Date("2026-09-20T00:01:31Z");
+      await expect(manager.candidate(created.handle, { requestId: "request-reuse-1" })).resolves.toBeNull();
+      expect(repository.record?.revokedAt).toEqual(now);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const entry = JSON.parse(String(warn.mock.calls[0]?.[0]));
+      expect(entry).toEqual({ event: "session_reuse_detected", requestId: "request-reuse-1", outcome: "failure" });
+      expect(String(warn.mock.calls[0]?.[0])).not.toContain(created.handle);
+      expect(String(warn.mock.calls[0]?.[0])).not.toContain("reuse-user");
+
+      // The newer handle opens nothing any more; a second presentation logs nothing new.
+      await expect(manager.authenticate(rotated?.rotatedHandle, { allowRotation: true })).resolves.toBeNull();
+      await expect(manager.authenticate(created.handle)).resolves.toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("detects reuse on the rotating path too, and not on a session that has already ended", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const repository = new MemorySessions();
+    const manager = new SessionManager(
+      repository,
+      new AesGcmSecretCipher(Buffer.alloc(32, 9)),
+      Buffer.alloc(32, 8),
+      { absoluteTtlSeconds: 3600, upstreamSessionMaxSeconds: 3600, idleTtlSeconds: 600, rotationSeconds: 60, previousHandleGraceSeconds: 30 },
+      () => now,
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const created = await manager.create({ subject: "reuse-rotating", authenticatedAt, tokens });
+      now = new Date("2026-09-20T00:01:01Z");
+      const rotated = await manager.authenticate(created.handle, { allowRotation: true });
+
+      now = new Date("2026-09-20T00:02:00Z");
+      await expect(
+        manager.authenticateMutation(created.handle, manager.csrfToken(repository.record!.id), { allowRotation: true }),
+      ).resolves.toEqual({ status: "missing" });
+      expect(repository.record?.revokedAt).toEqual(now);
+      expect(warn).toHaveBeenCalledTimes(1);
+      await expect(manager.candidate(rotated?.rotatedHandle)).resolves.toBeNull();
+
+      // A session past its idle deadline is over anyway: no revocation, no event.
+      const ended = await manager.create({ subject: "reuse-ended", authenticatedAt, tokens });
+      now = new Date("2026-09-20T00:03:01Z");
+      await manager.authenticate(ended.handle, { allowRotation: true });
+      now = new Date("2026-09-20T00:30:00Z");
+      await expect(manager.candidate(ended.handle)).resolves.toBeNull();
+      expect(repository.record?.revokedAt).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("recovers when a rotation response is lost before the browser stores its cookie", async () => {
@@ -367,20 +471,40 @@ describe("SessionManager", () => {
     await expect(manager.authenticate(delivered?.rotatedHandle)).resolves.not.toBeNull();
   });
 
-  it("ends the previous handle at its own expiry; the successor rotates on schedule", async () => {
+  it("ends the previous handle at its own expiry, however often it came in the window", async () => {
     let now = new Date("2026-09-20T00:00:00Z");
-    const { manager } = rotatingManager(() => now);
+    const { manager, repository } = rotatingManager(() => now);
     const created = await manager.create({ subject: "rotation-window", authenticatedAt, tokens });
+    now = new Date("2026-09-20T00:01:01Z");
+    await manager.authenticate(created.handle, { allowRotation: true });
+    now = new Date("2026-09-20T00:01:20Z");
+    await manager.authenticate(created.handle, { allowRotation: true });
+    now = new Date("2026-09-20T00:01:32Z");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(manager.authenticate(created.handle, { allowRotation: true })).resolves.toBeNull();
+      // Past its first expiry (00:01:31) it is reuse: the session is revoked.
+      expect(repository.record?.revokedAt).toEqual(now);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("rotates the successor on schedule; the handle two rotations back opens nothing and revokes nothing", async () => {
+    let now = new Date("2026-09-20T00:00:00Z");
+    const { manager, repository } = rotatingManager(() => now);
+    const created = await manager.create({ subject: "rotation-schedule", authenticatedAt, tokens });
     now = new Date("2026-09-20T00:01:01Z");
     const next = await manager.authenticate(created.handle, { allowRotation: true });
     now = new Date("2026-09-20T00:01:20Z");
     await manager.authenticate(created.handle, { allowRotation: true });
-    now = new Date("2026-09-20T00:01:32Z");
-    await expect(manager.authenticate(created.handle, { allowRotation: true })).resolves.toBeNull();
     now = new Date("2026-09-20T00:02:02Z");
     const after = await manager.authenticate(next?.rotatedHandle, { allowRotation: true });
     expect(after?.rotatedHandle).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(after?.rotatedHandle).not.toBe(next?.rotatedHandle);
+    await expect(manager.authenticate(created.handle, { allowRotation: true })).resolves.toBeNull();
+    expect(repository.record?.revokedAt).toBeUndefined();
+    await expect(manager.authenticate(after?.rotatedHandle)).resolves.not.toBeNull();
   });
 
   it("falls back to a fresh rotation when the row's current handle is not the derived successor (an older image rotated it)", async () => {

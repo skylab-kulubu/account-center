@@ -3,9 +3,10 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { currentAccountSession } from "@/server/access-gate/current-session";
 import { getAuthServices } from "@/server/auth/services";
+import { readCurrentCoreProfile } from "@/server/club-profile/current-profile";
 import { toClubProfileProblem } from "@/server/club-profile/problem";
 import type { ClubProfileProblem } from "@/server/club-profile/problem";
-import { clubProfileServiceFor, toClubProfileView } from "@/server/club-profile/service";
+import { toClubProfileView } from "@/server/club-profile/service";
 import type { ClubProfileView } from "@/server/club-profile/service";
 import { CoreConsentError } from "@/server/core/consents-client";
 import type { CoreProfile } from "@/server/core/profile-client";
@@ -125,12 +126,12 @@ export async function loadClubProfilePage(): Promise<ClubProfilePageData> {
   if (authorization.status !== "active") redirect("/login");
   const session = authorization.value.session;
   const csrfToken = services.sessions.csrfToken(session.id);
-  const clubProfileService = clubProfileServiceFor(services);
+  const coreProfile = readCurrentCoreProfile(services, session);
 
   let clubProfile: ClubProfileState = { status: "disabled" };
-  if (clubProfileService) {
+  if (coreProfile) {
     try {
-      const profile = await clubProfileService.read(session);
+      const profile = await coreProfile;
       const [skyPassWallet, teamPage] = await Promise.all([
         loadSkyPassWallet(services, session),
         loadTeamPage(services, session),

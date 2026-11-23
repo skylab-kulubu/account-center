@@ -204,6 +204,48 @@ databaseDescribe("PostgreSQL authentication repositories", () => {
     expect(row.rows[0]?.rotation_salt).toEqual(Buffer.alloc(16, 42));
   });
 
+  it("revokes a live session only for its previous handle after the window (reuse detection)", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const id = "dddddddd-9999-4999-8999-999999999999";
+    const original = Buffer.alloc(32, 58);
+    const use = await rotatingSession(repository, id, original);
+    await use(original, "2026-09-20T00:20:00Z", Buffer.alloc(16, 46));
+    const successor = successorOf(original)(Buffer.alloc(16, 46));
+    const revokedAt = async () => (await pool.query<{ revoked_at: Date | null }>(
+      "SELECT revoked_at FROM account_sessions WHERE id = $1",
+      [id],
+    )).rows[0]?.revoked_at ?? null;
+
+    // Inside the window, the current handle and an unknown handle revoke nothing.
+    await expect(repository.revokeOnExpiredPreviousHandle(original, new Date("2026-09-20T00:20:29Z"))).resolves.toBe(false);
+    await expect(repository.revokeOnExpiredPreviousHandle(successor, new Date("2026-09-20T00:21:00Z"))).resolves.toBe(false);
+    await expect(repository.revokeOnExpiredPreviousHandle(Buffer.alloc(32, 59), new Date("2026-09-20T00:21:00Z"))).resolves.toBe(false);
+    expect(await revokedAt()).toBeNull();
+
+    // The window ends at 00:20:30: from then the previous handle revokes the session, once.
+    await expect(repository.revokeOnExpiredPreviousHandle(original, new Date("2026-09-20T00:20:30Z"))).resolves.toBe(true);
+    expect(await revokedAt()).toEqual(new Date("2026-09-20T00:20:30Z"));
+    await expect(repository.revokeOnExpiredPreviousHandle(original, new Date("2026-09-20T00:21:00Z"))).resolves.toBe(false);
+    expect(await revokedAt()).toEqual(new Date("2026-09-20T00:20:30Z"));
+    await expect(use(successor, "2026-09-20T00:21:00Z", Buffer.alloc(16, 47), false)).resolves.toBeNull();
+  });
+
+  it("does not revoke an ended session, nor for a handle older than the previous one", async () => {
+    const repository = new PostgresSessionRepository(pool);
+    const id = "eeeeeeee-9999-4999-8999-999999999999";
+    const original = Buffer.alloc(32, 60);
+    const use = await rotatingSession(repository, id, original);
+    await use(original, "2026-09-20T00:20:00Z", Buffer.alloc(16, 48));
+    const second = successorOf(original)(Buffer.alloc(16, 48));
+    await use(second, "2026-09-20T00:40:00Z", Buffer.alloc(16, 49));
+    // The original is two rotations old: no row knows it any more.
+    await expect(repository.revokeOnExpiredPreviousHandle(original, new Date("2026-09-20T00:41:00Z"))).resolves.toBe(false);
+    // The idle deadline (01:10) has passed: the session is over, nothing to revoke.
+    await expect(repository.revokeOnExpiredPreviousHandle(second, new Date("2026-09-20T01:10:00Z"))).resolves.toBe(false);
+    const row = await pool.query<{ revoked_at: Date | null }>("SELECT revoked_at FROM account_sessions WHERE id = $1", [id]);
+    expect(row.rows[0]?.revoked_at).toBeNull();
+  });
+
   it("resolves a candidate without touching it and revokes every subject session from a trusted session id", async () => {
     const repository = new PostgresSessionRepository(pool);
     const handle = Buffer.alloc(32, 61);

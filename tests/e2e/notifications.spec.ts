@@ -55,16 +55,16 @@ test("Bildirimlerim lists the inbox, clears the badge, marks read and archives t
     expect((await firstRefresh).status()).toBe(204);
     const navigation = page.getByRole("navigation", { name: "Hesap ayarları" });
     if (await navigation.isVisible()) {
-      await expect(navigation.getByRole("link", { name: /Bildirimlerim\s*1 yeni bildirim/ })).toBeVisible();
+      await expect(navigation.getByRole("link", { name: /Bildirimler\s*1 yeni bildirim/ })).toBeVisible();
     }
 
     const seen = page.waitForResponse((response) => response.url().endsWith("/api/account/inbox/seen-all"));
     await page.goto("/notifications");
-    await expect(page.getByRole("heading", { level: 1, name: "Bildirimlerim" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Bildirimler" })).toBeVisible();
     await expect(page.getByText("Kodlama Gecesi biletin hazır")).toBeVisible();
     expect((await seen).status()).toBe(200);
     if (await navigation.isVisible()) {
-      await expect(navigation.locator(".account-nav__badge")).toHaveCount(0);
+      await expect(navigation.locator(".shell-nav__badge")).toHaveCount(0);
     }
     // sky-app's path has no web page; the certificate's address opens.
     await expect(page.getByRole("link", { name: /Kodlama Gecesi/ })).toHaveCount(0);
