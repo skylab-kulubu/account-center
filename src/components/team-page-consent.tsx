@@ -25,8 +25,8 @@ const fallbackProblem: Problem = {
 };
 
 const contractProblem: Problem = {
-  title: "Ekip sayfası ayarı güvenle durduruldu",
-  detail: "Sunucu yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+  title: "Ekip sayfası ayarı: beklenmeyen yanıt",
+  detail: "Sayfayı yenileyip yeniden dene.",
   status: 502,
 };
 

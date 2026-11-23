@@ -52,8 +52,8 @@ const fallbackProblem: SafeProblem = {
 };
 
 const contractProblem: SafeProblem = {
-  title: "İletişim tercihleri güvenle durduruldu",
-  detail: "Sunucu yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+  title: "İletişim tercihleri: beklenmeyen yanıt",
+  detail: "Sayfayı yenileyip yeniden dene.",
   status: 502,
 };
 
@@ -451,7 +451,6 @@ export function CommunicationPreferencesEditor({
       <section className="settings-section" aria-labelledby={masterHeadingId}>
         <div className="settings-section__heading">
           <h2 id={masterHeadingId}>Ana anahtar</h2>
-          <p>Kapatırsan aşağıdaki seçimlerin korunur; yeniden açınca hepsi geri gelir.</p>
         </div>
         <div className="preferences-master" data-focused={key === "master" || undefined} ref={focusedMaster}>
           <ToggleRow
@@ -475,10 +474,6 @@ export function CommunicationPreferencesEditor({
       <section className="settings-section" aria-labelledby={tableHeadingId}>
         <div className="settings-section__heading">
           <h2 id={tableHeadingId}>Kaynaklar</h2>
-          <p>
-            Bir ekibe abonelik alt ekiplerini de kapsar; bir alt ekibi ayrıca kapatabilirsin. Değer üst ekipten geliyorsa
-            “üst ekipten” yazar.
-          </p>
         </div>
         {!masterOn ? (
           <Notice className="preferences-master-off" icon={BellOff} tone="warning">

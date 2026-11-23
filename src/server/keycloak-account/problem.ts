@@ -22,9 +22,9 @@ export type AccountProblem = {
 
 const contractProblem: AccountProblem = {
   type: "https://my.yildizskylab.com/problems/identity-contract",
-  title: "Kimlik bilgileri güvenle durduruldu",
+  title: "Kimlik bilgileri: beklenmeyen yanıt",
   status: 502,
-  detail: "Kimlik sağlayıcısının yanıtı desteklenen sürümle eşleşmedi. Hiçbir ham hesap bilgisi gösterilmedi.",
+  detail: "Sayfayı yenileyip yeniden dene.",
 };
 
 export function toAccountProblem(error: unknown): AccountProblem {

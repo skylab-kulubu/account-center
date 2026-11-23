@@ -96,17 +96,17 @@ const privilegeLevels: readonly PrivilegeLevel[] = [
   {
     kind: "admin",
     label: "Yönetim",
-    description: "Kulüp kaynaklarını takım sınırı olmadan yönetebilirsin.",
+    description: "Kulüp kaynaklarını ekip sınırı olmadan yönetebilirsin.",
   },
   {
     kind: "board",
     label: "Yönetim Kurulu",
-    description: "Yönetim Kurulu üyesi olarak kulüp kaynaklarını takım sınırı olmadan yönetebilirsin.",
+    description: "Yönetim Kurulu üyesi olarak kulüp kaynaklarını ekip sınırı olmadan yönetebilirsin.",
   },
   {
     kind: "audit",
     label: "Denetim Kurulu",
-    description: "Denetim Kurulu üyesi olarak kulüp kaynaklarını takım sınırı olmadan yönetebilirsin.",
+    description: "Denetim Kurulu üyesi olarak kulüp kaynaklarını ekip sınırı olmadan yönetebilirsin.",
   },
 ];
 

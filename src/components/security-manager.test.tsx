@@ -103,7 +103,6 @@ describe("SecurityManager", () => {
     expect(screen.getByText("Tanımlı değil")).toBeInTheDocument();
     expect(screen.getByText("Tanımlı bir doğrulama uygulaması yok.")).toBeInTheDocument();
     expect(screen.getByText("Kayıtlı bir passkey yok.")).toBeInTheDocument();
-    expect(screen.getByText("Hesabına ek bir giriş yöntemi eklemeni öneriyoruz.")).toBeInTheDocument();
   });
 
   it("shows a retryable card when the inventory cannot be read and redirects on 401", async () => {
@@ -114,7 +113,7 @@ describe("SecurityManager", () => {
     render(<SecurityManager />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Güvenlik ayarları yüklenemedi");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Güvenlik ayarları güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Güvenlik ayarları: beklenmeyen yanıt");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login?returnTo=%2Fsecurity"));
     expect(request).toHaveBeenCalledTimes(3);
@@ -220,7 +219,7 @@ describe("SecurityManager", () => {
       fireEvent.change(within(setForm).getByLabelText("Yeni parola (tekrar)"), { target: { value: "correct horse battery" } });
       fireEvent.click(within(setForm).getByRole("button", { name: "Parolayı kaydet" }));
       expect(await within(setForm).findByRole("alert"))
-        .toHaveTextContent("Doğrulaman tamamlandı ama güvenlik işlemi için ek doğrulama gerekiyor; tekrar dene.");
+        .toHaveTextContent("Doğrulaman tamamlandı ama güvenlik işlemi için ek doğrulama gerekiyor; yeniden dene.");
       expect(sudo.ensureSudo).toHaveBeenLastCalledWith({ challenged: true });
       expect(retried.mock.calls.filter((call) => call[0] === "/api/account/security/password")).toHaveLength(2);
     });

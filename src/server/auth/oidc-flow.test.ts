@@ -45,6 +45,7 @@ class CapturingSessions implements SessionRepository {
   async insert(value: NewSessionRecord) { this.inserted = value; }
   async findByHandle() { return null; }
   async useHandle(): Promise<SessionUseResult | null> { return null; }
+  async revokeOnExpiredPreviousHandle() { return false; }
   async revokeByHandle() { return false; }
   async revokeBySubject() { return 0; }
   async revokeSubjectBySessionId() { return 0; }

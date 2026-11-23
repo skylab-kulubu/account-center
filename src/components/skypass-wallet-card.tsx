@@ -49,8 +49,8 @@ const revokeFallback: SafeProblem = {
 };
 
 const contractProblem: SafeProblem = {
-  title: "Google Cüzdan işlemi güvenle durduruldu",
-  detail: "Sunucu yanıtı beklenen biçimde değildi; hiçbir bağlantı açılmadı. Sayfayı yenileyip yeniden dene.",
+  title: "Google Cüzdan: beklenmeyen yanıt",
+  detail: "Sayfayı yenileyip yeniden dene.",
   status: 502,
 };
 
@@ -314,10 +314,6 @@ export function SkyPassWalletCard({ initialIssued, csrfToken }: { initialIssued:
     <section className="settings-section" aria-labelledby={headingId}>
       <div className="settings-section__heading">
         <h2 id={headingId}>Google Cüzdan</h2>
-        <p>
-          SkyPass’ini Google Cüzdan’a ekleyerek sky-app olmadan da kapıdan geçebilirsin. Kartta adın ve SKY numaran
-          görünür, fotoğraf yer almaz; kapı kodu her dakika yenilenir ve kapıda internet bağlantısı gerekir.
-        </p>
       </div>
       {feedback ? <FeedbackBanner feedback={feedback} /> : null}
       <div className="wallet-card">

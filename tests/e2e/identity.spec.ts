@@ -143,7 +143,9 @@ test("a Verified YTÜ account sees the locked name, the YTÜ link and the e-mail
   const redirectResponse = await redirect?.response();
   expect(redirectResponse?.status()).toBe(308);
   expect(redirectResponse?.headers().location).toBe("/identity");
-  await expect(page.getByRole("link", { name: "Kimlik" })).toHaveAttribute("aria-current", "page");
+  // Kimlik is a page of Kişisel bilgiler: the section is marked, the page links back to it
+  await expect(page.locator('nav [aria-current="page"]:visible')).toHaveText("Kişisel bilgiler");
+  await expect(page.getByRole("main").getByRole("link", { name: "Kişisel bilgiler" })).toHaveAttribute("href", "/personal-info");
 
   await expect(page.getByText("Ada Lovelace")).toBeVisible();
   await expect(page.getByText("YTÜ hesabından gelir; yönetim ekibi düzeltebilir.")).toBeVisible();

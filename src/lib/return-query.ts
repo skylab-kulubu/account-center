@@ -56,6 +56,9 @@ export function allowedReturnQuery(pathname: string, searchParams: URLSearchPara
  */
 const allowedReturnPaths = new Set([
   "/",
+  "/personal-info",
+  "/privacy",
+  "/apps",
   "/identity",
   "/email",
   "/security",

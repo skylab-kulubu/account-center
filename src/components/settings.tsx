@@ -1,14 +1,21 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { accountSection } from "@/config/account-routes";
 import type { AccountRoute } from "@/config/account-routes";
 
+/** The page's title; a sub-page also links back to its section (Google Account's back arrow). */
 export function AccountPageHeader({ route }: { route: AccountRoute }) {
+  const parent = route.section !== route.href ? accountSection(route.section) : null;
   return (
     <header className="page-header">
-      {route.eyebrow ? <p className="eyebrow">{route.eyebrow}</p> : null}
+      {parent ? (
+        <Link className="page-header__back" href={parent.href}>
+          <ChevronLeft aria-hidden="true" size={18} />
+          {parent.label}
+        </Link>
+      ) : null}
       <h1>{route.title}</h1>
-      <p>{route.description}</p>
     </header>
   );
 }

@@ -228,7 +228,9 @@ describe("CommunicationPreferencesEditor", () => {
       fireEvent.click(screen.getByRole("switch", { name: "WEBLAB · Duyurular" }));
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri: beklenmeyen yanıt");
+    expect(screen.getByRole("alert")).toHaveTextContent("Sayfayı yenileyip yeniden dene.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Sunucu yanıtı");
   });
 
   it("shows the tracking switch reversed: unchecked while the person's mail is tracked", () => {
@@ -285,7 +287,7 @@ describe("CommunicationPreferencesEditor", () => {
       fireEvent.click(screen.getByRole("switch", { name: "WEBLAB · Duyurular" }));
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri: beklenmeyen yanıt");
     expect(screen.getByRole("switch", { name: "WEBLAB · Duyurular" })).toBeChecked();
   });
 

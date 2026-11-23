@@ -31,8 +31,8 @@ type Step = "intent" | "confirm";
 
 const copy = {
   sudoCancelled: "Kimlik doğrulaman tamamlanmadı. Hesabında hiçbir değişiklik yapılmadı.",
-  spiTokenRequired: "Doğrulaman tamamlandı ama hesap silme için ek doğrulama gerekiyor. Hesabında hiçbir değişiklik yapılmadı; tekrar dene.",
-  unavailable: "Hesap silme işlemi şu anda başlatılamıyor. Hesabında hiçbir değişiklik yapılmadı; kısa bir süre sonra tekrar dene.",
+  spiTokenRequired: "Doğrulaman tamamlandı ama hesap silme için ek doğrulama gerekiyor. Hesabında hiçbir değişiklik yapılmadı; yeniden dene.",
+  unavailable: "Hesap silme işlemi şu anda başlatılamıyor. Hesabında hiçbir değişiklik yapılmadı; kısa bir süre sonra yeniden dene.",
   sessionEnded: "Oturumun sona ermiş görünüyor. Sayfayı yenileyip yeniden dene.",
 } as const;
 
@@ -141,7 +141,7 @@ export function AccountDeletionConfirmation({
         {feedbackNote}
         <div className="deletion-step" data-tone="muted">
           <strong>Silme akışı henüz etkin değil</strong>
-          <span>Hazırlıklar tamamlandığında bu ekrandan güvenle başlatabileceksin.</span>
+          <span>Hazırlıklar bitince buradan başlatabileceksin.</span>
         </div>
       </>
     );

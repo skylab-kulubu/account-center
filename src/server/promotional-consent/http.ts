@@ -87,15 +87,15 @@ export function toPromotionalConsentProblem(error: unknown): PromotionalConsentP
     case "contract":
       return {
         type: `${PROBLEM_BASE}promotional-consent-contract`,
-        title: "Tanıtım izni güvenle durduruldu",
+        title: "Tanıtım izni: beklenmeyen yanıt",
         status: 502,
-        detail: "Core yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "rejected":
     case "invalid_input":
       return {
         type: `${PROBLEM_BASE}promotional-consent-rejected`,
-        title: "Core isteği kabul etmedi",
+        title: "Tanıtım izni değiştirilemedi",
         status: 400,
         detail: "Sayfayı yenileyip yeniden dene; iznin değişmedi.",
       };
@@ -104,7 +104,7 @@ export function toPromotionalConsentProblem(error: unknown): PromotionalConsentP
         type: `${PROBLEM_BASE}promotional-consent-core-unavailable`,
         title: "Tanıtım iznine şu anda ulaşılamıyor",
         status: 503,
-        detail: "Core yanıt vermedi; iznin değişmedi. Biraz sonra yeniden dene.",
+        detail: "İznin değişmedi. Biraz sonra yeniden dene.",
       };
   }
 }

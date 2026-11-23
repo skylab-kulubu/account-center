@@ -218,7 +218,8 @@ describe("ClubProfileEditor form", () => {
     fireEvent.change(screen.getByLabelText("Bölüm"), { target: { value: "Matematik" } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profili güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profili: beklenmeyen yanıt");
+    expect(screen.getByRole("alert")).toHaveTextContent("Sayfayı yenileyip yeniden dene.");
     expect(screen.getByLabelText("Bölüm")).toHaveValue("Matematik");
   });
 });
@@ -239,7 +240,6 @@ describe("ClubProfileEditor for a YTÜ-linked person", () => {
       "FakülteBilgisayar ve Bilişim Bilimleri FakültesiYTÜ hesabından gelir",
       "BölümYTÜ hesabında kayıtlı değilYTÜ hesabından gelir",
     ]);
-    expect(screen.getByText(/her YTÜ girişinde YTÜ hesabından güncellenir/)).toBeInTheDocument();
   });
 
   it("saves LinkedIn alone", async () => {

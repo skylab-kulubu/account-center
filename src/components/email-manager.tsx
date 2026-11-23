@@ -60,15 +60,14 @@ export const emailCopy = {
     detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden deneyebilirsin.",
   },
   contract: {
-    title: "E-posta adreslerin güvenle durduruldu",
-    detail: "Kimlik hizmetinin yanıtı desteklenen biçimle eşleşmedi. Hiçbir ham veri gösterilmedi.",
+    title: "E-posta adresleri: beklenmeyen yanıt",
+    detail: "Sayfayı yenileyip yeniden dene.",
   },
   verified: "Doğrulandı",
   unverified: "Doğrulanmadı",
   linkYtu: "YTÜ hesabını bağla",
   school: {
     title: "Okul e-postası",
-    description: "YTÜ Microsoft hesabından gelir; buradan değiştirilemez.",
     missing: "Kayıtlı değil",
     verifiedDetail: "YTÜ Microsoft hesabınla doğrulandı. \"YTÜ ile giriş\" her zaman çalışır.",
     unverifiedDetail: "YTÜ hesabın bağlı olmadığı için doğrulanmadı ve birincil adres yapılamaz.",
@@ -77,7 +76,6 @@ export const emailCopy = {
   },
   personal: {
     title: "Kişisel e-posta",
-    description: "Okul dışında kullandığın bir adres. Eklediğin adrese gelen 6 haneli kodu bu sayfada girerek doğrularsın.",
     empty: "Henüz kişisel e-posta eklemedin.",
     emptyDetail: "Bir kişisel adres eklersen kulüp postalarını oraya yönlendirebilirsin.",
     verifiedDetail: "Kodla doğrulandı.",
@@ -145,7 +143,6 @@ export const emailCopy = {
   },
   primary: {
     title: "Birincil e-posta",
-    description: "Kulüp postaları birincil adrese gider. Parolayla girişte kullanıcı adın ya da doğrulanmış adreslerin kullanılır; iki adresle de giriş yapabilirsin.",
     none: (email: string | null) => email
       ? `Şu anki birincil adresin ${email}; okul ya da kişisel adreslerinden biri değil. Aşağıdan birini seçebilirsin.`
       : "Birincil adresin yok. Aşağıdan birini seçebilirsin.",
@@ -168,7 +165,6 @@ export const emailCopy = {
     removing: "Kaldırılıyor",
     removed: "Kişisel e-postan kaldırıldı.",
   },
-  note: "E-posta değişiklikleri Keycloak'taki SKY LAB kimliğinde yapılır ve her SKY LAB uygulamasında geçerlidir. Adres eklemek, birincil adresi değiştirmek ve kişisel adresi kaldırmak kimliğini yeniden doğrulamanı ister; postadaki kodu girmek istemez.",
 } as const;
 
 type Notice = { tone: "positive" | "warning"; title: string; detail: string };
@@ -1295,7 +1291,7 @@ export function EmailManager({ intent = null }: {
         />
       ) : null}
 
-      <SettingsGroup title={emailCopy.school.title} description={emailCopy.school.description}>
+      <SettingsGroup title={emailCopy.school.title}>
         <div className="settings-row" data-has-trailing="" {...rowGroup(ids.school, ids.schoolWarning, warned.school)}>
           <span className="settings-row__icon"><GraduationCap aria-hidden="true" size={19} /></span>
           <span className="settings-row__copy">
@@ -1315,7 +1311,7 @@ export function EmailManager({ intent = null }: {
         </div>
       </SettingsGroup>
 
-      <SettingsGroup title={emailCopy.personal.title} description={emailCopy.personal.description}>
+      <SettingsGroup title={emailCopy.personal.title}>
         {personalEmail ? (
           <div className="settings-row" data-has-trailing="" {...rowGroup(ids.personal, ids.personalWarning, warned.personal)}>
             <span className="settings-row__icon"><Mail aria-hidden="true" size={19} /></span>
@@ -1453,7 +1449,7 @@ export function EmailManager({ intent = null }: {
         ) : null}
       </SettingsGroup>
 
-      <SettingsGroup title={emailCopy.primary.title} description={emailCopy.primary.description}>
+      <SettingsGroup title={emailCopy.primary.title}>
         <PrimarySelector
           key={`${payload.primary}|${payload.schoolEmail ?? ""}|${personalEmail ?? ""}|${payload.verifiedYtu}|${payload.personalEmailVerified}|${primaryRequest}`}
           payload={payload}
@@ -1463,10 +1459,6 @@ export function EmailManager({ intent = null }: {
           {...callbacks}
         />
       </SettingsGroup>
-
-      <aside className="read-only-note" aria-label="E-posta değişiklikleri hakkında">
-        {emailCopy.note}
-      </aside>
 
       {flow?.kind === "remove" && personalEmail ? (
         <RemoveDialog

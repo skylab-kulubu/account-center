@@ -74,9 +74,9 @@ export function toSkyPassWalletProblem(error: unknown): SkyPassWalletProblem {
     case "contract":
       return {
         type: `${PROBLEM_BASE}skypass-wallet-contract`,
-        title: "Google Cüzdan işlemi güvenle durduruldu",
+        title: "Google Cüzdan: beklenmeyen yanıt",
         status: 502,
-        detail: "Core yanıtı desteklenen sözleşmeyle eşleşmedi; hiçbir bağlantı açılmadı.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "rejected":
     case "invalid_input":
