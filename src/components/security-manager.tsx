@@ -36,7 +36,7 @@ const RETURN_TO = "/security";
 export const securityCopy = {
   loading: "Güvenlik ayarların yükleniyor",
   loadFailed: { title: "Güvenlik ayarları yüklenemedi", detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden deneyebilirsin." },
-  contract: { title: "Güvenlik ayarları güvenle durduruldu", detail: "Kimlik hizmetinin yanıtı desteklenen biçimle eşleşmedi. Hiçbir ham veri gösterilmedi." },
+  contract: { title: "Güvenlik ayarları: beklenmeyen yanıt", detail: "Sayfayı yenileyip tekrar dene." },
   password: {
     title: "Parola",
     has: "Parolan tanımlı. Değiştirmeden önce kimliğini yeniden doğrularsın.",

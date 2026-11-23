@@ -242,8 +242,8 @@ export function SessionManager() {
       const parsed = parsePayload(body);
       if (!parsed) {
         setProblem({
-          title: "Oturumlar güvenle durduruldu",
-          detail: "Kimlik hizmetinin yanıtı desteklenen biçimle eşleşmedi. Hiçbir ham oturum bilgisi gösterilmedi.",
+          title: "Oturumlar: beklenmeyen yanıt",
+          detail: "Sayfayı yenileyip tekrar dene.",
         });
         return;
       }

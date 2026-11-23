@@ -71,9 +71,9 @@ export function toAppPreferencesProblem(error: unknown): AccountProblem {
     case "contract":
       return {
         type: `${PROBLEM_BASE}app-preferences-contract`,
-        title: "Uygulama ayarları güvenle durduruldu",
+        title: "Uygulama ayarları: beklenmeyen yanıt",
         status: 502,
-        detail: "Core yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+        detail: "Sayfayı yenileyip tekrar dene.",
       };
     case "off":
     case "rejected":

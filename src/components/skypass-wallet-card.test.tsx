@@ -231,7 +231,7 @@ describe("SkyPassWalletCard", () => {
 
     fireEvent.click(addButton());
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Google Cüzdan işlemi güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Google Cüzdan: beklenmeyen yanıt");
     expect(tab.close).toHaveBeenCalled();
     expect(tab.location.replace).not.toHaveBeenCalled();
     expect(screen.getByText("Pas yok")).toBeInTheDocument();

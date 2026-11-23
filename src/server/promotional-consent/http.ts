@@ -87,9 +87,9 @@ export function toPromotionalConsentProblem(error: unknown): PromotionalConsentP
     case "contract":
       return {
         type: `${PROBLEM_BASE}promotional-consent-contract`,
-        title: "Tanıtım izni güvenle durduruldu",
+        title: "Tanıtım izni: beklenmeyen yanıt",
         status: 502,
-        detail: "Core yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+        detail: "Sayfayı yenileyip tekrar dene.",
       };
     case "rejected":
     case "invalid_input":

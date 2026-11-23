@@ -227,7 +227,7 @@ describe("EmailManager", () => {
     render(<EmailManager />);
     expect(await screen.findByRole("alert")).toHaveTextContent("E-posta adreslerin yüklenemedi");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("E-posta adreslerin güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("E-posta adresleri: beklenmeyen yanıt");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login?returnTo=%2Femail"));
     expect(api.of("email")).toHaveLength(3);

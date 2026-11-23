@@ -153,7 +153,7 @@ describe("IdentityManager", () => {
     render(<IdentityManager keycloakOrigin={keycloakOrigin} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Kimlik bilgileri yüklenemedi");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Kimlik bilgileri güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Kimlik bilgileri: beklenmeyen yanıt");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login?returnTo=%2Fidentity"));
     expect(request).toHaveBeenCalledTimes(3);

@@ -141,7 +141,7 @@ export function AccountDeletionConfirmation({
         {feedbackNote}
         <div className="deletion-step" data-tone="muted">
           <strong>Silme akışı henüz etkin değil</strong>
-          <span>Hazırlıklar tamamlandığında bu ekrandan güvenle başlatabileceksin.</span>
+          <span>Hazırlıklar bitince buradan başlatabileceksin.</span>
         </div>
       </>
     );

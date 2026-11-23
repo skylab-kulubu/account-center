@@ -38,7 +38,7 @@ export const metadata: Metadata = {
     default: "Hesap Merkezi | SKY LAB",
     template: "%s | SKY LAB Hesap Merkezi",
   },
-  description: "SKY LAB hesabını, giriş yöntemlerini ve oturumlarını güvenle yönet.",
+  description: "SKY LAB hesabını, giriş yöntemlerini ve oturumlarını yönet.",
   robots: { index: false, follow: false },
 };
 

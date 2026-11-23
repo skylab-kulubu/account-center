@@ -83,7 +83,7 @@ describe("Ekip sayfaları switch", () => {
     renderSection();
 
     fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
-    await screen.findByText("Ekip sayfası ayarı güvenle durduruldu");
+    await screen.findByText("Ekip sayfası ayarı: beklenmeyen yanıt");
     expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked();
   });
 

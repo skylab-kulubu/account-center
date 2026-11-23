@@ -317,7 +317,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
       setFeedback({
         tone: "danger",
         problem: {
-          title: "Kulüp profili güvenle durduruldu",
+          title: "Kulüp profili: beklenmeyen yanıt",
           detail: "Sunucu yanıtı desteklenen biçimle eşleşmedi. Sayfayı yenileyip güncel durumu kontrol et.",
           status: 502,
         },

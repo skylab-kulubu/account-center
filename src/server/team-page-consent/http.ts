@@ -74,9 +74,9 @@ export function toTeamPageConsentProblem(error: unknown): TeamPageConsentProblem
     case "contract":
       return {
         type: `${PROBLEM_BASE}team-page-consent-contract`,
-        title: "Ekip sayfası ayarı güvenle durduruldu",
+        title: "Ekip sayfası ayarı: beklenmeyen yanıt",
         status: 502,
-        detail: "Core yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+        detail: "Sayfayı yenileyip tekrar dene.",
       };
     case "rejected":
     case "invalid_input":

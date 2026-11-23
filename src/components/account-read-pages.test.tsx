@@ -49,7 +49,7 @@ const permissionsFixture: PermissionsPageData = {
     applications: [
       {
         clientId: "core",
-        name: "SKY LAB Core",
+        name: "SKY LAB hesabı",
         description: "Superadmin ve SkyApp’in arkasındaki kulüp platformu.",
         permissions: [
           { code: "url:create", label: "Kısa bağlantı oluşturma", description: "skyl.app üzerinde kısa bağlantı oluşturabilirsin." },
@@ -175,7 +175,7 @@ describe("Account REST-backed pages", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Yetki seviyesi" })).toBeInTheDocument();
     expect(screen.getByText("Yönetim Kurulu")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Uygulama yetkileri" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "SKY LAB Core" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "SKY LAB hesabı" })).toBeInTheDocument();
     expect(screen.getByText("Kısa bağlantı oluşturma")).toBeInTheDocument();
     expect(screen.getByText("Sertifika verme")).toBeInTheDocument();
     expect(screen.getByText(/1 teknik yetki daha var/)).toBeInTheDocument();
