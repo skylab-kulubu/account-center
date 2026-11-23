@@ -1218,3 +1218,15 @@ html[data-tasarim="b"] {
     display: none;
   }
 }
+
+/* Gizlenen giriş kutusundan ve (B telefon) başlıktan sonra boşluk kalmasın */
+[data-tasarim] .preferences-intro + * {
+  margin-top: 0;
+}
+
+@media (max-width: 860px) {
+  [data-tasarim="b"] .sayfa-basligi + *,
+  [data-tasarim="b"] .sayfa-basligi + .preferences-intro + * {
+    margin-top: 0;
+  }
+}
