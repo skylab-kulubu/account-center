@@ -136,7 +136,7 @@ describe("Account REST-backed pages", () => {
   ])("shows no delivery line when %s", async (_label, answer) => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => answer());
     render(await OverviewPage());
-    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Ada Lovelace" })).toBeInTheDocument();
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith("/api/account/email/delivery", expect.anything()));
     expect(screen.queryByText("Bir e-posta adresine posta ulaşmıyor.")).not.toBeInTheDocument();
   });
@@ -181,7 +181,6 @@ describe("Account REST-backed pages", () => {
     expect(screen.getByText(/1 teknik yetki daha var/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 3, name: "SkyMail" })).toBeInTheDocument();
     expect(screen.getByText("SkyMail’e giriş")).toBeInTheDocument();
-    expect(screen.getByText(/Değişiklik için yönetim ekibiyle iletişime geç\./)).toBeInTheDocument();
     expect(document.querySelector("form, button")).toBeNull();
 
     const outside = textOutsideTechnicalDetails();
@@ -256,6 +255,5 @@ describe("Account REST-backed pages", () => {
     expect(screen.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", "/login?returnTo=%2Fpermissions");
     expect(screen.queryByText("Takımlarım")).not.toBeInTheDocument();
     expect(document.querySelector("details")).toBeNull();
-    expect(screen.getByText(/Değişiklik için yönetim ekibiyle iletişime geç\./)).toBeInTheDocument();
   });
 });

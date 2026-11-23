@@ -632,7 +632,7 @@ test("session management confirms a revoke and keeps the current browser signed 
   await expect(page.getByRole("main")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Vazgeç" })).toBeFocused();
   // A click on a link behind the backdrop neither closes the question nor reaches the link.
-  const behind = page.locator(".account-sidebar a").first();
+  const behind = page.locator(".shell-nav a").first();
   const behindBox = await behind.boundingBox();
   expect(behindBox).not.toBeNull();
   await behind.evaluate((link) => {

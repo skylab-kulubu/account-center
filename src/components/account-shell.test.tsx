@@ -21,6 +21,7 @@ describe("AccountShell", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });

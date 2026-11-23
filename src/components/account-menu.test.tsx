@@ -1,8 +1,23 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountMenu } from "@/components/account-menu";
 
 describe("AccountMenu", () => {
+  beforeEach(() => {
+    // skylcn's useTheme follows the system theme
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
   it("draws the account button as in Entra: the name, the chevron, then the avatar against the corner", () => {
     render(<AccountMenu identity={{ name: "Ada Lovelace", email: "ada@example.invalid", pictureUrl: null }} />);
     const trigger = screen.getByRole("button", { name: "Hesap: Ada Lovelace" });

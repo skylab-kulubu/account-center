@@ -63,10 +63,10 @@ function collectPageErrors(page: Page) {
   return errors;
 }
 
-test("all eight account routes remain accessible and responsive in the browser matrix", async ({
+test("every account section and page remains accessible and responsive in the browser matrix", async ({
   browser,
 }, testInfo) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
 
   for (const profile of profiles) {
     await test.step(profile.name, async () => {
@@ -179,6 +179,8 @@ test("all eight account routes remain accessible and responsive in the browser m
             expect(overflow.body, "body must not overflow horizontally").toBeLessThanOrEqual(1);
             expect(overflow.document, "document must not overflow horizontally").toBeLessThanOrEqual(1);
 
+            // Colours are judged once skylcn's entrance animations (a card fading in) have settled
+            await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
             const accessibility = await new AxeBuilder({ page })
               .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
               .analyze();

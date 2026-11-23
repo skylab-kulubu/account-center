@@ -1,4 +1,6 @@
 import { AccountDataProblem } from "@/components/account-data-problem";
+import { HomeEmailDeliveryWarning } from "@/components/email-delivery-warning";
+import { HomePrimaryEmailNudge } from "@/components/primary-email-nudge";
 import { Overview } from "@/components/overview";
 import { accountRoute } from "@/config/account-routes";
 import { loadOverview } from "@/server/keycloak-account/page-data";
@@ -14,6 +16,8 @@ export default async function OverviewPage() {
       <div className="page-stack">
         <h1 className="sr-only">{route.title}</h1>
         <AccountDataProblem problem={data.problem} retryHref="/" />
+        <HomeEmailDeliveryWarning />
+        <HomePrimaryEmailNudge />
       </div>
     );
   }
