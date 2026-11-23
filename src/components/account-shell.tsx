@@ -2,13 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Badge } from "@skylab-kulubu/skylcn-ui";
-import {
-  ChevronLeft,
-  LogOut,
-} from "lucide-react";
+import { ChevronLeft } from "lucide-react";
+import { SIGN_OUT_FORM_ID } from "@/components/account-menu";
 import { Background } from "@/components/background";
+import { EnvironmentBadge, EnvironmentStrip } from "@/components/environment-strip";
 import { SkyLabMark } from "@/components/skylab-mark";
 import { accountRoutes, matchAccountRoute } from "@/config/account-routes";
 import type { AccountRoute } from "@/config/account-routes";
@@ -17,14 +16,11 @@ import { refreshBrowserSession } from "@/lib/session-refresh";
 
 export const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;
 
-function LogoutForm({ csrfToken, compact = false }: { csrfToken: string; compact?: boolean }) {
+/** The sign-out the account menu submits (`SIGN_OUT_FORM_ID`): a same-origin POST with the session's CSRF token. */
+function SignOutForm({ csrfToken }: { csrfToken: string }) {
   return (
-    <form className={compact ? "mobile-header__sign-out" : "account-sidebar__sign-out-form"} action="/api/auth/logout" method="post">
+    <form id={SIGN_OUT_FORM_ID} action="/api/auth/logout" method="post" hidden>
       <input type="hidden" name="csrfToken" value={csrfToken} />
-      <button className={compact ? "mobile-header__sign-out-button" : "account-sidebar__sign-out"} type="submit">
-        <LogOut aria-hidden="true" size={compact ? 19 : 17} />
-        {compact ? <span className="sr-only">Çıkış yap</span> : <span>Çıkış yap</span>}
-      </button>
     </form>
   );
 }
@@ -67,12 +63,10 @@ function useInboxUnseen(enabled: boolean, csrfToken: string) {
 
 function DesktopNavigation({
   currentRoute,
-  csrfToken,
   inboxEnabled,
   inboxUnseen,
 }: {
   currentRoute: AccountRoute | null;
-  csrfToken: string;
   /** Without SkyMail (`SKYMAIL_API_URL` unset) the page would only say it is off: it is left out of the menu. */
   inboxEnabled: boolean;
   inboxUnseen: number | null;
@@ -111,24 +105,33 @@ function DesktopNavigation({
           );
         })}
       </nav>
-
-      <LogoutForm csrfToken={csrfToken} />
     </aside>
   );
 }
 
-function MobileHeader({ currentRoute, csrfToken }: { currentRoute: AccountRoute | null; csrfToken: string }) {
+/**
+ * The top bar, as in every SKY LAB product: the sandbox badge and the account menu at the top
+ * right. On phones it is the whole sticky header: back (or the mark on the overview), the page's
+ * name, then the badge and the avatar. On desktop only the right end shows; the sidebar carries
+ * the brand.
+ */
+function TopBar({ currentRoute, account, sandbox }: { currentRoute: AccountRoute | null; account: ReactNode; sandbox: boolean }) {
   return (
-    <header className="mobile-header">
-      {currentRoute?.href === "/" ? (
-        <SkyLabMark className="mobile-header__mark" size={30} />
-      ) : (
-        <Link className="mobile-header__back" href="/" aria-label="Hesap Merkezi özetine dön">
-          <ChevronLeft aria-hidden="true" size={22} />
-        </Link>
-      )}
-      <span>{currentRoute?.navigationLabel ?? "Hesap Merkezi"}</span>
-      <LogoutForm csrfToken={csrfToken} compact />
+    <header className="account-topbar">
+      <span className="account-topbar__lead">
+        {currentRoute?.href === "/" ? (
+          <SkyLabMark className="account-topbar__mark" size={30} />
+        ) : (
+          <Link className="account-topbar__back" href="/" aria-label="Hesap Merkezi özetine dön">
+            <ChevronLeft aria-hidden="true" size={22} />
+          </Link>
+        )}
+      </span>
+      <span className="account-topbar__title">{currentRoute?.navigationLabel ?? "Hesap Merkezi"}</span>
+      <span className="account-topbar__actions">
+        <EnvironmentBadge sandbox={sandbox} />
+        {account}
+      </span>
     </header>
   );
 }
@@ -138,12 +141,18 @@ export function AccountShell({
   logoutCsrfToken,
   embedded = false,
   inboxEnabled = false,
+  account = null,
+  sandbox = false,
 }: Readonly<{
   children: React.ReactNode;
   logoutCsrfToken: string;
+  /** The account menu at the top right (`ShellAccount`, streamed in by the layout). */
+  account?: ReactNode;
+  /** This Account Center serves the sandbox (`isSandbox`): a strip at the top and a badge beside the account. */
+  sandbox?: boolean;
   /** SkyMail is configured (`SKYMAIL_API_URL`): the inbox's badge is read. */
   inboxEnabled?: boolean;
-  /** Opened inside SkyApp's WebView, whose own top bar handles back and close. */
+  /** Opened inside SkyApp's WebView, whose own top bar handles back, close and the account: no top bar here. */
   embedded?: boolean;
 }>) {
   const pathname = usePathname();
@@ -176,16 +185,17 @@ export function AccountShell({
 
   return (
     <div className="account-root" data-embedded={embedded ? "skyapp" : undefined}>
+      <EnvironmentStrip sandbox={sandbox} withLabel={embedded} />
       <a className="skip-link" href="#main-content">İçeriğe geç</a>
       <Background />
+      <SignOutForm csrfToken={logoutCsrfToken} />
       <div className="account-frame">
         <DesktopNavigation
           currentRoute={currentRoute}
-          csrfToken={logoutCsrfToken}
           inboxEnabled={inboxEnabled}
           inboxUnseen={inboxUnseen}
         />
-        {embedded ? null : <MobileHeader currentRoute={currentRoute} csrfToken={logoutCsrfToken} />}
+        {embedded ? null : <TopBar currentRoute={currentRoute} account={account} sandbox={sandbox} />}
         <main className="account-content" id="main-content" tabIndex={-1}>
           {children}
         </main>

@@ -12,9 +12,11 @@
  * named after the component's module; Notice has its own since skylcn-ui 0.2.1).
  */
 @import "@skylab-kulubu/skylcn-ui/theme-base.css";
+@import "@skylab-kulubu/skylcn-ui/sources/avatar.css";
 @import "@skylab-kulubu/skylcn-ui/sources/button.css";
 @import "@skylab-kulubu/skylcn-ui/sources/dialog.css";
 @import "@skylab-kulubu/skylcn-ui/sources/form-extra.css";
+@import "@skylab-kulubu/skylcn-ui/sources/menu.css";
 @import "@skylab-kulubu/skylcn-ui/sources/notice.css";
 @import "@skylab-kulubu/skylcn-ui/sources/skylab-loader.css";
 @import "@skylab-kulubu/skylcn-ui/sources/state-card.css";
@@ -192,6 +194,8 @@
   z-index: 1;
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
+  /* The top bar (account menu), then the page; SkyApp's WebView has no top bar */
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(1180px, calc(100% - 40px));
   min-height: calc(100dvh - 40px);
   margin: 20px auto;
@@ -204,6 +208,7 @@
 }
 
 .account-sidebar {
+  grid-row: 1 / -1;
   display: flex;
   min-height: 100%;
   flex-direction: column;
@@ -254,8 +259,7 @@
   margin-top: 26px;
 }
 
-.account-nav__item,
-.account-sidebar__sign-out {
+.account-nav__item {
   display: flex;
   min-height: 44px;
   align-items: center;
@@ -284,44 +288,46 @@
   color: var(--primary);
 }
 
-.account-sidebar__sign-out {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
+/*
+ * The top bar's right end on desktop: the sandbox badge and the account menu,
+ * as at the top right of every SKY LAB product. The brand stays in the sidebar.
+ */
+.account-topbar {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  height: var(--account-topbar-height);
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 18px;
 }
 
-.account-sidebar__sign-out-form {
-  margin-top: auto;
+.account-topbar__lead,
+.account-topbar__title {
+  display: none;
 }
 
-.account-sidebar__sign-out:hover,
-.mobile-header__sign-out-button:hover {
-  color: var(--ink);
-  background: var(--surface-hover);
+.account-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.mobile-header__sign-out {
-  width: 44px;
-  height: 44px;
+.account-root {
+  --account-topbar-height: 52px;
 }
 
-.mobile-header__sign-out-button {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 0;
-  border-radius: 9px;
-  color: var(--ink-muted);
-  background: transparent;
-  cursor: pointer;
+.account-root[data-embedded] {
+  --account-topbar-height: 0px;
 }
 
 .account-content {
-  height: calc(100dvh - 42px);
+  grid-column: 2;
+  grid-row: 2;
+  height: calc(100dvh - 42px - var(--account-topbar-height));
   overflow-y: auto;
-  padding: 64px clamp(36px, 7vw, 92px) 80px;
+  /* The page's heading stays where it was before the top bar */
+  padding: calc(64px - var(--account-topbar-height)) clamp(36px, 7vw, 92px) 80px;
   scrollbar-color: var(--scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
@@ -1769,14 +1775,10 @@ a.settings-row:hover .settings-row__chevron {
   height: 8px;
 }
 
-.mobile-header__mark {
+.account-topbar__mark {
   align-self: center;
   justify-self: center;
   color: var(--primary);
-}
-
-.mobile-header {
-  display: none;
 }
 
 @keyframes bloom-in {
@@ -2495,12 +2497,15 @@ a.email-link-action {
     display: none;
   }
 
-  .mobile-header {
+  /* The whole header on phones: back or the mark, the page's name, then the badge and the avatar */
+  .account-topbar {
     position: sticky;
     top: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    /* Equal sides keep the name centred whatever the right end carries */
+    grid-template-columns: minmax(48px, 1fr) minmax(0, auto) minmax(48px, 1fr);
+    height: auto;
     min-height: calc(62px + env(safe-area-inset-top));
     align-items: end;
     padding: env(safe-area-inset-top) 12px 9px;
@@ -2509,7 +2514,15 @@ a.email-link-action {
     backdrop-filter: blur(18px);
   }
 
-  .mobile-header > span:not(.mobile-header__balance) {
+  .account-topbar__lead {
+    display: grid;
+    min-height: 44px;
+    align-items: center;
+    justify-self: start;
+  }
+
+  .account-topbar__title {
+    display: block;
     align-self: center;
     justify-self: center;
     overflow: hidden;
@@ -2520,18 +2533,20 @@ a.email-link-action {
     white-space: nowrap;
   }
 
-  .mobile-header__back {
+  .account-topbar__actions {
+    min-height: 44px;
+    justify-self: end;
+    gap: 8px;
+    padding-right: 6px;
+  }
+
+  .account-topbar__back {
     display: grid;
     width: 48px;
     height: 44px;
     place-items: center;
     border-radius: 9px;
     color: var(--ink-muted);
-  }
-
-  .mobile-header__balance {
-    width: 48px;
-    height: 44px;
   }
 
   .account-content {

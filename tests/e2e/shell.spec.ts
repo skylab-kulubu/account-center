@@ -723,7 +723,9 @@ test("browser logout validates the form proof, clears the cookie, and hard-delet
   const logoutResponsePromise = page.waitForResponse((response) =>
     response.url().endsWith("/api/auth/logout"),
   );
-  await page.getByRole("button", { name: "Çıkış yap" }).first().click();
+  // The account menu at the top right, as in every SKY LAB product
+  await page.getByRole("banner").getByRole("button", { name: /^Hesap/ }).click();
+  await page.getByRole("menuitem", { name: "Çıkış yap" }).click();
   const logoutRequest = await logoutRequestPromise;
   const logoutResponse = await logoutResponsePromise;
   const logoutHeaders = await logoutRequest.allHeaders();

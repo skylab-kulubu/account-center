@@ -1,6 +1,7 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AccountMenu } from "@/components/account-menu";
 import { AccountShell, SESSION_REFRESH_INTERVAL_MS } from "@/components/account-shell";
 
 vi.mock("next/navigation", () => ({
@@ -21,6 +22,7 @@ describe("AccountShell", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -50,8 +52,13 @@ describe("AccountShell", () => {
     expect(screen.getByRole("link", { name: "Giriş ve güvenlik" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "İçeriğe geç" })).toHaveAttribute("href", "#main-content");
     expect(screen.getByText("İçerik")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Çıkış yap" })).toHaveLength(2);
-    expect(document.querySelector('input[name="csrfToken"]')).toHaveValue("csrf-value");
+    // The sign-out is in the account menu at the top right, not at the foot of the sidebar
+    expect(within(navigation).queryByText("Çıkış yap")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
+    const signOut = document.getElementById("account-sign-out");
+    expect(signOut).toHaveAttribute("action", "/api/auth/logout");
+    expect(signOut).toHaveAttribute("method", "post");
+    expect(signOut?.querySelector('input[name="csrfToken"]')).toHaveValue("csrf-value");
     expect(fetch).toHaveBeenCalledWith(
       "/api/auth/session/refresh",
       expect.objectContaining({
@@ -64,15 +71,66 @@ describe("AccountShell", () => {
 
   it("leaves the top bar to SkyApp when embedded in its WebView", () => {
     const { container } = render(
-      <AccountShell logoutCsrfToken="csrf-value" embedded><p>İçerik</p></AccountShell>,
+      <AccountShell logoutCsrfToken="csrf-value" embedded account={<AccountMenu identity={null} />}>
+        <p>İçerik</p>
+      </AccountShell>,
     );
 
-    expect(container.querySelector(".mobile-header")).toBeNull();
+    expect(container.querySelector(".account-topbar")).toBeNull();
     expect(container.querySelector(".account-root")).toHaveAttribute("data-embedded", "skyapp");
     const shell = within(container);
     expect(shell.getByRole("navigation", { name: "Hesap ayarları" })).toBeInTheDocument();
-    expect(shell.getAllByRole("button", { name: "Çıkış yap" })).toHaveLength(1);
+    expect(shell.queryByRole("button", { name: /^Hesap/ })).toBeNull();
     expect(shell.getByText("İçerik")).toBeInTheDocument();
+  });
+
+  it("puts the account menu at the top right: the person, then Çıkış yap", () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+    const { container } = render(
+      <AccountShell
+        logoutCsrfToken="csrf-value"
+        account={<AccountMenu identity={{ name: "Deniz Aydın", email: "deniz@example.com", pictureUrl: null }} />}
+      >
+        <p>İçerik</p>
+      </AccountShell>,
+    );
+
+    const bar = container.querySelector(".account-topbar") as HTMLElement;
+    const trigger = within(bar).getByRole("button", { name: "Hesap: Deniz Aydın" });
+    fireEvent.click(trigger);
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveTextContent("Deniz Aydın");
+    expect(menu).toHaveTextContent("deniz@example.com");
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Çıkış yap"]);
+
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Çıkış yap" }));
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    expect(requestSubmit.mock.contexts[0]).toBe(document.getElementById("account-sign-out"));
+    requestSubmit.mockRestore();
+  });
+
+  it("still signs out while the person's profile is unknown", () => {
+    render(<AccountShell logoutCsrfToken="csrf-value" account={<AccountMenu identity={null} />}><p>İçerik</p></AccountShell>);
+    fireEvent.click(screen.getByRole("button", { name: "Hesap" }));
+    expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Çıkış yap"]);
+  });
+
+  it("marks the sandbox with a badge beside the account, and nothing in production", () => {
+    const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    expect(screen.queryByRole("note", { name: "Ortam: Sandbox" })).toBeNull();
+    unmount();
+
+    const { container } = render(<AccountShell logoutCsrfToken="csrf-value" sandbox><p>İçerik</p></AccountShell>);
+    const notes = screen.getAllByRole("note", { name: "Ortam: Sandbox" });
+    expect(notes).toHaveLength(1);
+    expect(container.querySelector(".account-topbar")).toContainElement(notes[0]!);
+  });
+
+  it("hangs a Sandbox tab on the strip inside SkyApp, where there is no top bar", () => {
+    const { container } = render(<AccountShell logoutCsrfToken="csrf-value" sandbox embedded><p>İçerik</p></AccountShell>);
+    const note = screen.getByRole("note", { name: "Ortam: Sandbox" });
+    expect(note).toHaveTextContent("Sandbox");
+    expect(container.querySelector(".account-topbar")).toBeNull();
   });
 
   it("refreshes periodically and on focus/visibility, then cleans up", async () => {
