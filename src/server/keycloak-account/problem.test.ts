@@ -13,7 +13,7 @@ describe("Account REST safe problems", () => {
       ipAddress: "203.0.113.42",
     };
     const problem = toAccountProblem(error);
-    expect(problem).toMatchObject({ status: 502, title: "Kimlik bilgileri güvenle durduruldu" });
+    expect(problem).toMatchObject({ status: 502, title: "Kimlik bilgileri: beklenmeyen yanıt" });
     const serialized = JSON.stringify(problem);
     expect(serialized).not.toContain("private@example.invalid");
     expect(serialized).not.toContain("server-token");

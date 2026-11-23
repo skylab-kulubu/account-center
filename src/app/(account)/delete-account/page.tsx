@@ -16,7 +16,7 @@ export const metadata = { title: route.documentTitle };
 const consequences = [
   "SKY LAB uygulamalarına erişimin hemen kapatılır.",
   "Açık oturumların ve giriş yöntemlerin geçersiz kılınır.",
-  "Kişisel bilgilerin güvenli ve takip edilebilir bir işlemle silinir veya anonimleştirilir.",
+  "Kişisel bilgilerin silinir ya da anonimleştirilir.",
   "Bilet, katılım ve verilmiş sertifika gibi zorunlu operasyon kayıtları kimliğinden ayrılarak korunabilir.",
 ];
 

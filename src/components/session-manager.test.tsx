@@ -139,7 +139,7 @@ describe("SessionManager", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sessionsResponse(sessions));
     render(<SessionManager />);
 
-    expect(await screen.findByText("Oturumlar güvenle durduruldu")).toBeInTheDocument();
+    expect(await screen.findByText("Oturumlar: beklenmeyen yanıt")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Oturumu kapat" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Diğer tüm oturumları kapat" })).not.toBeInTheDocument();
   });

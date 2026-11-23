@@ -57,8 +57,8 @@ export const identityCopy = {
     detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden deneyebilirsin.",
   },
   contract: {
-    title: "Kimlik bilgileri güvenle durduruldu",
-    detail: "Kimlik hizmetinin yanıtı desteklenen biçimle eşleşmedi. Hiçbir ham veri gösterilmedi.",
+    title: "Kimlik bilgileri: beklenmeyen yanıt",
+    detail: "Sayfayı yenileyip tekrar dene.",
   },
   name: {
     title: "Ad soyad",

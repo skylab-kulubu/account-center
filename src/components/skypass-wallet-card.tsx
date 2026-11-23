@@ -49,8 +49,8 @@ const revokeFallback: SafeProblem = {
 };
 
 const contractProblem: SafeProblem = {
-  title: "Google Cüzdan işlemi güvenle durduruldu",
-  detail: "Sunucu yanıtı beklenen biçimde değildi; hiçbir bağlantı açılmadı. Sayfayı yenileyip yeniden dene.",
+  title: "Google Cüzdan: beklenmeyen yanıt",
+  detail: "Sayfayı yenileyip tekrar dene.",
   status: 502,
 };
 

@@ -113,7 +113,7 @@ describe("SecurityManager", () => {
     render(<SecurityManager />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Güvenlik ayarları yüklenemedi");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Güvenlik ayarları güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Güvenlik ayarları: beklenmeyen yanıt");
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login?returnTo=%2Fsecurity"));
     expect(request).toHaveBeenCalledTimes(3);

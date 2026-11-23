@@ -20,6 +20,15 @@ const routes = [
   { href: "/delete-account", heading: "Hesabı sil" },
 ] as const;
 
+/** Pages that read core or SkyMail: the session carries the contract-shaped token (mock core, `scripts/e2e-mock-core.mjs`). */
+const contractRoutes = [
+  { href: "/communication-preferences", heading: "İletişim tercihleri" },
+  { href: "/notifications", heading: "Bildirimler" },
+  { href: "/app-preferences", heading: "Uygulama ayarları" },
+] as const;
+
+type MatrixRoute = Readonly<{ href: string; heading: string | null }>;
+
 const { defaultBrowserType: _desktopBrowser, ...desktop } = devices["Desktop Chrome"];
 const { defaultBrowserType: _pixelBrowser, ...pixel } = devices["Pixel 7"];
 void _desktopBrowser;
@@ -41,8 +50,8 @@ const profiles: ReadonlyArray<{
   },
 ];
 
-async function installSession(context: BrowserContext, label: string) {
-  const fixture = await seedAuthenticatedSession(label);
+async function installSession(context: BrowserContext, label: string, contract = false) {
+  const fixture = await seedAuthenticatedSession(label, contract ? { contractToken: true, skymailAudience: true } : {});
   await context.addCookies([{
     name: "__Host-sky-account",
     value: fixture.handle,
@@ -61,6 +70,33 @@ function collectPageErrors(page: Page) {
     if (message.type() === "error") errors.push(message.text());
   });
   return errors;
+}
+
+async function checkRoute(page: Page, route: MatrixRoute) {
+  const refreshResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/auth/session/refresh"),
+  );
+  await page.goto(route.href);
+  expect((await refreshResponse).status()).toBe(204);
+  await expect(page).toHaveURL(new RegExp(`${route.href === "/" ? "/$" : `${route.href}$`}`));
+  await expect(route.heading === null
+    ? page.getByRole("heading", { level: 1 })
+    : page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+  await expect(page.locator("main#main-content")).toBeVisible();
+
+  const overflow = await page.evaluate(() => ({
+    body: document.body.scrollWidth - document.body.clientWidth,
+    document: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  }));
+  expect(overflow.body, "body must not overflow horizontally").toBeLessThanOrEqual(1);
+  expect(overflow.document, "document must not overflow horizontally").toBeLessThanOrEqual(1);
+
+  // Colours are judged once skylcn's entrance animations (a card fading in) have settled
+  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
+  const accessibility = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([]);
 }
 
 test("every account section and page remains accessible and responsive in the browser matrix", async ({
@@ -160,32 +196,7 @@ test("every account section and page remains accessible and responsive in the br
         });
 
         for (const route of routes) {
-          await test.step(`${profile.name} ${route.href}`, async () => {
-            const refreshResponse = page.waitForResponse((response) =>
-              response.url().endsWith("/api/auth/session/refresh"),
-            );
-            await page.goto(route.href);
-            expect((await refreshResponse).status()).toBe(204);
-            await expect(page).toHaveURL(new RegExp(`${route.href === "/" ? "/$" : `${route.href}$`}`));
-            await expect(route.heading === null
-              ? page.getByRole("heading", { level: 1 })
-              : page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
-            await expect(page.locator("main#main-content")).toBeVisible();
-
-            const overflow = await page.evaluate(() => ({
-              body: document.body.scrollWidth - document.body.clientWidth,
-              document: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-            }));
-            expect(overflow.body, "body must not overflow horizontally").toBeLessThanOrEqual(1);
-            expect(overflow.document, "document must not overflow horizontally").toBeLessThanOrEqual(1);
-
-            // Colours are judged once skylcn's entrance animations (a card fading in) have settled
-            await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
-            const accessibility = await new AxeBuilder({ page })
-              .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-              .analyze();
-            expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([]);
-          });
+          await test.step(`${profile.name} ${route.href}`, () => checkRoute(page, route));
         }
 
         if (profile.name === "320px-webview") {
@@ -196,6 +207,33 @@ test("every account section and page remains accessible and responsive in the br
             Number.parseFloat(getComputedStyle(element).transitionDuration),
           );
           expect(duration).toBeLessThanOrEqual(0.001);
+        }
+        expect(errors).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    });
+  }
+});
+
+test("the core- and SkyMail-backed pages remain accessible and responsive in the browser matrix", async ({
+  browser,
+}, testInfo) => {
+  test.setTimeout(240_000);
+
+  for (const profile of profiles) {
+    await test.step(profile.name, async () => {
+      const context = await browser.newContext({
+        ...profile.options,
+        baseURL: baseUrl,
+        ignoreHTTPSErrors: true,
+      });
+      try {
+        await installSession(context, `ui-matrix-contract-${profile.name}-${testInfo.retry}`, true);
+        const page = await context.newPage();
+        const errors = collectPageErrors(page);
+        for (const route of contractRoutes) {
+          await test.step(`${profile.name} ${route.href}`, () => checkRoute(page, route));
         }
         expect(errors).toEqual([]);
       } finally {

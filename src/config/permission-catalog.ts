@@ -31,12 +31,12 @@ export type ApplicationDefinition = Readonly<{
 export const applicationCatalog: readonly ApplicationDefinition[] = [
   {
     clientIds: ["core"],
-    name: "SKY LAB Core",
-    description: "Superadmin ve SkyApp’in arkasındaki kulüp platformu.",
+    name: "SKY LAB hesabı",
+    description: "Panelde ve SkyApp’te geçerli kulüp yetkilerin.",
     roles: {
       "users:read": {
         label: "Üye dizinini görme",
-        description: "Superadmin’de üye listesini ve kişi kartlarını görebilirsin.",
+        description: "Panelde üye listesini ve kişi kartlarını görebilirsin.",
       },
       "url:access": {
         label: "Kısa bağlantı aracı",
@@ -144,8 +144,8 @@ export const applicationCatalog: readonly ApplicationDefinition[] = [
   },
   {
     clientIds: ["superadmin"],
-    name: "Superadmin",
-    description: "Kulübün yönetim paneli; yetkileri Core rollerinden ve takım üyeliğinden gelir.",
+    name: "Panel",
+    description: "Kulübün yönetim paneli; yetkileri SKY LAB hesabı rollerinden ve ekip üyeliğinden gelir.",
     roles: {},
   },
 ];

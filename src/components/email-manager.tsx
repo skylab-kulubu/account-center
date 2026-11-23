@@ -60,8 +60,8 @@ export const emailCopy = {
     detail: "Kimlik hizmetine şu anda ulaşılamıyor. Kısa bir süre sonra yeniden deneyebilirsin.",
   },
   contract: {
-    title: "E-posta adreslerin güvenle durduruldu",
-    detail: "Kimlik hizmetinin yanıtı desteklenen biçimle eşleşmedi. Hiçbir ham veri gösterilmedi.",
+    title: "E-posta adresleri: beklenmeyen yanıt",
+    detail: "Sayfayı yenileyip tekrar dene.",
   },
   verified: "Doğrulandı",
   unverified: "Doğrulanmadı",

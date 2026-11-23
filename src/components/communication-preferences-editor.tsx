@@ -52,7 +52,7 @@ const fallbackProblem: SafeProblem = {
 };
 
 const contractProblem: SafeProblem = {
-  title: "İletişim tercihleri güvenle durduruldu",
+  title: "İletişim tercihleri: beklenmeyen yanıt",
   detail: "Sunucu yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
   status: 502,
 };
@@ -547,7 +547,7 @@ export function CommunicationPreferencesEditor({
       <section className="settings-section" aria-labelledby={followHeadingId}>
         <div className="settings-section__heading">
           <h2 id={followHeadingId}>Ekip takip et</h2>
-          <p>Yalnız herkese açık duyurular gelir.</p>
+          <p>Takip ettiğin ekiplerin yalnız herkese ve tüm üyelere açık duyuruları gelir.</p>
         </div>
         {view.followable.length ? (
           <div className="preferences-follow">

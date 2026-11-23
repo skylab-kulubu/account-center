@@ -218,7 +218,7 @@ describe("ClubProfileEditor form", () => {
     fireEvent.change(screen.getByLabelText("Bölüm"), { target: { value: "Matematik" } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profili güvenle durduruldu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profili: beklenmeyen yanıt");
     expect(screen.getByLabelText("Bölüm")).toHaveValue("Matematik");
   });
 });
