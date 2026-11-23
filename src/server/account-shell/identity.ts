@@ -47,3 +47,20 @@ export async function loadShellIdentity(): Promise<ShellIdentity | null> {
     return null;
   }
 }
+
+/**
+ * The profile photo alone, for pages that show the person next to Keycloak's
+ * data (the home page): core's `profilePictureUrl` from the read the account
+ * menu already makes, so it adds no call. Null without core, without a photo,
+ * or when core fails; the avatar then shows the initials.
+ */
+export async function loadProfilePictureUrl(): Promise<string | null> {
+  const authorization = await currentAccountSession();
+  if (authorization.status !== "active") return null;
+  try {
+    const core = await readCurrentCoreProfile(getAuthServices(), authorization.value.session);
+    return core?.profilePictureUrl ?? null;
+  } catch {
+    return null;
+  }
+}

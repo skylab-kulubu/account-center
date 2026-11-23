@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import meFixture from "../../../tests/fixtures/core-users-me.json";
-import { loadShellIdentity } from "@/server/account-shell/identity";
+import { loadProfilePictureUrl, loadShellIdentity } from "@/server/account-shell/identity";
 import { CoreProfileUnavailableError } from "@/server/core/profile-client";
 import type { CoreProfile } from "@/server/core/profile-client";
 import { KeycloakAccountUnavailableError } from "@/server/keycloak-account/adapter";
@@ -85,5 +85,35 @@ describe("loadShellIdentity", () => {
   it("uses the username when the profile has no name", async () => {
     mocks.getMe.mockResolvedValue({ ...core, firstName: null, lastName: null, username: "ada" });
     await expect(loadShellIdentity()).resolves.toMatchObject({ name: "ada" });
+  });
+});
+
+describe("loadProfilePictureUrl", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.services = buildServices();
+    mocks.authenticate.mockResolvedValue({ status: "active", value: { session, rotated: false } });
+    mocks.accessToken.mockResolvedValue("server-held-user-token");
+    mocks.getMe.mockResolvedValue(core);
+  });
+
+  it("answers core's photo, the one the account menu shows, without asking Keycloak", async () => {
+    await expect(loadProfilePictureUrl()).resolves.toBe("https://cdn.yildizskylab.com/p/ada.webp");
+    expect(mocks.profile).not.toHaveBeenCalled();
+  });
+
+  it("answers null without core, without a photo, when core fails, or for a session that is not active", async () => {
+    mocks.getMe.mockResolvedValue({ ...core, profilePictureUrl: null });
+    await expect(loadProfilePictureUrl()).resolves.toBeNull();
+
+    mocks.getMe.mockRejectedValue(new CoreProfileUnavailableError());
+    await expect(loadProfilePictureUrl()).resolves.toBeNull();
+
+    mocks.services = buildServices(false);
+    await expect(loadProfilePictureUrl()).resolves.toBeNull();
+
+    mocks.authenticate.mockResolvedValue({ status: "missing" });
+    await expect(loadProfilePictureUrl()).resolves.toBeNull();
+    expect(mocks.profile).not.toHaveBeenCalled();
   });
 });

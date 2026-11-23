@@ -27,6 +27,26 @@ vi.mock("@/server/keycloak-account/page-data", () => ({
   loadOverview: vi.fn(async () => pageData.overview),
 }));
 
+const picture = vi.hoisted(() => ({ url: null as string | null }));
+
+vi.mock("@/server/account-shell/identity", () => ({
+  loadProfilePictureUrl: vi.fn(async () => picture.url),
+}));
+
+/** The browser's image loader as Base UI's Avatar probes it: `outcome` decides load or error. */
+function stubImageLoader(outcome: "load" | "error") {
+  vi.stubGlobal("Image", class {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    complete = false;
+    naturalWidth = 0;
+    crossOrigin: string | null = null;
+    set src(_value: string) {
+      queueMicrotask(() => (outcome === "load" ? this.onload?.() : this.onerror?.()));
+    }
+  });
+}
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn() }),
   usePathname: () => "/",
@@ -88,6 +108,35 @@ describe("Account REST-backed pages", () => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    picture.url = null;
+  });
+
+  it("shows the person's profile photo, the one the account menu shows", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
+    stubImageLoader("load");
+    picture.url = "https://cdn.yildizskylab.com/images/ada";
+    render(await OverviewPage());
+    const person = screen.getByRole("region", { name: "Ada Lovelace" });
+    expect(await within(person).findByRole("img", { name: "Ada Lovelace" })).toHaveAttribute("src", "https://cdn.yildizskylab.com/images/ada");
+    expect(within(person).queryByText("AL")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the initials when the photo does not load", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
+    stubImageLoader("error");
+    picture.url = "https://cdn.yildizskylab.com/images/gone";
+    render(await OverviewPage());
+    const person = screen.getByRole("region", { name: "Ada Lovelace" });
+    await waitFor(() => expect(within(person).getByText("AL")).toBeInTheDocument());
+    expect(within(person).queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("shows the initials when the person has no photo", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
+    render(await OverviewPage());
+    const person = screen.getByRole("region", { name: "Ada Lovelace" });
+    expect(within(person).getByText("AL")).toBeInTheDocument();
+    expect(within(person).queryByRole("img")).not.toBeInTheDocument();
   });
 
   it("renders the person and the security status, with the next step for anything missing", async () => {

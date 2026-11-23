@@ -37,12 +37,13 @@ function displayName(overview: AccountOverview) {
   return [firstName, lastName].filter(Boolean).join(" ") || username || "SKY LAB hesabı";
 }
 
-function Person({ overview }: { overview: AccountOverview }) {
+/** `pictureUrl`: core's profile photo, the one the account menu shows; the initials while it loads or when it fails. */
+function Person({ overview, pictureUrl }: { overview: AccountOverview; pictureUrl: string | null }) {
   const name = displayName(overview);
   const { email, username, emailVerified } = overview.profile;
   return (
     <section className="home-person" aria-labelledby="home-person-name">
-      <Avatar className="home-person__avatar" name={name} email={email} size="lg" />
+      <Avatar className="home-person__avatar" name={name} email={email} src={pictureUrl} size="lg" />
       <div className="home-person__text">
         <h1 id="home-person-name">{name}</h1>
         <p>
@@ -87,11 +88,11 @@ function SecurityStatusCard({ overview, wide = false, children }: { overview: Ac
   );
 }
 
-export function Overview({ overview }: { overview: AccountOverview }) {
+export function Overview({ overview, pictureUrl = null }: { overview: AccountOverview; pictureUrl?: string | null }) {
   const { profile } = overview;
   return (
     <div className="home">
-      <Person overview={overview} />
+      <Person overview={overview} pictureUrl={pictureUrl} />
       <HomeEmailDeliveryWarning />
       <HomePrimaryEmailNudge />
 
