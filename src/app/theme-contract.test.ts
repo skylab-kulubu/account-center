@@ -104,7 +104,7 @@ describe("skylcn-ui theme contract", () => {
   });
 
   it("points its own colour tokens at skylcn-ui tokens", () => {
-    expect(declaration(accountTokens, "surface-page")).toBe("var(--sidebar)");
+    expect(declaration(accountTokens, "surface-page")).toBe("var(--background)");
     expect(declaration(accountTokens, "ink")).toBe("var(--foreground)");
     expect(declaration(accountTokens, "ink-muted")).toBe("var(--muted-foreground)");
     expect(declaration(accountTokens, "ink-faint")).toBe("var(--subtle-foreground)");

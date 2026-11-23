@@ -77,7 +77,7 @@ function monitorTokenCanaries(page: Page, canaries: string[]) {
         heading: document.querySelector("h1")?.textContent?.trim() ?? null,
       }));
       expect(candidate.pathname).toBe("/security");
-      expect(candidate.heading).toBe("Giriş ve güvenlik");
+      expect(candidate.heading).toBe("Güvenlik");
       browserSnapshot = candidate;
     }).toPass({ timeout: 10_000 });
     expect(browserSnapshot).toBeDefined();
@@ -501,8 +501,10 @@ test("desktop account shell keeps navigation, skip link, and rotates its secure 
   await page.clock.install();
   await gotoAuthenticatedPage(page, "/");
 
-  await expect(page.getByRole("heading", { name: "Hesabın, tek ve güvenli bir merkezde." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Hesap ayarları" })).toBeVisible();
+  // The account button at the top right, as in every SKY LAB product (Entra order: name, chevron, avatar)
+  await expect(page.getByRole("banner").getByRole("button", { name: /^Hesap/ })).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "İçeriğe geç" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -534,21 +536,30 @@ test("desktop account shell keeps navigation, skip link, and rotates its secure 
   await expect.poll(() => refreshResponses).toBeGreaterThan(responsesBeforeInterval);
 
   await page.getByRole("navigation", { name: "Hesap ayarları" })
-    .getByRole("link", { name: "Giriş ve güvenlik" })
+    .getByRole("link", { name: "Güvenlik" })
     .click();
   await expect(page).toHaveURL(/\/security$/);
-  await expect(page.getByRole("heading", { name: "Giriş ve güvenlik" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Güvenlik" })).toBeVisible();
   await assertTokensStayedServerSide();
   expect(errors).toEqual([]);
 });
 
-test("mobile authenticated detail pages keep the direct back affordance", async ({ context, page }, testInfo) => {
+test("mobile pages keep the section tabs, the account at the top right and a way back to the section", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "mobile-only assertion");
   await installAuthenticatedSession(context, `${testInfo.project.name}-${testInfo.retry}`);
   await page.goto("/sessions");
 
-  await expect(page.getByRole("link", { name: "Hesap Merkezi özetine dön" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Oturumlar ve cihazlar" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Cihazlar" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("link", { name: "Güvenlik" })).toHaveAttribute("href", "/security");
+  const tabs = page.getByRole("navigation", { name: "Hesap bölümleri" });
+  await expect(tabs).toBeVisible();
+  await expect(tabs.locator('[aria-current="page"]')).toHaveText("Güvenlik");
+  await expect(page.getByRole("navigation", { name: "Hesap ayarları" })).toBeHidden();
+  const account = page.getByRole("banner").getByRole("button", { name: /^Hesap/ });
+  await expect(account).toBeVisible();
+  const box = (await account.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(36);
+  expect(box.x + box.width).toBeGreaterThan(page.viewportSize()!.width - 60);
 });
 
 test("session management confirms a revoke and keeps the current browser signed in", async ({ context, page }, testInfo) => {
@@ -680,8 +691,8 @@ test("reduced motion removes ambient animation in the authenticated shell", asyn
   const errors = failOnPageErrors(page);
   await page.goto("/");
 
-  const duration = await page.locator(".background__bloom").evaluate((element) =>
-    Number.parseFloat(getComputedStyle(element).animationDuration),
+  const duration = await page.locator(".skip-link").evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).transitionDuration),
   );
   expect(duration).toBeLessThanOrEqual(0.001);
 
@@ -715,7 +726,7 @@ test("browser logout validates the form proof, clears the cookie, and hard-delet
     `logout-${testInfo.retry}`,
   );
   await gotoAuthenticatedPage(page, "/");
-  await expect(page.getByRole("heading", { name: "Hesabın, tek ve güvenli bir merkezde." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
   const logoutRequestPromise = page.waitForRequest((request) =>
     request.url().endsWith("/api/auth/logout"),
@@ -723,7 +734,9 @@ test("browser logout validates the form proof, clears the cookie, and hard-delet
   const logoutResponsePromise = page.waitForResponse((response) =>
     response.url().endsWith("/api/auth/logout"),
   );
-  await page.getByRole("button", { name: "Çıkış yap" }).first().click();
+  // The account menu at the top right, as in every SKY LAB product
+  await page.getByRole("banner").getByRole("button", { name: /^Hesap/ }).click();
+  await page.getByRole("menuitem", { name: "Çıkış yap" }).click();
   const logoutRequest = await logoutRequestPromise;
   const logoutResponse = await logoutResponsePromise;
   const logoutHeaders = await logoutRequest.allHeaders();

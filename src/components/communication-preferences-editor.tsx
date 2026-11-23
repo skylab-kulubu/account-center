@@ -451,7 +451,6 @@ export function CommunicationPreferencesEditor({
       <section className="settings-section" aria-labelledby={masterHeadingId}>
         <div className="settings-section__heading">
           <h2 id={masterHeadingId}>Ana anahtar</h2>
-          <p>Kapatırsan aşağıdaki seçimlerin korunur; yeniden açınca hepsi geri gelir.</p>
         </div>
         <div className="preferences-master" data-focused={key === "master" || undefined} ref={focusedMaster}>
           <ToggleRow
@@ -475,10 +474,6 @@ export function CommunicationPreferencesEditor({
       <section className="settings-section" aria-labelledby={tableHeadingId}>
         <div className="settings-section__heading">
           <h2 id={tableHeadingId}>Kaynaklar</h2>
-          <p>
-            Bir ekibe abonelik alt ekiplerini de kapsar; bir alt ekibi ayrıca kapatabilirsin. Değer üst ekipten geliyorsa
-            “üst ekipten” yazar.
-          </p>
         </div>
         {!masterOn ? (
           <Notice className="preferences-master-off" icon={BellOff} tone="warning">
@@ -552,7 +547,7 @@ export function CommunicationPreferencesEditor({
       <section className="settings-section" aria-labelledby={followHeadingId}>
         <div className="settings-section__heading">
           <h2 id={followHeadingId}>Ekip takip et</h2>
-          <p>Takip ettiğin ekiplerin yalnız herkese ve tüm üyelere açık duyuruları gelir.</p>
+          <p>Yalnız herkese açık duyurular gelir.</p>
         </div>
         {view.followable.length ? (
           <div className="preferences-follow">

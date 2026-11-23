@@ -2,32 +2,17 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Badge } from "@skylab-kulubu/skylcn-ui";
-import {
-  ChevronLeft,
-  LogOut,
-} from "lucide-react";
-import { Background } from "@/components/background";
+import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { EnvironmentBadge, EnvironmentStrip } from "@/components/environment-strip";
+import { SIGN_OUT_FORM_ID } from "@/components/account-menu";
 import { SkyLabMark } from "@/components/skylab-mark";
-import { accountRoutes, matchAccountRoute } from "@/config/account-routes";
-import type { AccountRoute } from "@/config/account-routes";
+import { accountSections, matchAccountRoute } from "@/config/account-routes";
+import type { AccountSectionPath } from "@/config/account-routes";
 import { INBOX_SEEN_EVENT } from "@/lib/inbox";
 import { refreshBrowserSession } from "@/lib/session-refresh";
 
 export const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;
-
-function LogoutForm({ csrfToken, compact = false }: { csrfToken: string; compact?: boolean }) {
-  return (
-    <form className={compact ? "mobile-header__sign-out" : "account-sidebar__sign-out-form"} action="/api/auth/logout" method="post">
-      <input type="hidden" name="csrfToken" value={csrfToken} />
-      <button className={compact ? "mobile-header__sign-out-button" : "account-sidebar__sign-out"} type="submit">
-        <LogOut aria-hidden="true" size={compact ? 19 : 17} />
-        {compact ? <span className="sr-only">Çıkış yap</span> : <span>Çıkış yap</span>}
-      </button>
-    </form>
-  );
-}
 
 /**
  * The inbox's unseen count for the navigation badge (`GET /api/account/inbox/counts`), read when
@@ -65,91 +50,74 @@ export function useInboxUnseen(enabled: boolean, csrfToken: string) {
   return unseen;
 }
 
-function DesktopNavigation({
-  currentRoute,
-  csrfToken,
-  inboxEnabled,
-  inboxUnseen,
+/** The sign-out the account menu submits (`SIGN_OUT_FORM_ID`): a same-origin POST with the session's CSRF token. */
+function SignOutForm({ csrfToken }: { csrfToken: string }) {
+  return (
+    <form id={SIGN_OUT_FORM_ID} action="/api/auth/logout" method="post" hidden>
+      <input type="hidden" name="csrfToken" value={csrfToken} />
+    </form>
+  );
+}
+
+function SectionLink({
+  href,
+  active,
+  badge,
+  withIcon,
 }: {
-  currentRoute: AccountRoute | null;
-  csrfToken: string;
-  /** Without SkyMail (`SKYMAIL_API_URL` unset) the page would only say it is off: it is left out of the menu. */
-  inboxEnabled: boolean;
-  inboxUnseen: number | null;
+  href: AccountSectionPath;
+  active: boolean;
+  badge: number | null;
+  withIcon: boolean;
 }) {
+  const section = accountSections.find((candidate) => candidate.href === href)!;
+  const Icon = section.icon;
   return (
-    <aside className="account-sidebar">
-      <Link className="brand" href="/" aria-label="SKY LAB Hesap Merkezi ana sayfa">
-        <SkyLabMark className="brand__mark" size={34} />
-        <span>
-          <strong>SKY LAB</strong>
-          <small>Hesap Merkezi</small>
+    <Link className="shell-nav__link" data-active={active || undefined} href={href} aria-current={active ? "page" : undefined}>
+      {withIcon ? <Icon aria-hidden="true" size={18} strokeWidth={1.8} /> : null}
+      <span className="shell-nav__label">{section.label}</span>
+      {badge ? (
+        <span className="shell-nav__badge">
+          {badge > 99 ? "99+" : badge}
+          <span className="sr-only"> yeni bildirim</span>
         </span>
-      </Link>
-
-      <nav className="account-nav" aria-label="Hesap ayarları">
-        {accountRoutes.filter(({ href }) => inboxEnabled || href !== "/notifications").map(({ href, navigationLabel, icon: Icon, tone }) => {
-          const active = currentRoute?.href === href;
-          return (
-            <Link
-              key={href}
-              className="account-nav__item"
-              data-active={active || undefined}
-              data-tone={tone}
-              href={href}
-              aria-current={active ? "page" : undefined}
-            >
-              <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
-              <span>{navigationLabel}</span>
-              {href === "/notifications" && inboxUnseen ? (
-                <Badge className="account-nav__badge" tone="brand">
-                  {inboxUnseen > 99 ? "99+" : inboxUnseen}
-                  <span className="sr-only"> yeni bildirim</span>
-                </Badge>
-              ) : null}
-            </Link>
-          );
-        })}
-      </nav>
-
-      <LogoutForm csrfToken={csrfToken} />
-    </aside>
+      ) : null}
+    </Link>
   );
 }
 
-function MobileHeader({ currentRoute, csrfToken }: { currentRoute: AccountRoute | null; csrfToken: string }) {
-  return (
-    <header className="mobile-header">
-      {currentRoute?.href === "/" ? (
-        <SkyLabMark className="mobile-header__mark" size={30} />
-      ) : (
-        <Link className="mobile-header__back" href="/" aria-label="Hesap Merkezi özetine dön">
-          <ChevronLeft aria-hidden="true" size={22} />
-        </Link>
-      )}
-      <span>{currentRoute?.navigationLabel ?? "Hesap Merkezi"}</span>
-      <LogoutForm csrfToken={csrfToken} compact />
-    </header>
-  );
-}
-
+/**
+ * Account Center's frame, as in Google Account and Microsoft My Account. The top bar is the one
+ * every SKY LAB product draws: the mark and the product name at the top left, the sandbox badge
+ * and the account button at the top right. Below it the six sections: a menu at the left on wide
+ * screens, tabs under the top bar on phones (Google Account's mobile web). Inside SkyApp's
+ * WebView, whose own bar carries back, close and the account, the top bar is left out and the
+ * tabs stay.
+ */
 export function AccountShell({
   children,
   logoutCsrfToken,
+  account = null,
   embedded = false,
   inboxEnabled = false,
+  sandbox = false,
 }: Readonly<{
   children: React.ReactNode;
   logoutCsrfToken: string;
-  /** SkyMail is configured (`SKYMAIL_API_URL`): the inbox's badge is read. */
-  inboxEnabled?: boolean;
-  /** Opened inside SkyApp's WebView, whose own top bar handles back and close. */
+  /** The account button and menu at the top right (`ShellAccount`, streamed in by the layout). */
+  account?: ReactNode;
+  /** Opened inside SkyApp's WebView, whose own top bar handles back, close and the account. */
   embedded?: boolean;
+  /** SkyMail is configured (`SKYMAIL_API_URL`): Bildirimler is shown and its badge read. */
+  inboxEnabled?: boolean;
+  /** This Account Center serves the sandbox: a strip at the top and a badge beside the account. */
+  sandbox?: boolean;
 }>) {
   const pathname = usePathname();
   const router = useRouter();
-  const currentRoute = matchAccountRoute(pathname);
-  const inboxUnseen = useInboxUnseen(inboxEnabled, logoutCsrfToken);
+  const current = matchAccountRoute(pathname)?.section ?? null;
+  const unseen = useInboxUnseen(inboxEnabled, logoutCsrfToken);
+  const tabs = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -174,19 +142,49 @@ export function AccountShell({
     };
   }, [logoutCsrfToken, router]);
 
+  // Phones: keep the open section's tab in view
+  useEffect(() => {
+    tabs.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView?.({ block: "nearest", inline: "center" });
+  }, [pathname]);
+
+  const sections = accountSections
+    .map(({ href }) => href)
+    .filter((href) => inboxEnabled || href !== "/notifications");
+  const badgeFor = (href: AccountSectionPath) => (href === "/notifications" ? unseen : null);
+
   return (
-    <div className="account-root" data-embedded={embedded ? "skyapp" : undefined}>
+    <div className="shell" data-embedded={embedded ? "skyapp" : undefined}>
+      <EnvironmentStrip sandbox={sandbox} withLabel={embedded} />
       <a className="skip-link" href="#main-content">İçeriğe geç</a>
-      <Background />
-      <div className="account-frame">
-        <DesktopNavigation
-          currentRoute={currentRoute}
-          csrfToken={logoutCsrfToken}
-          inboxEnabled={inboxEnabled}
-          inboxUnseen={inboxUnseen}
-        />
-        {embedded ? null : <MobileHeader currentRoute={currentRoute} csrfToken={logoutCsrfToken} />}
-        <main className="account-content" id="main-content" tabIndex={-1}>
+      <SignOutForm csrfToken={logoutCsrfToken} />
+
+      {embedded ? null : (
+        <header className="shell-bar">
+          <Link className="shell-brand" href="/" aria-label="Hesap, ana sayfa">
+            <SkyLabMark className="shell-brand__mark" size={26} />
+            <span className="shell-brand__name">SKY LAB</span>
+            <span className="shell-brand__product">Hesap</span>
+          </Link>
+          <div className="shell-bar__end">
+            <EnvironmentBadge sandbox={sandbox} />
+            {account}
+          </div>
+        </header>
+      )}
+
+      <nav className="shell-tabs" aria-label="Hesap bölümleri" ref={tabs}>
+        {sections.map((href) => (
+          <SectionLink key={href} href={href} active={current === href} badge={badgeFor(href)} withIcon={false} />
+        ))}
+      </nav>
+
+      <div className="shell-body">
+        <nav className="shell-nav" aria-label="Hesap ayarları">
+          {sections.map((href) => (
+            <SectionLink key={href} href={href} active={current === href} badge={badgeFor(href)} withIcon />
+          ))}
+        </nav>
+        <main className="shell-content" id="main-content" tabIndex={-1}>
           {children}
         </main>
       </div>

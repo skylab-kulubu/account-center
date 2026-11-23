@@ -25,33 +25,35 @@ describe("AccountShell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("exposes the account navigation and marks the current page", () => {
+  it("shows the six sections, marks the current one and keeps the sign-out form", () => {
     render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
 
     const navigation = screen.getByRole("navigation", { name: "Hesap ayarları" });
-    expect(navigation).toBeInTheDocument();
     expect(Array.from(navigation.querySelectorAll("a"), (link) => link.textContent)).toEqual([
-      "Özet",
-      "Kimlik",
-      "E-posta ve giriş",
-      "Kulüp profili",
-      "İletişim tercihleri",
-      "Uygulama ayarları",
-      "Giriş ve güvenlik",
-      "Oturumlar ve cihazlar",
-      "Yetkilerim",
-      "Hesabı sil",
+      "Ana sayfa",
+      "Kişisel bilgiler",
+      "Güvenlik",
+      "Veri ve gizlilik",
+      "Uygulamalar",
     ]);
-    expect(screen.getByRole("link", { name: "Kimlik" })).toHaveAttribute("href", "/identity");
-    expect(screen.getByRole("link", { name: "E-posta ve giriş" })).toHaveAttribute("href", "/email");
-    expect(screen.getByRole("link", { name: "Yetkilerim" })).toHaveAttribute("href", "/permissions");
-    expect(screen.getByRole("link", { name: "Kulüp profili" })).toHaveAttribute("href", "/club-profile");
-    expect(screen.getByRole("link", { name: "İletişim tercihleri" })).toHaveAttribute("href", "/communication-preferences");
-    expect(screen.getByRole("link", { name: "Giriş ve güvenlik" })).toHaveAttribute("aria-current", "page");
+    const nav = within(navigation);
+    expect(nav.getByRole("link", { name: "Kişisel bilgiler" })).toHaveAttribute("href", "/personal-info");
+    expect(nav.getByRole("link", { name: "Veri ve gizlilik" })).toHaveAttribute("href", "/privacy");
+    expect(nav.getByRole("link", { name: "Uygulamalar" })).toHaveAttribute("href", "/apps");
+    // /security is the Güvenlik section's own page
+    expect(nav.getByRole("link", { name: "Güvenlik" })).toHaveAttribute("aria-current", "page");
+    // Phones get the same sections as tabs under the top bar
+    const tabs = screen.getByRole("navigation", { name: "Hesap bölümleri" });
+    expect(Array.from(tabs.querySelectorAll("a"), (link) => link.textContent)).toEqual(
+      Array.from(navigation.querySelectorAll("a"), (link) => link.textContent),
+    );
+    expect(screen.getByRole("banner")).toHaveTextContent("SKY LAB");
+    expect(screen.getByRole("banner")).toHaveTextContent("Hesap");
     expect(screen.getByRole("link", { name: "İçeriğe geç" })).toHaveAttribute("href", "#main-content");
     expect(screen.getByText("İçerik")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Çıkış yap" })).toHaveLength(2);
-    expect(document.querySelector('input[name="csrfToken"]')).toHaveValue("csrf-value");
+    const signOut = document.querySelector('form[action="/api/auth/logout"]');
+    expect(signOut).toHaveAttribute("method", "post");
+    expect(signOut?.querySelector('input[name="csrfToken"]')).toHaveValue("csrf-value");
     expect(fetch).toHaveBeenCalledWith(
       "/api/auth/session/refresh",
       expect.objectContaining({
@@ -62,17 +64,37 @@ describe("AccountShell", () => {
     );
   });
 
-  it("leaves the top bar to SkyApp when embedded in its WebView", () => {
+  it("puts the account at the top right, and marks a sub-page's section", () => {
+    render(
+      <AccountShell logoutCsrfToken="csrf-value" account={<button type="button">Hesap: Ada</button>}>
+        <p>İçerik</p>
+      </AccountShell>,
+    );
+    expect(within(screen.getByRole("banner")).getByRole("button", { name: "Hesap: Ada" })).toBeInTheDocument();
+  });
+
+  it("leaves the top bar to SkyApp when embedded in its WebView, and keeps the section tabs", () => {
     const { container } = render(
-      <AccountShell logoutCsrfToken="csrf-value" embedded><p>İçerik</p></AccountShell>,
+      <AccountShell logoutCsrfToken="csrf-value" embedded account={<button type="button">Hesap: Ada</button>}>
+        <p>İçerik</p>
+      </AccountShell>,
     );
 
-    expect(container.querySelector(".mobile-header")).toBeNull();
-    expect(container.querySelector(".account-root")).toHaveAttribute("data-embedded", "skyapp");
+    expect(screen.queryByRole("banner")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hesap: Ada" })).toBeNull();
+    expect(container.querySelector(".shell")).toHaveAttribute("data-embedded", "skyapp");
     const shell = within(container);
-    expect(shell.getByRole("navigation", { name: "Hesap ayarları" })).toBeInTheDocument();
-    expect(shell.getAllByRole("button", { name: "Çıkış yap" })).toHaveLength(1);
+    expect(shell.getByRole("navigation", { name: "Hesap bölümleri" })).toBeInTheDocument();
+    expect(container.querySelector('form[action="/api/auth/logout"]')).not.toBeNull();
     expect(shell.getByText("İçerik")).toBeInTheDocument();
+  });
+
+  it("marks the sandbox at the top and beside the account; production draws nothing", () => {
+    const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
+    expect(screen.queryByText("Sandbox")).toBeNull();
+    unmount();
+    render(<AccountShell logoutCsrfToken="csrf-value" sandbox><p>İçerik</p></AccountShell>);
+    expect(within(screen.getByRole("banner")).getByText("Sandbox")).toBeInTheDocument();
   });
 
   it("refreshes periodically and on focus/visibility, then cleans up", async () => {
@@ -129,20 +151,24 @@ describe("AccountShell inbox badge", () => {
     return fetch;
   }
 
-  it("lists Bildirimlerim only when SkyMail is configured", () => {
+  function sideNav() {
+    return within(screen.getByRole("navigation", { name: "Hesap ayarları" }));
+  }
+
+  it("lists Bildirimler only when SkyMail is configured", () => {
     stub(0);
     const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
-    expect(screen.queryByRole("link", { name: /Bildirimlerim/ })).toBeNull();
+    expect(sideNav().queryByRole("link", { name: /Bildirimler/ })).toBeNull();
     unmount();
     render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
     const names = Array.from(screen.getByRole("navigation", { name: "Hesap ayarları" }).querySelectorAll("a"), (link) => link.textContent);
-    expect(names.indexOf("Bildirimlerim")).toBe(names.indexOf("İletişim tercihleri") + 1);
+    expect(names.indexOf("Bildirimler")).toBe(names.indexOf("Veri ve gizlilik") + 1);
   });
 
-  it("shows the unseen count beside Bildirimlerim and clears it when the inbox is seen", async () => {
+  it("shows the unseen count beside Bildirimler and clears it when the inbox is seen", async () => {
     const fetch = stub(4);
     render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
-    const link = screen.getByRole("link", { name: /Bildirimlerim/ });
+    const link = sideNav().getByRole("link", { name: /Bildirimler/ });
     expect(link).toHaveAttribute("href", "/notifications");
     expect(await within(link).findByText("4")).toBeInTheDocument();
     // The refresh first, the counts after it: never both at once. (A later refresh in this test comes from
@@ -162,12 +188,12 @@ describe("AccountShell inbox badge", () => {
     const fetch = stub(0);
     const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
     expect(fetch.mock.calls.some(([url]) => url === "/api/account/inbox/counts")).toBe(false);
-    expect(screen.queryByRole("link", { name: /Bildirimlerim/ })).toBeNull();
+    expect(sideNav().queryByRole("link", { name: /Bildirimler/ })).toBeNull();
     unmount();
 
     stub("many");
     render(<AccountShell inboxEnabled logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
     await act(async () => {});
-    expect(screen.getByRole("link", { name: "Bildirimlerim" }).querySelector(".account-nav__badge")).toBeNull();
+    expect(sideNav().getByRole("link", { name: "Bildirimler" }).querySelector(".shell-nav__badge")).toBeNull();
   });
 });

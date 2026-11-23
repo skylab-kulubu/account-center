@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { AtSign, Info } from "lucide-react";
+import { AtSign } from "lucide-react";
 import { CommunicationPreferencesEditor } from "@/components/communication-preferences-editor";
 import { CommunicationPreferencesNotice } from "@/components/communication-preferences-notice";
 import { PromotionalConsentSection } from "@/components/promotional-consent";
-import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 import { preferenceFocus } from "@/lib/communication-preferences";
 import { loadCommunicationPreferencesPage } from "@/server/communication-preferences/page-data";
+import { AccountPageHeader } from "@/components/settings";
 
 const route = accountRoute("/communication-preferences");
 
@@ -26,13 +26,6 @@ export default async function CommunicationPreferencesPage({
     <div className="page-stack">
       <AccountPageHeader route={route} />
 
-      <aside className="preferences-intro" aria-label="Bu postalar hakkında">
-        <Info aria-hidden="true" size={18} />
-        <span>
-          <strong>Bu postaları SKY LAB üyesi olduğun ya da takip ettiğin için alıyorsun.</strong>
-          <small>Giriş kodu, bilet, sertifika gibi hesap postaların bu ayarlardan etkilenmez.</small>
-        </span>
-      </aside>
 
       {state.status === "ready" ? (
         <CommunicationPreferencesEditor csrfToken={data.csrfToken} focusCategory={focusCategory} initial={state.value} />

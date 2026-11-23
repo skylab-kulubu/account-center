@@ -1,7 +1,7 @@
 import { EmailManager } from "@/components/email-manager";
-import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 import { isPrimaryEmailNudge } from "@/lib/primary-email-nudge";
+import { AccountPageHeader } from "@/components/settings";
 
 const route = accountRoute("/email");
 

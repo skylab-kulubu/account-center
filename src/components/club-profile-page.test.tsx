@@ -87,7 +87,7 @@ describe("Kulüp profili page", () => {
     expect(screen.getByText("Okul e-postası")).toBeInTheDocument();
     expect(screen.getByText("YTÜ hesabından gelir")).toBeInTheDocument();
     expect(screen.getByText(/\+905551112233/)).toBeInTheDocument();
-    expect(screen.getByText(/Yönetim ekibi günceller; doğrulama geldiğinde buradan düzenleyebileceksin/)).toBeInTheDocument();
+    expect(screen.getByText("Yönetim ekibi günceller")).toBeInTheDocument();
     const editor = screen.getByTestId("club-profile-editor");
     expect(editor).toHaveAttribute("data-csrf", "session-bound-csrf");
     expect(editor).toHaveTextContent("Elektrik-Elektronik Fakültesi");

@@ -1,143 +1,82 @@
 import {
   Bell,
-  BellRing,
-  CircleUserRound,
+  House,
   IdCard,
-  KeyRound,
-  LayoutDashboard,
-  Mail,
-  MonitorSmartphone,
+  LayoutGrid,
   ShieldCheck,
   SlidersHorizontal,
-  Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+/**
+ * Account Center's pages. Six sections, as in Google Account (Ana sayfa, Kişisel bilgiler,
+ * Güvenlik, Veri ve gizlilik, Bildirimler, Uygulamalar); each section has its own page and may
+ * hold sub-pages. Sub-pages keep the addresses they always had (`/identity`, `/email`, …), so
+ * every existing link, mail and the YTÜ and Sudo mode returns land where they did; only the menu
+ * places them under their section.
+ */
 export type AccountRoutePath =
   | "/"
+  | "/personal-info"
   | "/identity"
   | "/email"
   | "/club-profile"
-  | "/communication-preferences"
-  | "/notifications"
-  | "/app-preferences"
   | "/security"
   | "/sessions"
+  | "/privacy"
+  | "/communication-preferences"
+  | "/delete-account"
+  | "/notifications"
+  | "/apps"
   | "/permissions"
-  | "/delete-account";
+  | "/app-preferences";
+
+export type AccountSectionPath = "/" | "/personal-info" | "/security" | "/privacy" | "/notifications" | "/apps";
 
 export type AccountRoute = Readonly<{
   href: AccountRoutePath;
-  navigationLabel: string;
+  /** The section the page belongs to; a section's own page names itself. */
+  section: AccountSectionPath;
   documentTitle: string;
-  eyebrow?: string;
   title: string;
-  description: string;
-  icon: LucideIcon;
   tone?: "default" | "danger";
 }>;
 
+export type AccountSection = Readonly<{
+  href: AccountSectionPath;
+  label: string;
+  icon: LucideIcon;
+}>;
+
+export const accountSections = [
+  { href: "/", label: "Ana sayfa", icon: House },
+  { href: "/personal-info", label: "Kişisel bilgiler", icon: IdCard },
+  { href: "/security", label: "Güvenlik", icon: ShieldCheck },
+  { href: "/privacy", label: "Veri ve gizlilik", icon: SlidersHorizontal },
+  { href: "/notifications", label: "Bildirimler", icon: Bell },
+  { href: "/apps", label: "Uygulamalar", icon: LayoutGrid },
+] as const satisfies readonly AccountSection[];
+
 export const accountRoutes = [
-  {
-    href: "/",
-    navigationLabel: "Özet",
-    documentTitle: "Hesap özeti",
-    eyebrow: "SKY LAB",
-    title: "Hesabın, tek ve güvenli bir merkezde.",
-    description: "Kimlik bilgilerini, giriş yöntemlerini ve açık oturumlarını buradan yönetebilirsin.",
-    icon: LayoutDashboard,
-    tone: "default",
-  },
-  {
-    href: "/identity",
-    navigationLabel: "Kimlik",
-    documentTitle: "Kimlik",
-    title: "Kimlik",
-    description: "Adın, kullanıcı adın ve YTÜ hesabının durumu. Doğrulanmış YTÜ hesabında ad YTÜ kaydından gelir; kullanıcı adını 14 günde bir değiştirebilirsin.",
-    icon: CircleUserRound,
-    tone: "default",
-  },
-  {
-    href: "/email",
-    navigationLabel: "E-posta ve giriş",
-    documentTitle: "E-posta ve giriş",
-    title: "E-posta ve giriş",
-    description: "Okul e-postan, kişisel e-postan ve kulüp postalarının gittiği birincil adres. Adres eklemek, kaldırmak ve birincil adresi değiştirmek yeniden doğrulama ister.",
-    icon: Mail,
-    tone: "default",
-  },
-  {
-    href: "/club-profile",
-    navigationLabel: "Kulüp profili",
-    documentTitle: "Kulüp profili",
-    title: "Kulüp profili",
-    description: "SKY numaran, öğrenci kartı durumun ve telefonun burada görünür; üniversite, fakülte, bölüm, LinkedIn bağlantını ve profil fotoğrafını buradan düzenleyebilirsin.",
-    icon: IdCard,
-    tone: "default",
-  },
+  { href: "/", section: "/", documentTitle: "Ana sayfa", title: "Ana sayfa" },
+  { href: "/personal-info", section: "/personal-info", documentTitle: "Kişisel bilgiler", title: "Kişisel bilgiler" },
+  { href: "/identity", section: "/personal-info", documentTitle: "Kimlik", title: "Kimlik" },
+  { href: "/email", section: "/personal-info", documentTitle: "E-posta", title: "E-posta" },
+  { href: "/club-profile", section: "/personal-info", documentTitle: "Kulüp profili", title: "Kulüp profili" },
+  { href: "/security", section: "/security", documentTitle: "Güvenlik", title: "Güvenlik" },
+  { href: "/sessions", section: "/security", documentTitle: "Cihazlar", title: "Cihazlar" },
+  { href: "/privacy", section: "/privacy", documentTitle: "Veri ve gizlilik", title: "Veri ve gizlilik" },
   {
     href: "/communication-preferences",
-    navigationLabel: "İletişim tercihleri",
+    section: "/privacy",
     documentTitle: "İletişim tercihleri",
     title: "İletişim tercihleri",
-    description: "Kulüpten ve ekiplerinden hangi duyuru ve haber postalarını alacağını seç. Hesap postaların bu ayarlardan etkilenmez.",
-    icon: BellRing,
-    tone: "default",
   },
-  {
-    href: "/notifications",
-    navigationLabel: "Bildirimlerim",
-    documentTitle: "Bildirimlerim",
-    title: "Bildirimlerim",
-    description: "Biletler, etkinlikler ve hesabınla ilgili bildirimlerin. Bildirimler 90 gün tutulur.",
-    icon: Bell,
-    tone: "default",
-  },
-  {
-    href: "/app-preferences",
-    navigationLabel: "Uygulama ayarları",
-    documentTitle: "Uygulama ayarları",
-    title: "Uygulama ayarları",
-    description: "SKY LAB uygulamalarının senin için sakladığı görünüm ayarları. Sıfırlanan uygulama varsayılan görünümüne döner.",
-    icon: SlidersHorizontal,
-    tone: "default",
-  },
-  {
-    href: "/security",
-    navigationLabel: "Giriş ve güvenlik",
-    documentTitle: "Giriş ve güvenlik",
-    title: "Giriş ve güvenlik",
-    description: "Şifreni, passkey’lerini ve iki adımlı doğrulamayı tek yerden yönet. Her değişiklik yeniden doğrulama ister.",
-    icon: KeyRound,
-    tone: "default",
-  },
-  {
-    href: "/sessions",
-    navigationLabel: "Oturumlar ve cihazlar",
-    documentTitle: "Oturumlar ve cihazlar",
-    title: "Oturumlar ve cihazlar",
-    description: "Hesabının açık olduğu cihazları gör ve tanımadığın oturumların erişimini kaldır.",
-    icon: MonitorSmartphone,
-    tone: "default",
-  },
-  {
-    href: "/permissions",
-    navigationLabel: "Yetkilerim",
-    documentTitle: "Yetkilerim",
-    title: "Yetkilerim",
-    description: "Takımlarını, yetki seviyeni ve SKY LAB uygulamalarında neler yapabildiğini burada görebilirsin. Bu görünüm salt okunurdur.",
-    icon: ShieldCheck,
-    tone: "default",
-  },
-  {
-    href: "/delete-account",
-    navigationLabel: "Hesabı sil",
-    documentTitle: "Hesabı sil",
-    title: "Hesabı sil",
-    description: "Bu işlem geri alınamaz. Devam etmeden önce hesabına ve kayıtlarına ne olacağını açıkça göreceksin.",
-    icon: Trash2,
-    tone: "danger",
-  },
+  { href: "/delete-account", section: "/privacy", documentTitle: "Hesabı sil", title: "Hesabı sil", tone: "danger" },
+  { href: "/notifications", section: "/notifications", documentTitle: "Bildirimler", title: "Bildirimler" },
+  { href: "/apps", section: "/apps", documentTitle: "Uygulamalar", title: "Uygulamalar" },
+  { href: "/permissions", section: "/apps", documentTitle: "Yetkiler", title: "Yetkiler" },
+  { href: "/app-preferences", section: "/apps", documentTitle: "Uygulama ayarları", title: "Uygulama ayarları" },
 ] as const satisfies readonly AccountRoute[];
 
 export function accountRoute(path: AccountRoutePath): AccountRoute {
@@ -148,35 +87,12 @@ export function accountRoute(path: AccountRoutePath): AccountRoute {
   return route;
 }
 
+export function accountSection(path: AccountSectionPath): AccountSection {
+  return accountSections.find(({ href }) => href === path)!;
+}
+
 export function matchAccountRoute(pathname: string): AccountRoute | null {
   return accountRoutes.find(({ href }) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`),
   ) ?? null;
 }
-
-/**
- * GEÇİCİ (tasarım yönleri A ve B): menünün gruplanmış sırası. Sayfalar ve adresler aynı;
- * yalnız sıra ve başlıklar değişir. Grup başlığı yalnız B'de görünür, A'da araya çizgi girer.
- */
-export const accountNavGroups: readonly { title: string | null; items: readonly AccountRoutePath[] }[] = [
-  { title: null, items: ["/"] },
-  { title: "Profil", items: ["/identity", "/club-profile"] },
-  { title: "Giriş ve güvenlik", items: ["/email", "/security", "/sessions"] },
-  { title: "Bildirim ve posta", items: ["/notifications", "/communication-preferences"] },
-  { title: "Hesap", items: ["/permissions", "/app-preferences", "/delete-account"] },
-];
-
-/** GEÇİCİ (A ve B): menüde ve sekmelerde kısa ad. */
-export const accountShortLabels: Readonly<Record<AccountRoutePath, string>> = {
-  "/": "Özet",
-  "/identity": "Kimlik",
-  "/club-profile": "Kulüp profili",
-  "/email": "E-posta",
-  "/security": "Parola ve passkey",
-  "/sessions": "Cihazlar",
-  "/notifications": "Bildirimler",
-  "/communication-preferences": "Posta tercihleri",
-  "/permissions": "Yetkiler",
-  "/app-preferences": "Uygulama ayarları",
-  "/delete-account": "Hesabı sil",
-};

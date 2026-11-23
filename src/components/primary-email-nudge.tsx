@@ -1,6 +1,5 @@
 "use client";
 
-import { useTasarim } from "@/components/tasarim-baglam";
 import { GraduationCap, Plus, Star } from "lucide-react";
 import { Button } from "@skylab-kulubu/skylcn-ui";
 import Link from "next/link";
@@ -20,28 +19,21 @@ import { isObject, responseJson, securityRequest } from "@/lib/security-client";
  * mode there exactly as before.
  */
 export const primaryEmailNudgeCopy = {
-  title: "Mezun olunca okul postan kapanabilir",
+  title: "Okul adresin kapanırsa hesabına ulaşamayabilirsin",
   makePersonalPrimary: {
-    detail: (address: string) =>
-      `Parolanı unutursan sıfırlama bağlantısı birincil adresine, yani okul e-postana gider. Doğruladığın kişisel adresini (${address}) birincil yaparsan okul postan kapandığında da hesabına ulaşabilirsin.`,
+    detail: (address: string) => `Parola sıfırlama birincil adresine gider. ${address} adresini birincil yap.`,
     action: "Kişisel adresi birincil yap",
   },
   addPersonal: {
-    detail: "Parolanı unutursan sıfırlama bağlantısı birincil adresine, yani okul e-postana gider. Kişisel bir adres ekleyip doğrularsan onu birincil yapabilir, okul postan kapandığında da hesabına ulaşabilirsin.",
+    detail: "Parola sıfırlama birincil adresine gider. Kişisel bir adres ekle.",
     action: "Kişisel adres ekle",
   },
   dismiss: "Bir daha gösterme",
   dismissing: "Kaydediliyor",
-  dismissed: "Bu öneriyi bir daha göstermeyeceğiz. Birincil adresini istediğin zaman E-posta ve giriş sayfasından değiştirebilirsin.",
+  dismissed: "Bu öneri bir daha gösterilmeyecek.",
   dismissFailed: "Öneri kapatılamadı. Biraz sonra yeniden dene.",
 } as const;
 
-/** GEÇİCİ (tasarım A ve B): aynı öneri, kısa. Parola sıfırlama birincil adrese gider; mezunun okul adresi kapanabilir. */
-const kisaNudgeCopy = {
-  title: "Okul adresin kapanırsa hesabına ulaşamayabilirsin",
-  makePersonalPrimary: (address: string) => `Parola sıfırlama birincil adresine gider. ${address} adresini birincil yap.`,
-  addPersonal: "Parola sıfırlama birincil adresine gider. Kişisel bir adres ekle.",
-} as const;
 
 /** The `primaryEmailNudge` member of `GET /api/account/email`; missing (an older BFF) or unknown (a newer one) is no nudge. */
 export function parsePrimaryEmailNudge(value: unknown): PrimaryEmailNudge | null {
@@ -71,7 +63,6 @@ export function PrimaryEmailNudgeCard({ nudge, personalEmail, csrfToken, onAct, 
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const kisa = useTasarim() !== "eski";
   const statusRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
@@ -115,8 +106,8 @@ export function PrimaryEmailNudgeCard({ nudge, personalEmail, csrfToken, onAct, 
 
   const copy = nudge === "make-personal-primary" ? primaryEmailNudgeCopy.makePersonalPrimary : primaryEmailNudgeCopy.addPersonal;
   const detail = nudge === "make-personal-primary"
-    ? (kisa ? kisaNudgeCopy.makePersonalPrimary(personalEmail ?? "") : primaryEmailNudgeCopy.makePersonalPrimary.detail(personalEmail ?? ""))
-    : (kisa ? kisaNudgeCopy.addPersonal : primaryEmailNudgeCopy.addPersonal.detail);
+    ? primaryEmailNudgeCopy.makePersonalPrimary.detail(personalEmail ?? "")
+    : primaryEmailNudgeCopy.addPersonal.detail;
   const icon = nudge === "make-personal-primary" ? <Star aria-hidden="true" size={16} /> : <Plus aria-hidden="true" size={16} />;
 
   return (
@@ -125,7 +116,7 @@ export function PrimaryEmailNudgeCard({ nudge, personalEmail, csrfToken, onAct, 
         <GraduationCap size={19} />
       </span>
       <div className="email-nudge__body">
-        <h2 id={titleId}>{kisa ? kisaNudgeCopy.title : primaryEmailNudgeCopy.title}</h2>
+        <h2 id={titleId}>{primaryEmailNudgeCopy.title}</h2>
         <p>{detail}</p>
         <FeedbackAlert feedback={failed ? { tone: "warning", detail: primaryEmailNudgeCopy.dismissFailed } : null} />
         <div className="email-nudge__actions">

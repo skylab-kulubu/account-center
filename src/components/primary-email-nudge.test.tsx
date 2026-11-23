@@ -57,9 +57,9 @@ describe("PrimaryEmailNudgeCard", () => {
       />,
     );
     const region = screen.getByRole("region", { name: primaryEmailNudgeCopy.title });
-    expect(within(region).getByRole("heading", { level: 2, name: "Mezun olunca okul postan kapanabilir" })).toBeInTheDocument();
+    expect(within(region).getByRole("heading", { level: 2, name: "Okul adresin kapanırsa hesabına ulaşamayabilirsin" })).toBeInTheDocument();
     expect(region).toHaveTextContent("ada@example.com");
-    expect(region).toHaveTextContent(/sıfırlama bağlantısı birincil adresine/);
+    expect(region).toHaveTextContent(/Parola sıfırlama birincil adresine gider/);
     expect(within(region).getByRole("link", { name: "Kişisel adresi birincil yap" }))
       .toHaveAttribute("href", "/email?intent=make-personal-primary");
     expect(within(region).getByRole("button", { name: "Bir daha gösterme" })).toBeEnabled();
