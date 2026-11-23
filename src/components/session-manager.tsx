@@ -243,7 +243,7 @@ export function SessionManager() {
       if (!parsed) {
         setProblem({
           title: "Oturumlar: beklenmeyen yanıt",
-          detail: "Sayfayı yenileyip tekrar dene.",
+          detail: "Sayfayı yenileyip yeniden dene.",
         });
         return;
       }

@@ -204,7 +204,7 @@ export function toClubProfileProblem(error: unknown): ClubProfileProblem {
       type: `${PROBLEM_BASE}club-profile-contract`,
       title: "Kulüp profili: beklenmeyen yanıt",
       status: 502,
-      detail: "Sayfayı yenileyip tekrar dene.",
+      detail: "Sayfayı yenileyip yeniden dene.",
     };
   }
   if (error instanceof CoreProfileInvalidInputError) {

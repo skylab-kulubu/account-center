@@ -53,7 +53,7 @@ const fallbackProblem: SafeProblem = {
 
 const contractProblem: SafeProblem = {
   title: "İletişim tercihleri: beklenmeyen yanıt",
-  detail: "Sunucu yanıtı beklenen biçimde değildi. Sayfayı yenileyip yeniden dene.",
+  detail: "Sayfayı yenileyip yeniden dene.",
   status: 502,
 };
 

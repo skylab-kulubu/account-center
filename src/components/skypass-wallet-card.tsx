@@ -50,7 +50,7 @@ const revokeFallback: SafeProblem = {
 
 const contractProblem: SafeProblem = {
   title: "Google Cüzdan: beklenmeyen yanıt",
-  detail: "Sayfayı yenileyip tekrar dene.",
+  detail: "Sayfayı yenileyip yeniden dene.",
   status: 502,
 };
 

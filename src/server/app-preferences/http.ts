@@ -73,7 +73,7 @@ export function toAppPreferencesProblem(error: unknown): AccountProblem {
         type: `${PROBLEM_BASE}app-preferences-contract`,
         title: "Uygulama ayarları: beklenmeyen yanıt",
         status: 502,
-        detail: "Sayfayı yenileyip tekrar dene.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "off":
     case "rejected":

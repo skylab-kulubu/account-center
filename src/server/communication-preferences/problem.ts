@@ -99,7 +99,7 @@ export function toCommunicationPreferencesProblem(error: unknown): Communication
         type: `${PROBLEM_BASE}communication-preferences-contract`,
         title: "İletişim tercihleri: beklenmeyen yanıt",
         status: 502,
-        detail: "Sayfayı yenileyip tekrar dene.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "rejected":
     case "invalid_input":

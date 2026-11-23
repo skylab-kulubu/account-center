@@ -45,7 +45,7 @@ const permissionsFixture: PermissionsPageData = {
       { path: "/UYELER/ARGE/WEBLAB", name: "WebLab", role: "leader", roleLabel: "Lider", publicListing: true, doorScan: true },
       { path: "/UYELER/GECEKODU", name: "GECEKODU", role: "member", roleLabel: "Üye", publicListing: false, doorScan: false },
     ],
-    privileges: [{ kind: "board", label: "Yönetim Kurulu", description: "Yönetim Kurulu üyesi olarak kulüp kaynaklarını takım sınırı olmadan yönetebilirsin." }],
+    privileges: [{ kind: "board", label: "Yönetim Kurulu", description: "Yönetim Kurulu üyesi olarak kulüp kaynaklarını ekip sınırı olmadan yönetebilirsin." }],
     applications: [
       {
         clientId: "core",
@@ -53,7 +53,7 @@ const permissionsFixture: PermissionsPageData = {
         description: "Superadmin ve SkyApp’in arkasındaki kulüp platformu.",
         permissions: [
           { code: "url:create", label: "Kısa bağlantı oluşturma", description: "skyl.app üzerinde kısa bağlantı oluşturabilirsin." },
-          { code: "certificate:issue", label: "Sertifika verme", description: "Üyesi olduğun takımların etkinliklerinde katılım sertifikası verebilirsin." },
+          { code: "certificate:issue", label: "Sertifika verme", description: "Üyesi olduğun ekiplerin etkinliklerinde katılım sertifikası verebilirsin." },
         ],
         unlabelledCount: 1,
       },

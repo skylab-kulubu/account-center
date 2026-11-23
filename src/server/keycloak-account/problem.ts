@@ -24,7 +24,7 @@ const contractProblem: AccountProblem = {
   type: "https://my.yildizskylab.com/problems/identity-contract",
   title: "Kimlik bilgileri: beklenmeyen yanıt",
   status: 502,
-  detail: "Sayfayı yenileyip tekrar dene.",
+  detail: "Sayfayı yenileyip yeniden dene.",
 };
 
 export function toAccountProblem(error: unknown): AccountProblem {

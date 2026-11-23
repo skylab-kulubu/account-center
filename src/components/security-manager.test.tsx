@@ -219,7 +219,7 @@ describe("SecurityManager", () => {
       fireEvent.change(within(setForm).getByLabelText("Yeni parola (tekrar)"), { target: { value: "correct horse battery" } });
       fireEvent.click(within(setForm).getByRole("button", { name: "Parolayı kaydet" }));
       expect(await within(setForm).findByRole("alert"))
-        .toHaveTextContent("Doğrulaman tamamlandı ama güvenlik işlemi için ek doğrulama gerekiyor; tekrar dene.");
+        .toHaveTextContent("Doğrulaman tamamlandı ama güvenlik işlemi için ek doğrulama gerekiyor; yeniden dene.");
       expect(sudo.ensureSudo).toHaveBeenLastCalledWith({ challenged: true });
       expect(retried.mock.calls.filter((call) => call[0] === "/api/account/security/password")).toHaveLength(2);
     });

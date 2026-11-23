@@ -63,7 +63,7 @@ export function toInboxProblem(error: unknown): InboxProblem {
         type: `${PROBLEM_BASE}inbox-contract`,
         title: "Bildirimler: beklenmeyen yanıt",
         status: 502,
-        detail: "Sayfayı yenileyip tekrar dene.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "rejected":
     case "invalid_input":

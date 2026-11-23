@@ -115,7 +115,7 @@ describe("Permissions view model", () => {
         authorization: {},
       });
       expect(model.privileges).toEqual([
-        { kind: "admin", label: "Yönetim", description: expect.stringContaining("takım sınırı olmadan") },
+        { kind: "admin", label: "Yönetim", description: expect.stringContaining("ekip sınırı olmadan") },
         { kind: "board", label: "Yönetim Kurulu", description: expect.stringContaining("Yönetim Kurulu") },
         { kind: "audit", label: "Denetim Kurulu", description: expect.stringContaining("Denetim Kurulu") },
       ]);
