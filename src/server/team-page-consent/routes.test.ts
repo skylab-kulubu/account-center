@@ -145,6 +145,20 @@ describe("team page consent BFF routes", () => {
     expect((await POST(mutation("POST"))).status).toBe(503);
   });
 
+  it("words a refused or unanswered write without internal names", async () => {
+    mocks.grant.mockRejectedValue(new CoreConsentError("rejected"));
+    const refused = await DELETE(mutation("DELETE"));
+    expect(refused.status).toBe(400);
+    await expect(refused.json()).resolves.toMatchObject({ title: "Ekip sayfası ayarı değiştirilemedi", detail: "Sayfayı yenileyip yeniden dene; ayarın değişmedi." });
+
+    mocks.grant.mockRejectedValue(new CoreConsentError("unavailable"));
+    const down = await DELETE(mutation("DELETE"));
+    expect(down.status).toBe(503);
+    const body = await down.json();
+    expect(body.detail).toBe("Ayarın değişmedi. Biraz sonra yeniden dene.");
+    expect(JSON.stringify(body)).not.toMatch(/Core|tekrar dene/);
+  });
+
   it("keeps the local session on a core 401 but ends it on a Keycloak one", async () => {
     mocks.withdraw.mockRejectedValue(new CoreConsentError("unauthorized"));
     const core = await POST(mutation("POST"));

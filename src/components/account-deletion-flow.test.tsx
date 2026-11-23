@@ -73,7 +73,7 @@ describe("account deletion UI", () => {
     render(<AccountDeletionConfirmation csrfToken="session-csrf" enabled reauthenticated={false} />);
 
     fireEvent.click(startButton());
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/kısa bir süre sonra tekrar dene/i));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/kısa bir süre sonra yeniden dene/i));
     expect(screen.queryByRole("button", { name: /keycloak/i })).not.toBeInTheDocument();
     expect(document.querySelector("form[action='/api/account/deletion/reauthenticate']")).toBeNull();
     expect(screen.queryByLabelText(/onay metni/i)).not.toBeInTheDocument();
@@ -107,7 +107,7 @@ describe("account deletion UI", () => {
 
     fireEvent.click(startButton());
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      /hesabında hiçbir değişiklik yapılmadı; kısa bir süre sonra tekrar dene/i,
+      /hesabında hiçbir değişiklik yapılmadı; kısa bir süre sonra yeniden dene/i,
     ));
     expect(startButton()).toBeEnabled();
   });
@@ -143,7 +143,7 @@ describe("account deletion UI", () => {
         reauthenticated={false}
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent(/kısa bir süre sonra tekrar dene/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/kısa bir süre sonra yeniden dene/i);
 
     // A proof cookie alone reopens the confirmation, but an expired sudo proof
     // sends the person back through the identity step.

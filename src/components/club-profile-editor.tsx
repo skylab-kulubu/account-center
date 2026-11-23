@@ -318,7 +318,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
         tone: "danger",
         problem: {
           title: "Kulüp profili: beklenmeyen yanıt",
-          detail: "Sunucu yanıtı desteklenen biçimle eşleşmedi. Sayfayı yenileyip güncel durumu kontrol et.",
+          detail: "Sayfayı yenileyip yeniden dene.",
           status: 502,
         },
       });

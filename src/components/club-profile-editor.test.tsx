@@ -219,6 +219,7 @@ describe("ClubProfileEditor form", () => {
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Kulüp profili: beklenmeyen yanıt");
+    expect(screen.getByRole("alert")).toHaveTextContent("Sayfayı yenileyip yeniden dene.");
     expect(screen.getByLabelText("Bölüm")).toHaveValue("Matematik");
   });
 });

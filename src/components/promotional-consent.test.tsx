@@ -65,6 +65,16 @@ describe("Tanıtım içerikleri box", () => {
     expect(screen.getByRole("switch", { name: BOX })).toBeChecked();
   });
 
+  it("refuses an answer that does not match the change", async () => {
+    fetch.mockResolvedValueOnce(respond({ promotional: "none" }));
+    renderSection();
+
+    fireEvent.click(screen.getByRole("switch", { name: BOX }));
+    await screen.findByText("Tanıtım izni: beklenmeyen yanıt");
+    expect(screen.getByText("Sayfayı yenileyip yeniden dene.")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: BOX })).not.toBeChecked();
+  });
+
   it("offers a fresh login on a refused session", async () => {
     fetch.mockResolvedValueOnce(respond({ title: "Yeniden giriş yapman gerekiyor", detail: "x", status: 401 }, 401));
     renderSection();

@@ -58,7 +58,7 @@ export const identityCopy = {
   },
   contract: {
     title: "Kimlik bilgileri: beklenmeyen yanıt",
-    detail: "Sayfayı yenileyip tekrar dene.",
+    detail: "Sayfayı yenileyip yeniden dene.",
   },
   name: {
     title: "Ad soyad",

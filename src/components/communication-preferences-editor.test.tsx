@@ -229,6 +229,8 @@ describe("CommunicationPreferencesEditor", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("İletişim tercihleri: beklenmeyen yanıt");
+    expect(screen.getByRole("alert")).toHaveTextContent("Sayfayı yenileyip yeniden dene.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Sunucu yanıtı");
   });
 
   it("shows the tracking switch reversed: unchecked while the person's mail is tracked", () => {

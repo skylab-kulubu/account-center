@@ -64,19 +64,19 @@ export const applicationCatalog: readonly ApplicationDefinition[] = [
       },
       "certificate:issue": {
         label: "Sertifika verme",
-        description: "Üyesi olduğun takımların etkinliklerinde katılım sertifikası verebilirsin.",
+        description: "Üyesi olduğun ekiplerin etkinliklerinde katılım sertifikası verebilirsin.",
       },
       "certificate:revoke": {
         label: "Sertifika iptal etme",
-        description: "Üyesi olduğun takımların etkinliklerinde verilmiş sertifikaları iptal edebilirsin.",
+        description: "Üyesi olduğun ekiplerin etkinliklerinde verilmiş sertifikaları iptal edebilirsin.",
       },
       "certificate:template:manage": {
         label: "Sertifika şablonu yönetimi",
-        description: "Takımların için sertifika şablonu oluşturabilir ve düzenleyebilirsin.",
+        description: "Ekiplerin için sertifika şablonu oluşturabilir ve düzenleyebilirsin.",
       },
       "certificate:binding:manage": {
         label: "Sertifika şablonu atama",
-        description: "Takımlarının etkinliklerinde hangi sertifika şablonunun kullanılacağını seçebilirsin.",
+        description: "Ekiplerinin etkinliklerinde hangi sertifika şablonunun kullanılacağını seçebilirsin.",
       },
     },
   },
@@ -158,7 +158,7 @@ export const applicationCatalog: readonly ApplicationDefinition[] = [
 export const siteRoleCatalog: Readonly<Record<string, PermissionLabel>> = {
   "cms:access": {
     label: "İçerik düzenleme",
-    description: "Bu sitenin CMS editörünü açıp sayfa içeriklerini düzenleyebilirsin; hangi takım sayfalarını değiştirebileceğin takım üyeliğine bağlıdır.",
+    description: "Bu sitenin CMS editörünü açıp sayfa içeriklerini düzenleyebilirsin; hangi ekip sayfalarını değiştirebileceğin ekip üyeliğine bağlıdır.",
   },
 };
 

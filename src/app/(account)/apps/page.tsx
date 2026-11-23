@@ -22,7 +22,7 @@ export default async function AppsPage() {
     <div className="page-stack">
       <AccountPageHeader route={route} />
       <SectionCard id="apps-permissions" title="Yetkiler">
-        <SectionRow href="/permissions" label="Takımlar" value={view ? list(view.teams.map(({ name }) => name), "Yok") : "Okunamadı"} />
+        <SectionRow href="/permissions" label="Ekipler" value={view ? list(view.teams.map(({ name }) => name), "Yok") : "Okunamadı"} />
         <SectionRow
           href="/permissions"
           label="Uygulama yetkileri"

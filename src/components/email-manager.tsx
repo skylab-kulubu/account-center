@@ -61,7 +61,7 @@ export const emailCopy = {
   },
   contract: {
     title: "E-posta adresleri: beklenmeyen yanıt",
-    detail: "Sayfayı yenileyip tekrar dene.",
+    detail: "Sayfayı yenileyip yeniden dene.",
   },
   verified: "Doğrulandı",
   unverified: "Doğrulanmadı",

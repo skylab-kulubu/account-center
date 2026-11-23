@@ -76,7 +76,7 @@ export function toSkyPassWalletProblem(error: unknown): SkyPassWalletProblem {
         type: `${PROBLEM_BASE}skypass-wallet-contract`,
         title: "Google Cüzdan: beklenmeyen yanıt",
         status: 502,
-        detail: "Sayfayı yenileyip tekrar dene.",
+        detail: "Sayfayı yenileyip yeniden dene.",
       };
     case "rejected":
     case "invalid_input":
