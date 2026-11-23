@@ -1,6 +1,6 @@
 import { AccountDataProblem } from "@/components/account-data-problem";
 import { AppPreferencesList } from "@/components/app-preferences-list";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 import { loadAppPreferencesPage } from "@/server/app-preferences/page-data";
 

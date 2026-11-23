@@ -1,5 +1,5 @@
 import { SecurityManager } from "@/components/security-manager";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 
 const route = accountRoute("/security");

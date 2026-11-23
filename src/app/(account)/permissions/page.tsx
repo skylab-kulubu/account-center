@@ -5,7 +5,7 @@ import {
   TeamsSection,
   TechnicalDetails,
 } from "@/components/permissions-view";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 import { loadPermissions } from "@/server/permissions/page-data";
 

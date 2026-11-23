@@ -56,7 +56,7 @@ describe("skylcn-ui theme contract", () => {
     expect(css).not.toContain("@skylab-kulubu/skylcn-ui/theme.css");
     expect(css).not.toMatch(/@source not/);
     const sources = [...css.matchAll(/@import "@skylab-kulubu\/skylcn-ui\/sources\/([a-z-]+)\.css";/g)].map((match) => match[1]);
-    expect(sources).toEqual(["button", "dialog", "form-extra", "notice", "skylab-loader", "state-card", "switch", "task-page"]);
+    expect(sources).toEqual(["avatar", "badge", "button", "dialog", "form-extra", "list", "menu", "notice", "skylab-loader", "state-card", "switch", "task-page"]);
     for (const source of sources) {
       expect(() => createRequire(import.meta.url).resolve(`@skylab-kulubu/skylcn-ui/sources/${source}.css`)).not.toThrow();
     }
@@ -88,7 +88,7 @@ describe("skylcn-ui theme contract", () => {
       }
     }
     // Rendered without their sheet before 0.2.1 too; adding one changes how they look, so it is left to its own change.
-    const notScannedYet = ["components/badge.js", "components/display-extra.js", "components/list.js"];
+    const notScannedYet = ["components/display-extra.js"];
     const missing = [...rendered]
       .filter(([, file]) => file.startsWith("components/") && !scanned.has(file) && !notScannedYet.includes(file))
       .map(([name, file]) => `${name} needs sources/${file.slice("components/".length).replace(/\.js$/, ".css")}`);

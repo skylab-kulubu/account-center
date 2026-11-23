@@ -1,5 +1,5 @@
 import { InboxList, InboxNotice } from "@/components/inbox-list";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 import { loadInboxPage } from "@/server/inbox/page-data";
 

@@ -34,7 +34,7 @@ function LogoutForm({ csrfToken, compact = false }: { csrfToken: string; compact
  * the shell opens and when the window comes back; cleared when the inbox page marks all seen.
  * Off (null) without SkyMail, and on any failure: a badge is a hint, never an error.
  */
-function useInboxUnseen(enabled: boolean, csrfToken: string) {
+export function useInboxUnseen(enabled: boolean, csrfToken: string) {
   const [unseen, setUnseen] = useState<number | null>(null);
   useEffect(() => {
     if (!enabled) return;

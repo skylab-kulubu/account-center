@@ -1,7 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Space_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import { connection } from "next/server";
+import { ThemeScript } from "@skylab-kulubu/skylcn-ui";
+import { TasarimSaglayici } from "@/components/tasarim-baglam";
+import { currentTasarim } from "@/server/tasarim";
 import "./globals.css";
+import "./tasarim.css";
 
 // skylcn-ui's tokens read the faces from these two variables (ADR 0055).
 const spaceGrotesk = Space_Grotesk({
@@ -38,10 +43,21 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   await connection();
+  // GEÇİCİ tasarım anahtarı: yeni yönlerde açık/koyu tema (skylcn ThemeScript, Panel ile aynı).
+  const tasarim = await currentTasarim();
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
-    <html lang="tr" className={`${spaceGrotesk.variable} ${spaceMono.variable}`}>
-      <body>{children}</body>
+    <html
+      lang="tr"
+      className={`${spaceGrotesk.variable} ${spaceMono.variable}`}
+      data-tasarim={tasarim === "eski" ? undefined : tasarim}
+      suppressHydrationWarning={tasarim !== "eski"}
+    >
+      {tasarim === "eski" ? null : <head><ThemeScript nonce={nonce} /></head>}
+      <body>
+        <TasarimSaglayici value={tasarim}>{children}</TasarimSaglayici>
+      </body>
     </html>
   );
 }

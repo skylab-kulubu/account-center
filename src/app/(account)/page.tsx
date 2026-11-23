@@ -12,9 +12,13 @@ import {
 import { AccountDataProblem } from "@/components/account-data-problem";
 import { HomeEmailDeliveryWarning } from "@/components/email-delivery-warning";
 import { HomePrimaryEmailNudge } from "@/components/primary-email-nudge";
-import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
+import { SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
 import { accountRoute } from "@/config/account-routes";
 import { loadOverview } from "@/server/keycloak-account/page-data";
+import { GenelBakisA, GenelBakisB } from "@/components/genel-bakis";
+import { getAuthServices } from "@/server/auth/services";
+import { currentTasarim } from "@/server/tasarim";
 
 const route = accountRoute("/");
 
@@ -22,6 +26,14 @@ export const metadata = { title: route.documentTitle };
 
 export default async function OverviewPage() {
   const data = await loadOverview();
+  // GEÇİCİ tasarım anahtarı
+  const tasarim = await currentTasarim();
+  if (tasarim !== "eski") {
+    if (!data.ok) return <div className="page-stack"><AccountDataProblem problem={data.problem} retryHref="/" /></div>;
+    return tasarim === "a"
+      ? <GenelBakisA overview={data.value} />
+      : <GenelBakisB overview={data.value} inboxEnabled={getAuthServices().skymailInbox !== null} />;
+  }
   const displayName = data.ok
     ? [data.value.profile.firstName, data.value.profile.lastName].filter(Boolean).join(" ") || "SKY LAB hesabı"
     : null;

@@ -1,7 +1,7 @@
 import { AlertTriangle, Check } from "lucide-react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { AccountDeletionConfirmation } from "@/components/account-deletion-confirmation";
 import type { AccountDeletionError } from "@/components/account-deletion-confirmation";
 import { accountRoute } from "@/config/account-routes";

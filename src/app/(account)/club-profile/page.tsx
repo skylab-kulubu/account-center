@@ -8,12 +8,14 @@ import {
 } from "lucide-react";
 import { AccountDataProblem } from "@/components/account-data-problem";
 import { ClubProfileEditor } from "@/components/club-profile-editor";
-import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
+import { SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
 import { SkyPassWalletCard } from "@/components/skypass-wallet-card";
 import { StudentCardRow } from "@/components/student-card-row";
 import { TeamPageConsentSection } from "@/components/team-page-consent";
 import { accountRoute } from "@/config/account-routes";
 import { loadClubProfilePage } from "@/server/club-profile/page-data";
+import { currentTasarim } from "@/server/tasarim";
 import type { ClubProfileState } from "@/server/club-profile/page-data";
 import type { ClubProfileProblem } from "@/server/club-profile/problem";
 
@@ -49,6 +51,9 @@ function ClubProfileNotice({ state }: { state: Exclude<ClubProfileState, { statu
 
 export default async function ClubProfilePage() {
   const data = await loadClubProfilePage();
+  // GEÇİCİ tasarım anahtarı: A ve B'de iç terim ("Core") ve uzun açıklamalar yok
+  const yeni = (await currentTasarim()) !== "eski";
+  const coreBadge = yeni ? undefined : <StatusBadge>Core</StatusBadge>;
   const club = data.clubProfile.status === "ready" ? data.clubProfile.value : null;
   const identity = data.identity.ok ? data.identity.value : null;
   const coreCopy = data.clubProfile.status === "disabled" ? "Bu ortamda kapalı" : "Şu anda görüntülenemiyor";
@@ -90,14 +95,14 @@ export default async function ClubProfilePage() {
           icon={<Hash aria-hidden="true" size={19} />}
           title="SKY numarası"
           description={skyNumber ?? (club ? "Henüz verilmedi" : coreCopy)}
-          trailing={<StatusBadge>Core</StatusBadge>}
+          trailing={coreBadge}
         />
         {club ? <StudentCardRow initialLinked={club.studentCardLinked} csrfToken={data.csrfToken} /> : (
           <SettingsRow
             icon={<Nfc aria-hidden="true" size={19} />}
             title="Öğrenci kartı"
             description={coreCopy}
-            trailing={<StatusBadge>Core</StatusBadge>}
+            trailing={coreBadge}
           />
         )}
         <SettingsRow
@@ -110,9 +115,9 @@ export default async function ClubProfilePage() {
           icon={<Phone aria-hidden="true" size={19} />}
           title="Telefon"
           description={club
-            ? `${club.phone ?? "Kayıtlı değil"} · Yönetim ekibi günceller; doğrulama geldiğinde buradan düzenleyebileceksin.`
+            ? (yeni ? club.phone ?? "Kayıtlı değil" : `${club.phone ?? "Kayıtlı değil"} · Yönetim ekibi günceller; doğrulama geldiğinde buradan düzenleyebileceksin.`)
             : coreCopy}
-          trailing={<StatusBadge>Salt okunur</StatusBadge>}
+          trailing={<StatusBadge>{yeni ? "Yönetim ekibi günceller" : "Salt okunur"}</StatusBadge>}
         />
       </SettingsGroup>
 

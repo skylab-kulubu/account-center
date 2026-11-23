@@ -8,6 +8,7 @@ import {
   LOGIN_REDIRECT_COOKIE_SECONDS,
 } from "@/lib/login-redirect";
 import { allowedReturnQuery } from "@/lib/return-query";
+import { TASARIM_COOKIE } from "@/lib/tasarim";
 
 const sessionCookie = "__Host-sky-account";
 /** Read once per process; an invalid value fails the proxy at startup instead of shipping a broken policy. */
@@ -92,6 +93,14 @@ export function proxy(request: NextRequest) {
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", policy);
 
+  // GEÇİCİ tasarım anahtarı: `?tasarim=a|b|eski` çerezi yazar, bu istek de onu görür.
+  const tasarim = searchParams.get("tasarim");
+  const tasarimSecimi = tasarim === "a" || tasarim === "b" || tasarim === "eski" ? tasarim : null;
+  if (tasarimSecimi) {
+    const others = (request.headers.get("cookie") ?? "").split(/;\s*/).filter((part) => part && !part.startsWith(`${TASARIM_COOKIE}=`));
+    requestHeaders.set("cookie", [...others, `${TASARIM_COOKIE}=${tasarimSecimi}`].join("; "));
+  }
+
   // Core's unsubscribe page links to the Account center's root with the
   // mail's category (its COMMUNICATION_PREFERENCE_ACCOUNT_CENTER_URL default):
   // that row lives on the preferences screen, signed in or not.
@@ -150,6 +159,9 @@ export function proxy(request: NextRequest) {
       )
     : NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", policy);
+  if (tasarimSecimi) {
+    response.cookies.set(TASARIM_COOKIE, tasarimSecimi, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 30 * 24 * 3600 });
+  }
   return response;
 }
 

@@ -153,3 +153,30 @@ export function matchAccountRoute(pathname: string): AccountRoute | null {
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`),
   ) ?? null;
 }
+
+/**
+ * GEÇİCİ (tasarım yönleri A ve B): menünün gruplanmış sırası. Sayfalar ve adresler aynı;
+ * yalnız sıra ve başlıklar değişir. Grup başlığı yalnız B'de görünür, A'da araya çizgi girer.
+ */
+export const accountNavGroups: readonly { title: string | null; items: readonly AccountRoutePath[] }[] = [
+  { title: null, items: ["/"] },
+  { title: "Profil", items: ["/identity", "/club-profile"] },
+  { title: "Giriş ve güvenlik", items: ["/email", "/security", "/sessions"] },
+  { title: "Bildirim ve posta", items: ["/notifications", "/communication-preferences"] },
+  { title: "Hesap", items: ["/permissions", "/app-preferences", "/delete-account"] },
+];
+
+/** GEÇİCİ (A ve B): menüde ve sekmelerde kısa ad. */
+export const accountShortLabels: Readonly<Record<AccountRoutePath, string>> = {
+  "/": "Özet",
+  "/identity": "Kimlik",
+  "/club-profile": "Kulüp profili",
+  "/email": "E-posta",
+  "/security": "Parola ve passkey",
+  "/sessions": "Cihazlar",
+  "/notifications": "Bildirimler",
+  "/communication-preferences": "Posta tercihleri",
+  "/permissions": "Yetkiler",
+  "/app-preferences": "Uygulama ayarları",
+  "/delete-account": "Hesabı sil",
+};

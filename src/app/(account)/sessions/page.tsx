@@ -1,6 +1,6 @@
 import { ShieldOff } from "lucide-react";
 import { SessionManager } from "@/components/session-manager";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 
 const route = accountRoute("/sessions");

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { IdentityManager } from "@/components/identity-manager";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 import { getAuthConfig } from "@/server/auth/config";
 

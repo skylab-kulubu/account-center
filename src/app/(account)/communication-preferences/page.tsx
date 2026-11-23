@@ -3,7 +3,7 @@ import { AtSign, Info } from "lucide-react";
 import { CommunicationPreferencesEditor } from "@/components/communication-preferences-editor";
 import { CommunicationPreferencesNotice } from "@/components/communication-preferences-notice";
 import { PromotionalConsentSection } from "@/components/promotional-consent";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 import { preferenceFocus } from "@/lib/communication-preferences";
 import { loadCommunicationPreferencesPage } from "@/server/communication-preferences/page-data";

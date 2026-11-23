@@ -1,5 +1,5 @@
 import { EmailManager } from "@/components/email-manager";
-import { AccountPageHeader } from "@/components/settings";
+import { AccountPageHeader } from "@/components/sayfa-basligi";
 import { accountRoute } from "@/config/account-routes";
 import { isPrimaryEmailNudge } from "@/lib/primary-email-nudge";
 
