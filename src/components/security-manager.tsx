@@ -352,7 +352,6 @@ export function SecurityManager() {
   const busy = flow !== null;
   // Rendered only after the browser fetched the inventory, so the probe never disagrees with server markup.
   const createSupported = webauthnCreateSupported();
-  const passkeys = payload.passkeys;
   const totpLabels = payload.totp.map((row) => row.label ?? "").filter(Boolean);
   const passkeyLabels = payload.passkeys.map((row) => row.label ?? "").filter(Boolean);
   const csrfRenewed = async () => {
