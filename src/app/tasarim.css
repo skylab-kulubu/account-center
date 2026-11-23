@@ -1183,6 +1183,8 @@ html[data-tasarim="b"] {
 }
 
 [data-tasarim] .deletion-step {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 20px;
   border: 1px solid var(--border);
   border-radius: var(--yk-radius);
   background: var(--surface-card);
