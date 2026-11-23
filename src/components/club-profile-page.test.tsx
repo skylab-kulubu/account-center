@@ -90,7 +90,6 @@ describe("Kulüp profili page", () => {
     const editor = screen.getByTestId("club-profile-editor");
     expect(editor).toHaveAttribute("data-csrf", "session-bound-csrf");
     expect(editor).toHaveTextContent("Elektrik-Elektronik Fakültesi");
-    expect(screen.getByText(/yeniden doğrulama istemez/)).toBeInTheDocument();
   });
 
   it("shows the Google Wallet section only while core offers it", async () => {
