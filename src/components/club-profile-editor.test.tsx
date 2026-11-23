@@ -285,6 +285,16 @@ describe("ClubProfileEditor picture", () => {
     expect(fileInput()).toHaveAttribute("accept", "image/png,image/jpeg,image/webp");
   });
 
+  it("falls back to the empty avatar when the browser cannot load the picture, keeping the remove action", () => {
+    renderEditor();
+
+    fireEvent.error(screen.getByRole("img", { name: "Mevcut profil fotoğrafın" }));
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByText("Fotoğraf yüklü")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fotoğrafı kaldır" })).toBeInTheDocument();
+  });
+
   it("shows the empty state without a remove action", () => {
     renderEditor({ ...profile, profilePictureUrl: null });
 

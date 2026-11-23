@@ -244,6 +244,8 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
   const [selection, setSelection] = useState<{ file: File; previewUrl: string } | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
+  /** The address the browser could not load (404, CSP): the card shows the empty state instead of a broken image. */
+  const [failedPicture, setFailedPicture] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const removeTrigger = useRef<HTMLButtonElement>(null);
   const successFeedback = useRef<HTMLDivElement>(null);
@@ -440,7 +442,8 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
   };
 
   const hasPicture = profile.profilePictureUrl !== null;
-  const shownPicture = selection?.previewUrl ?? profile.profilePictureUrl;
+  const candidatePicture = selection?.previewUrl ?? profile.profilePictureUrl;
+  const shownPicture = candidatePicture === failedPicture ? null : candidatePicture;
 
   return (
     <>
@@ -457,6 +460,7 @@ export function ClubProfileEditor({ initial, csrfToken }: { initial: ClubProfile
               <Image
                 alt={selection ? "Seçtiğin fotoğrafın önizlemesi" : "Mevcut profil fotoğrafın"}
                 height={96}
+                onError={() => setFailedPicture(shownPicture)}
                 src={shownPicture}
                 unoptimized
                 width={96}
