@@ -141,7 +141,7 @@ export function InboxList({ initial, csrfToken }: { initial: InboxPage; csrfToke
   return (
     <section className="settings-section inbox" aria-labelledby="inbox-heading">
       <div className="settings-section__heading inbox__heading">
-        <h2 id="inbox-heading">Bildirimler</h2>
+        <h2 id="inbox-heading" className="sr-only">Bildirimler</h2>
         {items.length > 0 ? (
           <Button aria-busy={pending === "read-all"} disabled={!unread || pending !== null} onClick={readAll} size="sm" type="button" variant="outline">
             <Check aria-hidden="true" />

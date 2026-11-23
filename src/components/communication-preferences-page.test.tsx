@@ -46,13 +46,12 @@ afterEach(() => {
 });
 
 describe("İletişim tercihleri page", () => {
-  it("explains why the mail comes, what it never touches and where it goes", async () => {
+  it("shows where the mail goes, without an explanation box", async () => {
     vi.mocked(loadCommunicationPreferencesPage).mockResolvedValue(pageData());
     await renderPage();
 
     expect(screen.getByRole("heading", { level: 1, name: "İletişim tercihleri" })).toBeInTheDocument();
-    expect(screen.getByText("Bu postaları SKY LAB üyesi olduğun ya da takip ettiğin için alıyorsun.")).toBeInTheDocument();
-    expect(screen.getByText("Giriş kodu, bilet, sertifika gibi hesap postaların bu ayarlardan etkilenmez.")).toBeInTheDocument();
+    expect(screen.queryByText("Bu postaları SKY LAB üyesi olduğun ya da takip ettiğin için alıyorsun.")).not.toBeInTheDocument();
     expect(screen.getByText("ada@std.yildiz.edu.tr")).toBeInTheDocument();
     expect(screen.getByText(/Mezun olunca okul adresin kapanır/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "E-posta ayarları" })).toHaveAttribute("href", "/email");

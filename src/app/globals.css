@@ -12,9 +12,13 @@
  * named after the component's module; Notice has its own since skylcn-ui 0.2.1).
  */
 @import "@skylab-kulubu/skylcn-ui/theme-base.css";
+@import "@skylab-kulubu/skylcn-ui/sources/avatar.css";
+@import "@skylab-kulubu/skylcn-ui/sources/badge.css";
 @import "@skylab-kulubu/skylcn-ui/sources/button.css";
 @import "@skylab-kulubu/skylcn-ui/sources/dialog.css";
 @import "@skylab-kulubu/skylcn-ui/sources/form-extra.css";
+@import "@skylab-kulubu/skylcn-ui/sources/list.css";
+@import "@skylab-kulubu/skylcn-ui/sources/menu.css";
 @import "@skylab-kulubu/skylcn-ui/sources/notice.css";
 @import "@skylab-kulubu/skylcn-ui/sources/skylab-loader.css";
 @import "@skylab-kulubu/skylcn-ui/sources/state-card.css";
@@ -30,10 +34,10 @@
  * a neutral hover wash, not the lilac brand colour.
  */
 :root {
-  --surface-page: var(--sidebar);
-  /* Translucent, so the background bloom and stars still show through the cards */
-  --surface-card: color-mix(in srgb, var(--sheet) 78%, transparent);
-  --surface-raised: color-mix(in srgb, var(--popover) 82%, transparent);
+  --surface-page: var(--background);
+  /* Solid, as in Google Account: cards one step above the page in both themes */
+  --surface-card: var(--popover);
+  --surface-raised: var(--popover);
   --surface-hover: var(--accent);
   --ink: var(--foreground);
   --ink-muted: var(--muted-foreground);
@@ -187,194 +191,11 @@
   opacity: 0.5;
 }
 
-.account-frame {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  width: min(1180px, calc(100% - 40px));
-  min-height: calc(100dvh - 40px);
-  margin: 20px auto;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(10, 9, 13, 0.68);
-  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.32);
-  backdrop-filter: blur(18px);
-}
-
-.account-sidebar {
-  display: flex;
-  min-height: 100%;
-  flex-direction: column;
-  padding: 22px 14px 18px;
-  border-right: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.018);
-}
-
-.brand {
-  display: flex;
-  min-height: 56px;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
-  border-radius: 10px;
-}
-
-.brand__mark {
-  width: 32px;
-  height: 32px;
-  color: var(--primary);
-}
-
-.brand span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.brand strong {
-  color: var(--ink);
-  font-size: 0.82rem;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-}
-
-.brand small {
-  margin-top: 2px;
-  color: var(--ink-muted);
-  font-size: 0.68rem;
-  letter-spacing: 0.02em;
-}
-
-.account-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 26px;
-}
-
-.account-nav__item,
-.account-sidebar__sign-out {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  gap: 11px;
-  padding: 10px 12px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  color: var(--ink-muted);
-  font-size: 0.81rem;
-  font-weight: 520;
-  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
-}
-
-.account-nav__item:hover {
-  color: var(--ink);
-  background: var(--surface-hover);
-}
-
-.account-nav__item[data-active] {
-  color: var(--ink);
-  border-color: color-mix(in srgb, var(--primary) 13%, transparent);
-  background: var(--primary-muted);
-}
-
-.account-nav__item[data-active] svg {
-  color: var(--primary);
-}
-
-.account-sidebar__sign-out {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.account-sidebar__sign-out-form {
-  margin-top: auto;
-}
-
-.account-sidebar__sign-out:hover,
-.mobile-header__sign-out-button:hover {
-  color: var(--ink);
-  background: var(--surface-hover);
-}
-
-.mobile-header__sign-out {
-  width: 44px;
-  height: 44px;
-}
-
-.mobile-header__sign-out-button {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 0;
-  border-radius: 9px;
-  color: var(--ink-muted);
-  background: transparent;
-  cursor: pointer;
-}
-
-.account-content {
-  height: calc(100dvh - 42px);
-  overflow-y: auto;
-  padding: 64px clamp(36px, 7vw, 92px) 80px;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
-  scrollbar-width: thin;
-}
-
 .page-stack {
   width: min(100%, 720px);
   margin-inline: auto;
 }
 
-.page-header {
-  margin-bottom: 34px;
-}
-
-.eyebrow {
-  margin: 0 0 10px;
-  color: var(--primary);
-  font-size: 0.67rem;
-  font-weight: 650;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.page-header h1 {
-  max-width: 620px;
-  margin: 0;
-  color: var(--ink);
-  font-size: clamp(1.65rem, 3vw, 2.35rem);
-  font-weight: 560;
-  letter-spacing: -0.045em;
-  line-height: 1.08;
-  text-wrap: balance;
-}
-
-.page-header > p:last-child {
-  max-width: 590px;
-  margin: 14px 0 0;
-  color: var(--ink-muted);
-  font-size: 0.9rem;
-  line-height: 1.65;
-  text-wrap: pretty;
-}
-
-.identity-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px;
-  border: 1px solid color-mix(in srgb, var(--primary) 13%, transparent);
-  border-radius: 12px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 9%, transparent), rgba(255, 255, 255, 0.022));
-}
-
-.identity-card__avatar,
 .danger-card__icon {
   display: grid;
   flex: 0 0 auto;
@@ -385,26 +206,6 @@
   border-radius: 11px;
   color: var(--primary);
   background: rgba(255, 255, 255, 0.035);
-}
-
-.identity-card__copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-}
-
-.identity-card__copy > span {
-  color: var(--ink);
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
-.identity-card__copy small {
-  margin-top: 4px;
-  color: var(--ink-muted);
-  font-size: 0.73rem;
-  line-height: 1.45;
 }
 
 .settings-section {
@@ -633,10 +434,6 @@ a.settings-row:hover .settings-row__chevron {
   background: rgba(245, 158, 11, 0.06);
 }
 
-.identity-card + .email-nudge {
-  margin-top: 18px;
-}
-
 .email-nudge__icon {
   display: inline-flex;
   flex: 0 0 auto;
@@ -692,10 +489,6 @@ a.settings-row:hover .settings-row__chevron {
   line-height: 1.5;
 }
 
-.identity-card + .email-nudge-dismissed {
-  margin-top: 18px;
-}
-
 /* SkyMail no longer mails an address: one line under it on /email, one line on the overview. */
 .settings-row__copy small.email-delivery-warning {
   display: inline-flex;
@@ -732,10 +525,6 @@ a.settings-row:hover .settings-row__chevron {
   text-underline-offset: 3px;
 }
 
-.identity-card + .email-delivery-notice {
-  margin-top: 18px;
-}
-
 .email-delivery-notice + .email-nudge {
   margin-top: 0;
 }
@@ -748,59 +537,6 @@ a.settings-row:hover .settings-row__chevron {
   .email-nudge__actions > * {
     width: 100%;
   }
-}
-
-.security-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  margin-top: 18px;
-  padding: 14px 15px;
-  border: 1px solid color-mix(in srgb, var(--primary) 8.5%, transparent);
-  border-radius: 10px;
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 3.5%, transparent);
-}
-
-.security-note svg {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-
-.security-note span {
-  display: flex;
-  flex-direction: column;
-}
-
-.security-note strong {
-  color: #dcd2df;
-  font-size: 0.72rem;
-  font-weight: 560;
-}
-
-.security-note small {
-  margin-top: 4px;
-  color: var(--ink-faint);
-  font-size: 0.68rem;
-  line-height: 1.5;
-}
-
-.page-hint {
-  margin: 18px 2px 0;
-  color: var(--ink-faint);
-  font-size: 0.7rem;
-  line-height: 1.55;
-}
-
-.read-only-note {
-  margin: 18px 2px 0;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--primary) 10%, transparent);
-  border-radius: 10px;
-  color: var(--ink-muted);
-  background: color-mix(in srgb, var(--primary) 3.5%, transparent);
-  font-size: 0.72rem;
-  line-height: 1.6;
 }
 
 .permission-badges {
@@ -1769,16 +1505,6 @@ a.settings-row:hover .settings-row__chevron {
   height: 8px;
 }
 
-.mobile-header__mark {
-  align-self: center;
-  justify-self: center;
-  color: var(--primary);
-}
-
-.mobile-header {
-  display: none;
-}
-
 @keyframes bloom-in {
   from { opacity: 0; transform: scale(0.9); }
   to { opacity: 1; transform: scale(1); }
@@ -2191,41 +1917,6 @@ a.email-link-action {
   }
 }
 
-/* İletişim tercihleri (/communication-preferences) */
-.preferences-intro {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 14px 15px;
-  border: 1px solid color-mix(in srgb, var(--primary) 8.5%, transparent);
-  border-radius: 10px;
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 3.5%, transparent);
-}
-
-.preferences-intro svg {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-
-.preferences-intro span {
-  display: flex;
-  flex-direction: column;
-}
-
-.preferences-intro strong {
-  color: #dcd2df;
-  font-size: 0.74rem;
-  font-weight: 560;
-}
-
-.preferences-intro small {
-  margin-top: 4px;
-  color: var(--ink-faint);
-  font-size: 0.69rem;
-  line-height: 1.5;
-}
-
 .preferences-feedback {
   display: flex;
   flex-direction: column;
@@ -2478,90 +2169,6 @@ a.email-link-action {
     overflow: visible;
   }
 
-  .account-frame {
-    display: block;
-    width: 100%;
-    min-height: 100dvh;
-    margin: 0;
-    overflow: visible;
-    border: 0;
-    border-radius: 0;
-    background: color-mix(in srgb, var(--surface-page) 62%, transparent);
-    box-shadow: none;
-    backdrop-filter: none;
-  }
-
-  .account-sidebar {
-    display: none;
-  }
-
-  .mobile-header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) 44px;
-    min-height: calc(62px + env(safe-area-inset-top));
-    align-items: end;
-    padding: env(safe-area-inset-top) 12px 9px;
-    border-bottom: 1px solid var(--border);
-    background: color-mix(in srgb, var(--surface-page) 84%, transparent);
-    backdrop-filter: blur(18px);
-  }
-
-  .mobile-header > span:not(.mobile-header__balance) {
-    align-self: center;
-    justify-self: center;
-    overflow: hidden;
-    color: var(--ink);
-    font-size: 0.78rem;
-    font-weight: 570;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-header__back {
-    display: grid;
-    width: 48px;
-    height: 44px;
-    place-items: center;
-    border-radius: 9px;
-    color: var(--ink-muted);
-  }
-
-  .mobile-header__balance {
-    width: 48px;
-    height: 44px;
-  }
-
-  .account-content {
-    height: auto;
-    min-height: calc(100dvh - 62px);
-    overflow: visible;
-    padding: 34px 18px calc(48px + env(safe-area-inset-bottom));
-  }
-
-  .account-root[data-embedded] .account-content {
-    min-height: 100dvh;
-  }
-
-  .page-header {
-    margin-bottom: 26px;
-  }
-
-  .page-header h1 {
-    font-size: 1.7rem;
-  }
-
-  .identity-card {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .identity-card .status-badge {
-    margin-left: 58px;
-  }
-
   .settings-row {
     min-height: 76px;
     padding: 14px;
@@ -2677,7 +2284,6 @@ a.email-link-action {
     flex-flow: row wrap;
   }
 
-  .identity-card .status-badge,
   .session-card .status-badge {
     margin-left: 0;
   }
@@ -2697,12 +2303,6 @@ a.email-link-action {
   .background__stars::after {
     transform: none;
   }
-
-}
-
-/* Bildirimlerim (iletişim-servisi 07): skylcn's ListPanel rows, with the unseen count in the sidebar. */
-.account-nav__badge {
-  margin-left: auto;
 }
 
 .inbox {

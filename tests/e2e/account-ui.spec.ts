@@ -5,14 +5,18 @@ import { seedAuthenticatedSession } from "./auth-session";
 
 const baseUrl = "https://127.0.0.1:3100";
 
+/** `null`: Ana sayfa's title is the person's name. */
 const routes = [
-  { href: "/", heading: "Hesabın, tek ve güvenli bir merkezde." },
+  { href: "/", heading: null },
+  { href: "/personal-info", heading: "Kişisel bilgiler" },
   { href: "/identity", heading: "Kimlik" },
-  { href: "/email", heading: "E-posta ve giriş" },
+  { href: "/email", heading: "E-posta" },
   { href: "/club-profile", heading: "Kulüp profili" },
-  { href: "/security", heading: "Giriş ve güvenlik" },
-  { href: "/sessions", heading: "Oturumlar ve cihazlar" },
-  { href: "/permissions", heading: "Yetkilerim" },
+  { href: "/security", heading: "Güvenlik" },
+  { href: "/sessions", heading: "Cihazlar" },
+  { href: "/privacy", heading: "Veri ve gizlilik" },
+  { href: "/apps", heading: "Uygulamalar" },
+  { href: "/permissions", heading: "Yetkiler" },
   { href: "/delete-account", heading: "Hesabı sil" },
 ] as const;
 
@@ -59,10 +63,10 @@ function collectPageErrors(page: Page) {
   return errors;
 }
 
-test("all eight account routes remain accessible and responsive in the browser matrix", async ({
+test("every account section and page remains accessible and responsive in the browser matrix", async ({
   browser,
 }, testInfo) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
 
   for (const profile of profiles) {
     await test.step(profile.name, async () => {
@@ -163,7 +167,9 @@ test("all eight account routes remain accessible and responsive in the browser m
             await page.goto(route.href);
             expect((await refreshResponse).status()).toBe(204);
             await expect(page).toHaveURL(new RegExp(`${route.href === "/" ? "/$" : `${route.href}$`}`));
-            await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+            await expect(route.heading === null
+              ? page.getByRole("heading", { level: 1 })
+              : page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
             await expect(page.locator("main#main-content")).toBeVisible();
 
             const overflow = await page.evaluate(() => ({
@@ -173,6 +179,8 @@ test("all eight account routes remain accessible and responsive in the browser m
             expect(overflow.body, "body must not overflow horizontally").toBeLessThanOrEqual(1);
             expect(overflow.document, "document must not overflow horizontally").toBeLessThanOrEqual(1);
 
+            // Colours are judged once skylcn's entrance animations (a card fading in) have settled
+            await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
             const accessibility = await new AxeBuilder({ page })
               .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
               .analyze();
@@ -184,8 +192,8 @@ test("all eight account routes remain accessible and responsive in the browser m
           expect(page.viewportSize()).toEqual({ width: 320, height: 720 });
         }
         if (profile.name === "reduced-motion") {
-          const duration = await page.locator(".background__bloom").evaluate((element) =>
-            Number.parseFloat(getComputedStyle(element).animationDuration),
+          const duration = await page.locator(".skip-link").evaluate((element) =>
+            Number.parseFloat(getComputedStyle(element).transitionDuration),
           );
           expect(duration).toBeLessThanOrEqual(0.001);
         }

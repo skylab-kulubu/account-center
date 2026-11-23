@@ -239,7 +239,6 @@ describe("ClubProfileEditor for a YTÜ-linked person", () => {
       "FakülteBilgisayar ve Bilişim Bilimleri FakültesiYTÜ hesabından gelir",
       "BölümYTÜ hesabında kayıtlı değilYTÜ hesabından gelir",
     ]);
-    expect(screen.getByText(/her YTÜ girişinde YTÜ hesabından güncellenir/)).toBeInTheDocument();
   });
 
   it("saves LinkedIn alone", async () => {

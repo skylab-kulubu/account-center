@@ -1,13 +1,13 @@
 import { AlertTriangle, Check } from "lucide-react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { AccountPageHeader } from "@/components/settings";
 import { AccountDeletionConfirmation } from "@/components/account-deletion-confirmation";
 import type { AccountDeletionError } from "@/components/account-deletion-confirmation";
 import { accountRoute } from "@/config/account-routes";
 import { ACCOUNT_DELETION_PROOF_COOKIE } from "@/server/auth/http";
 import { getAuthServices } from "@/server/auth/services";
 import { currentAccountSession } from "@/server/access-gate/current-session";
+import { AccountPageHeader } from "@/components/settings";
 
 const route = accountRoute("/delete-account");
 
@@ -64,7 +64,6 @@ export default async function DeleteAccountPage({
         enabled={services.accountDeletion !== null}
         reauthenticated={reauthenticated}
       />
-      <p className="page-hint">Silme isteğin kabul edildiğinde tüm Hesap Merkezi oturumların kapatılır ve durum takibi bu tarayıcıda güvenli bir yetkiyle devam eder.</p>
     </div>
   );
 }

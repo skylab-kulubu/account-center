@@ -5,7 +5,6 @@ import {
   Fingerprint,
   KeyRound,
   Plus,
-  ShieldCheck,
   Smartphone,
   Trash2,
 } from "lucide-react";
@@ -47,14 +46,12 @@ export const securityCopy = {
   },
   totp: {
     title: "Doğrulama uygulaması",
-    description: "Telefonundaki bir doğrulama uygulamasından alınan tek kullanımlık kodlar girişini ve hassas işlemleri korur.",
     empty: "Tanımlı bir doğrulama uygulaması yok.",
     add: "Doğrulama uygulaması ekle",
     kind: "Doğrulama uygulaması",
   },
   passkeys: {
     title: "Passkey’ler",
-    description: "Parmak izi, yüz tanıma ya da cihaz kilidiyle parolasız giriş yap. Passkey’ler yildizskylab.com için kaydedilir ve her SKY LAB girişinde geçerlidir.",
     empty: "Kayıtlı bir passkey yok.",
     add: "Passkey ekle",
     unsupported: "Bu tarayıcı passkey eklemeyi desteklemiyor. Güncel bir tarayıcı ya da SKY LAB uygulaması kullan.",
@@ -69,7 +66,6 @@ export const securityCopy = {
     removed: (kind: string) => `${kind} kaldırıldı.`,
     notFound: "Kimlik bilgisi bulunamadı; liste yenilendi.",
   },
-  hint: "Bu sayfadaki hiçbir işlem seni Keycloak’a ya da başka bir siteye göndermez; her adım my.yildizskylab.com içinde tamamlanır ve Sudo modu ister.",
 } as const;
 
 const transportLabels: Record<string, string> = {
@@ -356,7 +352,6 @@ export function SecurityManager() {
   const busy = flow !== null;
   // Rendered only after the browser fetched the inventory, so the probe never disagrees with server markup.
   const createSupported = webauthnCreateSupported();
-  const passkeys = payload.passkeys;
   const totpLabels = payload.totp.map((row) => row.label ?? "").filter(Boolean);
   const passkeyLabels = payload.passkeys.map((row) => row.label ?? "").filter(Boolean);
   const csrfRenewed = async () => {
@@ -413,7 +408,7 @@ export function SecurityManager() {
         ) : null}
       </SettingsGroup>
 
-      <SettingsGroup title={securityCopy.totp.title} description={securityCopy.totp.description}>
+      <SettingsGroup title={securityCopy.totp.title}>
         {payload.totp.length === 0 ? (
           <div className="settings-row security-empty">
             <span className="settings-row__icon"><Smartphone aria-hidden="true" size={19} /></span>
@@ -456,7 +451,7 @@ export function SecurityManager() {
         ) : null}
       </SettingsGroup>
 
-      <SettingsGroup title={securityCopy.passkeys.title} description={securityCopy.passkeys.description}>
+      <SettingsGroup title={securityCopy.passkeys.title}>
         {payload.passkeys.length === 0 ? (
           <div className="settings-row security-empty">
             <span className="settings-row__icon"><Fingerprint aria-hidden="true" size={19} /></span>
@@ -491,18 +486,6 @@ export function SecurityManager() {
           ) : null}
         </div>
       </SettingsGroup>
-
-      <aside className="security-note">
-        <ShieldCheck aria-hidden="true" size={19} />
-        <span>
-          <strong>
-            {passkeys.length === 0 && payload.totp.length === 0
-              ? "Hesabına ek bir giriş yöntemi eklemeni öneriyoruz."
-              : "Kimlik bilgilerin tarayıcıya kaydedilmez."}
-          </strong>
-          <small>{securityCopy.hint}</small>
-        </span>
-      </aside>
 
       {flow?.kind === "passkey" ? (
         <PasskeyAddDialog

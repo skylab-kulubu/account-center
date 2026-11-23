@@ -5,41 +5,68 @@ import { AccountPageHeader } from "@/components/settings";
 import {
   accountRoute,
   accountRoutes,
+  accountSections,
   matchAccountRoute,
 } from "@/config/account-routes";
 
 describe("account route metadata", () => {
-  it("defines the eleven live product routes once and in navigation order", () => {
+  it("defines every live page once, grouped under its section", () => {
     expect(accountRoutes.map(({ href }) => href)).toEqual([
       "/",
+      "/personal-info",
       "/identity",
       "/email",
       "/club-profile",
-      "/communication-preferences",
-      "/notifications",
-      "/app-preferences",
       "/security",
       "/sessions",
-      "/permissions",
+      "/privacy",
+      "/communication-preferences",
       "/delete-account",
+      "/notifications",
+      "/apps",
+      "/permissions",
+      "/app-preferences",
     ]);
     expect(new Set(accountRoutes.map(({ href }) => href)).size).toBe(accountRoutes.length);
+  });
+
+  it("has the six sections of Google Account, each with its own page", () => {
+    expect(accountSections.map(({ href, label }) => [href, label])).toEqual([
+      ["/", "Ana sayfa"],
+      ["/personal-info", "Kişisel bilgiler"],
+      ["/security", "Güvenlik"],
+      ["/privacy", "Veri ve gizlilik"],
+      ["/notifications", "Bildirimler"],
+      ["/apps", "Uygulamalar"],
+    ]);
+    for (const { href } of accountSections) expect(accountRoute(href).section).toBe(href);
+    expect(accountRoute("/identity").section).toBe("/personal-info");
+    expect(accountRoute("/email").section).toBe("/personal-info");
+    expect(accountRoute("/club-profile").section).toBe("/personal-info");
+    expect(accountRoute("/sessions").section).toBe("/security");
+    expect(accountRoute("/communication-preferences").section).toBe("/privacy");
+    expect(accountRoute("/delete-account").section).toBe("/privacy");
+    expect(accountRoute("/permissions").section).toBe("/apps");
+    expect(accountRoute("/app-preferences").section).toBe("/apps");
   });
 
   it("keeps exact page lookup inside the AccountRoutePath domain", () => {
     expect(accountRoute("/security").href).toBe("/security");
     expectTypeOf(accountRoute).parameter(0).toEqualTypeOf<
       | "/"
+      | "/personal-info"
       | "/identity"
       | "/email"
       | "/club-profile"
-      | "/communication-preferences"
-      | "/notifications"
-      | "/app-preferences"
       | "/security"
       | "/sessions"
-      | "/permissions"
+      | "/privacy"
+      | "/communication-preferences"
       | "/delete-account"
+      | "/notifications"
+      | "/apps"
+      | "/permissions"
+      | "/app-preferences"
     >();
   });
 
@@ -67,11 +94,15 @@ describe("account route metadata", () => {
     expect(redirects).toContainEqual({ source: "/personal-information", destination: "/identity", permanent: true });
   });
 
-  it("drives page chrome from the same metadata used by navigation", () => {
-    const route = accountRoute("/identity");
-    render(<AccountPageHeader route={route} />);
+  it("titles a page from its metadata and links a sub-page back to its section, with no description", () => {
+    const { container, unmount } = render(<AccountPageHeader route={accountRoute("/identity")} />);
+    expect(screen.getByRole("heading", { level: 1, name: "Kimlik" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Kişisel bilgiler" })).toHaveAttribute("href", "/personal-info");
+    expect(container.querySelector("p")).toBeNull();
+    unmount();
 
-    expect(screen.getByRole("heading", { level: 1, name: route.title })).toBeInTheDocument();
-    expect(screen.getByText(route.description)).toBeInTheDocument();
+    render(<AccountPageHeader route={accountRoute("/security")} />);
+    expect(screen.getByRole("heading", { level: 1, name: "Güvenlik" })).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
   });
 });

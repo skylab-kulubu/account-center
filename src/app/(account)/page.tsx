@@ -1,18 +1,7 @@
-import {
-  BellRing,
-  CircleUserRound,
-  IdCard,
-  KeyRound,
-  Mail,
-  MonitorSmartphone,
-  ShieldCheck,
-  SlidersHorizontal,
-  Trash2,
-} from "lucide-react";
 import { AccountDataProblem } from "@/components/account-data-problem";
 import { HomeEmailDeliveryWarning } from "@/components/email-delivery-warning";
 import { HomePrimaryEmailNudge } from "@/components/primary-email-nudge";
-import { AccountPageHeader, SettingsGroup, SettingsRow, StatusBadge } from "@/components/settings";
+import { Overview } from "@/components/overview";
 import { accountRoute } from "@/config/account-routes";
 import { loadOverview } from "@/server/keycloak-account/page-data";
 
@@ -22,107 +11,15 @@ export const metadata = { title: route.documentTitle };
 
 export default async function OverviewPage() {
   const data = await loadOverview();
-  const displayName = data.ok
-    ? [data.value.profile.firstName, data.value.profile.lastName].filter(Boolean).join(" ") || "SKY LAB hesabı"
-    : null;
-  return (
-    <div className="page-stack">
-      <AccountPageHeader route={route} />
-
-      {data.ok ? (
-        <section className="identity-card" aria-labelledby="identity-heading">
-          <span className="identity-card__avatar" aria-hidden="true">
-            <CircleUserRound size={27} strokeWidth={1.6} />
-          </span>
-          <span className="identity-card__copy">
-            <span id="identity-heading">{displayName}</span>
-            <small>{data.value.profile.email ?? "Birincil e-posta tanımlı değil"}</small>
-          </span>
-          <StatusBadge tone={data.value.profile.emailVerified ? "positive" : "warning"}>
-            {data.value.profile.emailVerified ? "E-posta doğrulandı" : "E-posta doğrulanmadı"}
-          </StatusBadge>
-        </section>
-      ) : <AccountDataProblem problem={data.problem} retryHref="/" />}
-
-      <HomeEmailDeliveryWarning />
-      <HomePrimaryEmailNudge />
-
-      <SettingsGroup title="Hesap ayarları" description="En sık kullanılan hesap ve güvenlik alanları.">
-        <SettingsRow
-          href="/identity"
-          icon={<CircleUserRound aria-hidden="true" size={19} />}
-          title="Kimlik"
-          description="Adını, kullanıcı adını ve YTÜ hesabının durumunu yönet."
-        />
-        <SettingsRow
-          href="/email"
-          icon={<Mail aria-hidden="true" size={19} />}
-          title="E-posta ve giriş"
-          description="Kişisel e-posta ekle, birincil adresini seç."
-        />
-        <SettingsRow
-          href="/club-profile"
-          icon={<IdCard aria-hidden="true" size={19} />}
-          title="Kulüp profili"
-          description="SKY numaran, öğrenci kartın, kulüp bilgilerin ve profil fotoğrafın."
-        />
-        <SettingsRow
-          href="/communication-preferences"
-          icon={<BellRing aria-hidden="true" size={19} />}
-          title="İletişim tercihleri"
-          description="Kulüpten ve ekiplerinden hangi duyuru ve haber postalarını alacağını seç."
-        />
-        <SettingsRow
-          href="/app-preferences"
-          icon={<SlidersHorizontal aria-hidden="true" size={19} />}
-          title="Uygulama ayarları"
-          description="Uygulamaların sakladığı görünüm ayarlarını gör ve sıfırla."
-        />
-        <SettingsRow
-          href="/security"
-          icon={<KeyRound aria-hidden="true" size={19} />}
-          title="Giriş ve güvenlik"
-          description="Parola, passkey ve doğrulama uygulamasını buradan yönet."
-        />
-        <SettingsRow
-          href="/sessions"
-          icon={<MonitorSmartphone aria-hidden="true" size={19} />}
-          title="Oturumlar ve cihazlar"
-          description="Hesabının açık olduğu cihazları denetle."
-        />
-        <SettingsRow
-          href="/permissions"
-          icon={<ShieldCheck aria-hidden="true" size={19} />}
-          title="Yetkilerim"
-          description="Takımlarını, yetki seviyeni ve uygulama yetkilerini gör."
-        />
-      </SettingsGroup>
-
-      <aside className="security-note">
-        <ShieldCheck aria-hidden="true" size={19} />
-        <span>
-          <strong>
-            {data.ok && !data.value.authentication.otpConfigured && data.value.authentication.passkeyCount === 0
-              ? "Hesabına ek bir giriş yöntemi eklemeni öneriyoruz."
-              : "Kimlik bilgilerin tarayıcıya kaydedilmez."}
-          </strong>
-          <small>
-            {data.ok && !data.value.authentication.otpConfigured && data.value.authentication.passkeyCount === 0
-              ? "Bir passkey veya iki adımlı doğrulama hesabının güvenliğini artırır."
-              : "Hesap Merkezi güvenli, sunucu taraflı oturum kullanır."}
-          </small>
-        </span>
-      </aside>
-
-      <SettingsGroup title="Hesap yönetimi">
-        <SettingsRow
-          href="/delete-account"
-          icon={<Trash2 aria-hidden="true" size={19} />}
-          title="Hesabı sil"
-          description="Kalıcı silme sürecini ve sonuçlarını incele."
-          tone="danger"
-        />
-      </SettingsGroup>
-    </div>
-  );
+  if (!data.ok) {
+    return (
+      <div className="page-stack">
+        <h1 className="sr-only">{route.title}</h1>
+        <AccountDataProblem problem={data.problem} retryHref="/" />
+        <HomeEmailDeliveryWarning />
+        <HomePrimaryEmailNudge />
+      </div>
+    );
+  }
+  return <Overview overview={data.value} />;
 }

@@ -80,18 +80,16 @@ describe("Kulüp profili page", () => {
     render(await ClubProfilePage());
 
     expect(screen.getByRole("heading", { level: 1, name: "Kulüp profili" })).toBeInTheDocument();
-    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
     expect(screen.getByText("SKY-0000042")).toBeInTheDocument();
     expect(screen.getByText("Öğrenci kartı bağlı")).toBeInTheDocument();
     expect(screen.getByText(/SkyPass ekranından bağlayabilir/)).toBeInTheDocument();
     expect(screen.getByText("Okul e-postası")).toBeInTheDocument();
     expect(screen.getByText("YTÜ hesabından gelir")).toBeInTheDocument();
     expect(screen.getByText(/\+905551112233/)).toBeInTheDocument();
-    expect(screen.getByText(/Yönetim ekibi günceller; doğrulama geldiğinde buradan düzenleyebileceksin/)).toBeInTheDocument();
+    expect(screen.getByText("Yönetim ekibi günceller")).toBeInTheDocument();
     const editor = screen.getByTestId("club-profile-editor");
     expect(editor).toHaveAttribute("data-csrf", "session-bound-csrf");
     expect(editor).toHaveTextContent("Elektrik-Elektronik Fakültesi");
-    expect(screen.getByText(/yeniden doğrulama istemez/)).toBeInTheDocument();
   });
 
   it("shows the Google Wallet section only while core offers it", async () => {
@@ -129,7 +127,8 @@ describe("Kulüp profili page", () => {
     render(await ClubProfilePage());
 
     expect(screen.getByText("Öğrenci kartı bağlı değil")).toBeInTheDocument();
-    expect(screen.getByText(/Kayıtlı değil · Yönetim ekibi günceller/)).toBeInTheDocument();
+    expect(screen.getAllByText("Kayıtlı değil").length).toBeGreaterThan(0);
+    expect(screen.getByText("Yönetim ekibi günceller")).toBeInTheDocument();
     expect(screen.getByText("Henüz verilmedi")).toBeInTheDocument();
     expect(document.querySelector('input[name="phone"], input[name="skyNumber"], input[name="firstName"]')).toBeNull();
   });
@@ -140,8 +139,7 @@ describe("Kulüp profili page", () => {
 
     const notice = screen.getByRole("status");
     expect(notice).toHaveTextContent("Kulüp profili bu ortamda kapalı");
-    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
-    expect(screen.getAllByText("ada@std.yildiz.edu.tr")).toHaveLength(2);
+    expect(screen.getAllByText("ada@std.yildiz.edu.tr")).toHaveLength(1);
     expect(screen.getByText("SKY-0000042")).toBeInTheDocument();
     expect(screen.getAllByText("Bu ortamda kapalı")).toHaveLength(2);
     expect(screen.queryByTestId("club-profile-editor")).not.toBeInTheDocument();
@@ -165,8 +163,7 @@ describe("Kulüp profili page", () => {
     const notice = screen.getByRole("status");
     expect(notice).toHaveTextContent("Kulüp profiline şu anda ulaşılamıyor");
     expect(within(notice).getByRole("link", { name: "Yeniden dene" })).toHaveAttribute("href", "/club-profile");
-    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
-    expect(screen.getAllByText("ada@std.yildiz.edu.tr")).toHaveLength(2);
+    expect(screen.getAllByText("ada@std.yildiz.edu.tr")).toHaveLength(1);
     expect(screen.getAllByText("Şu anda görüntülenemiyor")).toHaveLength(2);
     expect(screen.queryByTestId("club-profile-editor")).not.toBeInTheDocument();
   });
@@ -198,7 +195,6 @@ describe("Kulüp profili page", () => {
     }));
     render(await ClubProfilePage());
 
-    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", "/login?returnTo=%2Fclub-profile");
   });
 });

@@ -17,7 +17,7 @@ const sessionCookieName = "__Host-sky-account";
 const sudoPassword = "hunter2-correct-horse-staple";
 const schoolEmail = "ada@std.yildiz.edu.tr";
 const personalEmail = "ada.lovelace@example.com";
-const nudgeTitle = "Mezun olunca okul postan kapanabilir";
+const nudgeTitle = "Okul adresin kapanırsa hesabına ulaşamayabilirsin";
 
 type EmailState = {
   email: string | null;
@@ -182,7 +182,7 @@ test("\"Bir daha gösterme\" stores the dismissal for the person through the rea
   await nudge.getByRole("button", { name: "Bir daha gösterme" }).click();
   expect((await answer).status()).toBe(204);
 
-  const status = page.getByText("Bu öneriyi bir daha göstermeyeceğiz.", { exact: false });
+  const status = page.getByText("Bu öneri bir daha gösterilmeyecek.", { exact: false });
   await expect(status).toBeVisible();
   await expect(status).toBeFocused();
   await expect(nudge).toHaveCount(0);

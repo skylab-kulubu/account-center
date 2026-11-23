@@ -103,7 +103,6 @@ describe("SecurityManager", () => {
     expect(screen.getByText("Tanımlı değil")).toBeInTheDocument();
     expect(screen.getByText("Tanımlı bir doğrulama uygulaması yok.")).toBeInTheDocument();
     expect(screen.getByText("Kayıtlı bir passkey yok.")).toBeInTheDocument();
-    expect(screen.getByText("Hesabına ek bir giriş yöntemi eklemeni öneriyoruz.")).toBeInTheDocument();
   });
 
   it("shows a retryable card when the inventory cannot be read and redirects on 401", async () => {

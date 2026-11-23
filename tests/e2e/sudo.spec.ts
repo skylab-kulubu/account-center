@@ -136,7 +136,7 @@ test("password sudo shows the server's Turkish rejection, then verifies and keep
   });
 
   await gotoAuthenticatedPage(page, "/security");
-  await expect(page.getByRole("heading", { name: "Giriş ve güvenlik" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Güvenlik" })).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   const dialog = await openSudoDialog(page);
