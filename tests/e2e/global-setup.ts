@@ -23,6 +23,7 @@ const pages = [
   "/club-profile",
   "/communication-preferences",
   "/notifications",
+  "/tickets",
   "/app-preferences",
   "/delete-account",
   "/account-deletion",

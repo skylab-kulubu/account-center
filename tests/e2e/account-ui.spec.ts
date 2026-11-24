@@ -24,6 +24,7 @@ const routes = [
 const contractRoutes = [
   { href: "/communication-preferences", heading: "İletişim tercihleri" },
   { href: "/notifications", heading: "Bildirimler" },
+  { href: "/tickets", heading: "Biletlerim" },
   { href: "/app-preferences", heading: "Uygulama ayarları" },
 ] as const;
 

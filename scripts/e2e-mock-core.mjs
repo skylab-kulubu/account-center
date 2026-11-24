@@ -765,6 +765,21 @@ export function startMockCore({
       if (url.pathname.startsWith("/v1/users/me/consents")) {
         return ownConsents(request, response, url, claims.sub, await readBody(request));
       }
+      // Biletlerim: one upcoming ticket the holder may cancel; the cancel answers it cancelled
+      if (url.pathname === "/v1/tickets/me" && request.method === "GET") {
+        return json(response, 200, [{
+          id: "5d0c2f9e-0000-4000-8000-000000000001",
+          status: "active",
+          code: "K7M2-QX9F",
+          ticketUrl: "https://yildizskylab.com/bilet/K7M2QXZFABCDEFGHJKLMNPQRST",
+          checkIns: [],
+          cancellable: true,
+          event: { name: "Yapay Zekâ Atölyesi", startDate: "2099-12-03T15:00:00Z", endDate: "2099-12-03T18:00:00Z", location: "B-112", status: "published" },
+        }]);
+      }
+      if (/^\/v1\/tickets\/[0-9a-f-]{36}\/cancel$/.test(url.pathname) && request.method === "POST") {
+        return json(response, 200, { status: "cancelled" });
+      }
       const user = userFor(claims.sub);
       const body = await readBody(request);
       const record = (extra = {}) => user.requests.push({ method: request.method, path: url.pathname, ...extra });
