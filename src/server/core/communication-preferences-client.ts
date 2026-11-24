@@ -5,13 +5,8 @@ import {
   isPreferenceCategory,
   MAX_PREFERENCE_CHANGES,
   parseCommunicationPreferencesView,
-  parsePartialTrackingAnswer,
 } from "@/lib/communication-preferences";
-import type {
-  CommunicationPreferencesView,
-  PartialTrackingAnswer,
-  PreferenceUpdate,
-} from "@/lib/communication-preferences";
+import type { CommunicationPreferencesView, PreferenceChange } from "@/lib/communication-preferences";
 import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 /**
@@ -72,12 +67,8 @@ export class CoreCommunicationPreferencesError extends Error {
 
 export interface CoreCommunicationPreferencesClient {
   read(accessToken: string): Promise<CommunicationPreferencesView>;
-  /**
-   * Writes the changes on the e-mail channel and the tracking switch in one
-   * transaction and answers the new screen, or, for the tracking switch
-   * alone written while Keycloak did not answer core, the switch alone.
-   */
-  update(accessToken: string, update: PreferenceUpdate): Promise<CommunicationPreferencesView | PartialTrackingAnswer>;
+  /** Writes the changes on the e-mail channel in one transaction and answers the new screen. */
+  update(accessToken: string, changes: PreferenceChange[]): Promise<CommunicationPreferencesView>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -175,22 +166,15 @@ export function parseCoreScreen(value: unknown): CommunicationPreferencesView {
     teams: value.teams.map((row) => rowOf(row, 0)),
     following: value.following.map((row) => rowOf(row, 0)),
     followable: value.followable,
-    // A core before the tracking switch leaves it out; the parser reads that as none.
-    tracking: value.tracking,
   };
   const view = parseCommunicationPreferencesView(projected);
   if (!view) throw new CoreCommunicationPreferencesError("contract");
   return view;
 }
 
-/** Core's PUT body: `items`, `tracking` or both, never neither (core `docs/communication-preferences.md`). */
-function requestBody(update: PreferenceUpdate) {
-  const { items: changes, tracking } = update;
-  if (
-    !Array.isArray(changes) || changes.length > MAX_PREFERENCE_CHANGES ||
-    (tracking !== undefined && typeof tracking !== "boolean") ||
-    (changes.length === 0 && tracking === undefined)
-  ) {
+/** Core's PUT body: at least one item (core `docs/communication-preferences.md`). */
+function requestBody(changes: PreferenceChange[]) {
+  if (!Array.isArray(changes) || changes.length === 0 || changes.length > MAX_PREFERENCE_CHANGES) {
     throw new CoreCommunicationPreferencesError("invalid_input");
   }
   const seen = new Set<string>();
@@ -201,10 +185,7 @@ function requestBody(update: PreferenceUpdate) {
     seen.add(category);
     return { category, channel: COMMUNICATION_CHANNEL, enabled };
   });
-  return {
-    ...(items.length > 0 ? { items } : {}),
-    ...(tracking !== undefined ? { tracking: { enabled: tracking } } : {}),
-  };
+  return { items };
 }
 
 export class CoreCommunicationPreferencesHttpClient implements CoreCommunicationPreferencesClient {
@@ -247,12 +228,10 @@ export class CoreCommunicationPreferencesHttpClient implements CoreCommunication
     return parseCoreScreen(await this.#request("GET", accessToken));
   }
 
-  async update(accessToken: string, update: PreferenceUpdate) {
-    const body = await this.#request("PUT", accessToken, JSON.stringify(requestBody(update)));
-    if (!isRecord(body) || body.partial !== true) return parseCoreScreen(body);
-    // Only a change of the tracking switch alone may come back partial.
-    const partial = update.items.length === 0 ? parsePartialTrackingAnswer(body) : null;
-    if (!partial) throw new CoreCommunicationPreferencesError("contract");
-    return partial;
+  async update(accessToken: string, changes: PreferenceChange[]) {
+    const body = await this.#request("PUT", accessToken, JSON.stringify(requestBody(changes)));
+    // Core answers `partial` only to a tracking-only change, which this client never sends.
+    if (isRecord(body) && body.partial === true) throw new CoreCommunicationPreferencesError("contract");
+    return parseCoreScreen(body);
   }
 }
