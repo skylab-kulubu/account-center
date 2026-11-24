@@ -67,6 +67,7 @@ const allowedReturnPaths = new Set([
   "/club-profile",
   "/communication-preferences",
   "/notifications",
+  "/tickets",
   "/app-preferences",
   "/delete-account",
 ]);
