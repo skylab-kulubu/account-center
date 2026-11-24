@@ -32,9 +32,10 @@ import { join } from "node:path";
  * first screen match `tests/fixtures/core-communication-preferences.json`.
  * `PUT /__e2e/communication-preferences/{sub}` sets `off` (core without its
  * key: every call `503 communication_preferences_unavailable`);
- * `GET /__e2e/communication-preferences/{sub}` shows the choices, the
- * tracking switch (`null` without a row; mode `opt_out`, the person a
- * Member) and the PUT bodies core received.
+ * `GET /__e2e/communication-preferences/{sub}` shows the choices and the
+ * PUT bodies core received. The screen carries core's open and click
+ * tracking member as core does; Account Center no longer shows or writes it,
+ * so a PUT with anything but `items` is refused.
  *
  * The person's own contact consents (`/v1/users/me/consents`, core
  * `docs/contact-consents.md`) start empty: `POST` records an active grant
@@ -231,7 +232,7 @@ function preferenceSeen(id) {
     preferenceTeamById.get(id).listed !== false;
 }
 
-function preferenceScreen(choices, tracking = null) {
+function preferenceScreen(choices) {
   const master = choices.has("all") ? choices.get("all") : true;
   const cell = (category, enabled, origin, from) => {
     const value = { explicit: choices.has(category) ? choices.get(category) : null, enabled, origin };
@@ -291,7 +292,7 @@ function preferenceScreen(choices, tracking = null) {
     teams,
     following,
     followable,
-    tracking: { enabled: tracking ?? true, effective: tracking ?? true, mode: "opt_out" },
+    tracking: { enabled: true, effective: true, mode: "opt_out" },
   };
 }
 
@@ -331,7 +332,7 @@ export function startMockCore({
   const preferencesFor = (sub) => {
     let state = preferences.get(sub);
     if (!state) {
-      state = { choices: new Map(initialPreferenceChoices), tracking: null, off: false, puts: [] };
+      state = { choices: new Map(initialPreferenceChoices), off: false, puts: [] };
       preferences.set(sub, state);
     }
     return state;
@@ -484,7 +485,7 @@ export function startMockCore({
     if (state.off) return preferenceProblem(response, 503, "communication_preferences_unavailable");
     const answer = () => {
       response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-      response.end(JSON.stringify(preferenceScreen(state.choices, state.tracking)));
+      response.end(JSON.stringify(preferenceScreen(state.choices)));
     };
     if (request.method === "GET") return answer();
     if (request.method !== "PUT") return problem(response, 405, "Method Not Allowed");
@@ -498,13 +499,10 @@ export function startMockCore({
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       return preferenceProblem(response, 400, "communication_preference_invalid");
     }
-    const items = parsed.items ?? [];
-    const tracking = parsed.tracking;
+    const items = parsed.items;
     if (
-      !Array.isArray(items) || items.length > 200 ||
-      Object.keys(parsed).some((key) => key !== "items" && key !== "tracking") ||
-      (tracking !== undefined && typeof tracking?.enabled !== "boolean") ||
-      (items.length === 0 && tracking === undefined)
+      !Array.isArray(items) || items.length === 0 || items.length > 200 ||
+      Object.keys(parsed).some((key) => key !== "items")
     ) {
       return preferenceProblem(response, 400, "communication_preference_invalid");
     }
@@ -526,7 +524,6 @@ export function startMockCore({
       if (item.enabled === null) state.choices.delete(item.category);
       else state.choices.set(item.category, item.enabled);
     }
-    if (tracking !== undefined) state.tracking = tracking.enabled;
     return answer();
   }
 
@@ -680,7 +677,6 @@ export function startMockCore({
         return json(response, 200, {
           off: state.off,
           choices: Object.fromEntries(state.choices),
-          tracking: state.tracking,
           puts: state.puts,
         });
       }
