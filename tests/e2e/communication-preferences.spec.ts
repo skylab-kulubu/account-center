@@ -17,11 +17,9 @@ const teams = {
 type PreferenceState = {
   off: boolean;
   choices: Record<string, boolean>;
-  tracking: boolean | null;
-  puts: Array<{ items?: unknown[]; tracking?: unknown }>;
+  puts: Array<{ items?: unknown[] }>;
 };
 
-const trackingLabel = "Postalarımın açılmasını ve tıklamalarımı izleme";
 const promotionalBox = "SKY LAB'dan tanıtım içerikli e-postalar (indirim kodu, şirket iş ilanı, çekiliş gibi) almak istiyorum.";
 
 function collectPageErrors(page: Page) {
@@ -141,20 +139,12 @@ test("the preferences screen writes each switch to core under its own category",
       expect(Object.keys(state.choices).some((key) => key.includes(teams.airlab))).toBe(false);
     });
 
-    await test.step("checking the tracking switch turns tracking off", async () => {
-      const tracking = page.getByRole("switch", { name: trackingLabel });
-      await expect(tracking).not.toBeChecked();
-      await expect(page.getByRole("region", { name: "Postalarımın açılma ve tıklama bilgisi" })
-        .getByRole("link", { name: "KVKK aydınlatma metni" }))
-        .toHaveAttribute("href", "https://yildizskylab.com/kvkk-metni.pdf");
-      await savePreference(page, () => tracking.click());
-      await expect(tracking).toBeChecked();
-      await expect(page.getByRole("status").filter({ hasText: "Açılma ve tıklama izlemesi kapatıldı." })).toBeVisible();
+    await test.step("no open and click tracking switch, and no write carries one", async () => {
+      await expect(page.getByRole("switch", { name: /izleme/ })).toHaveCount(0);
+      await expect(page.getByText("Postalarımın açılma ve tıklama bilgisi")).toHaveCount(0);
       const state = await preferenceState(inspector, fixture.subject);
-      expect(state.tracking).toBe(false);
-      expect(state.puts.at(-1)).toEqual({ tracking: { enabled: false } });
-      await page.reload();
-      await expect(page.getByRole("switch", { name: trackingLabel })).toBeChecked();
+      expect(state.puts.length).toBeGreaterThan(0);
+      expect(state.puts.every((put) => Object.keys(put).join() === "items")).toBe(true);
     });
 
     expect(errors).toEqual([]);
