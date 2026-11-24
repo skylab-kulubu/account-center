@@ -23,6 +23,7 @@ describe("account route metadata", () => {
       "/communication-preferences",
       "/delete-account",
       "/notifications",
+      "/tickets",
       "/apps",
       "/permissions",
       "/app-preferences",
@@ -30,13 +31,14 @@ describe("account route metadata", () => {
     expect(new Set(accountRoutes.map(({ href }) => href)).size).toBe(accountRoutes.length);
   });
 
-  it("has the six sections of Google Account, each with its own page", () => {
+  it("has the six sections of Google Account and Biletlerim, each with its own page", () => {
     expect(accountSections.map(({ href, label }) => [href, label])).toEqual([
       ["/", "Ana sayfa"],
       ["/personal-info", "Kişisel bilgiler"],
       ["/security", "Güvenlik"],
       ["/privacy", "Veri ve gizlilik"],
       ["/notifications", "Bildirimler"],
+      ["/tickets", "Biletlerim"],
       ["/apps", "Uygulamalar"],
     ]);
     for (const { href } of accountSections) expect(accountRoute(href).section).toBe(href);
@@ -64,6 +66,7 @@ describe("account route metadata", () => {
       | "/communication-preferences"
       | "/delete-account"
       | "/notifications"
+      | "/tickets"
       | "/apps"
       | "/permissions"
       | "/app-preferences"

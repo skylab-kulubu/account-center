@@ -26,7 +26,7 @@ describe("AccountShell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the six sections, marks the current one and keeps the sign-out form", () => {
+  it("shows the sections, marks the current one and keeps the sign-out form", () => {
     render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
 
     const navigation = screen.getByRole("navigation", { name: "Hesap ayarları" });
@@ -35,6 +35,7 @@ describe("AccountShell", () => {
       "Kişisel bilgiler",
       "Güvenlik",
       "Veri ve gizlilik",
+      "Biletlerim",
       "Uygulamalar",
     ]);
     const nav = within(navigation);

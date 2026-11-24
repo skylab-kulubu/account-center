@@ -688,6 +688,32 @@ body {
   font-size: 13px;
 }
 
+/* Biletlerim */
+.tickets__heading {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tickets__item {
+  padding: 14px 16px;
+}
+
+.tickets__item .status-badge {
+  white-space: nowrap;
+}
+
+.tickets__code {
+  margin-left: 8px;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  color: var(--subtle-foreground);
+  font-size: 13px;
+}
+
+.tickets__actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
 /* Ön yükleme iskeleti ve diyaloglar token'la */
 .sudo-tabs {
   background: var(--muted);
@@ -954,6 +980,19 @@ body {
   }
 
   .inbox__item > div > div:last-child:has(.inbox__actions) {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .tickets__item > div:not([class*="absolute"]) {
+    flex-wrap: wrap;
+  }
+
+  .tickets__item .truncate {
+    white-space: normal;
+  }
+
+  .tickets__item > div > div:last-child:has(.tickets__actions) {
     width: 100%;
     justify-content: flex-end;
   }

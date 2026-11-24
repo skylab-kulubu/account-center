@@ -34,6 +34,7 @@ import { CoreCommunicationPreferencesHttpClient } from "@/server/core/communicat
 import { CoreConsentsHttpClient } from "@/server/core/consents-client";
 import { CoreProfileHttpClient } from "@/server/core/profile-client";
 import { CoreSkyPassWalletHttpClient } from "@/server/core/skypass-wallet-client";
+import { CoreTicketsHttpClient } from "@/server/core/tickets-client";
 import { SkyAccountHttpClient } from "@/server/sky-account/client";
 import { SkyMailInboxHttpClient } from "@/server/skymail/inbox-client";
 import { NoticeDismissals, PostgresNoticeDismissalRepository } from "@/server/notice-dismissals/store";
@@ -83,6 +84,7 @@ function createAuthServices() {
   const noticeDismissals = new NoticeDismissals(new PostgresNoticeDismissalRepository(pool), config.sessionHmacKey);
   const coreProfile = config.coreApiUrl ? new CoreProfileHttpClient(config.coreApiUrl) : null;
   const coreSkyPassWallet = config.coreApiUrl ? new CoreSkyPassWalletHttpClient(config.coreApiUrl) : null;
+  const coreTickets = config.coreApiUrl ? new CoreTicketsHttpClient(config.coreApiUrl) : null;
   const coreCommunicationPreferences = config.coreApiUrl
     ? new CoreCommunicationPreferencesHttpClient(config.coreApiUrl)
     : null;
@@ -112,6 +114,7 @@ function createAuthServices() {
     skyAccount,
     coreProfile,
     coreSkyPassWallet,
+    coreTickets,
     coreCommunicationPreferences,
     coreConsents,
     coreAppPreferences,

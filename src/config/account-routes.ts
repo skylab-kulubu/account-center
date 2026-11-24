@@ -5,12 +5,13 @@ import {
   LayoutGrid,
   ShieldCheck,
   SlidersHorizontal,
+  Ticket,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 /**
- * Account Center's pages. Six sections, as in Google Account (Ana sayfa, Kişisel bilgiler,
- * Güvenlik, Veri ve gizlilik, Bildirimler, Uygulamalar); each section has its own page and may
+ * Account Center's pages. The six sections of Google Account (Ana sayfa, Kişisel bilgiler,
+ * Güvenlik, Veri ve gizlilik, Bildirimler, Uygulamalar) and the club's own Biletlerim; each section has its own page and may
  * hold sub-pages. Sub-pages keep the addresses they always had (`/identity`, `/email`, …), so
  * every existing link, mail and the YTÜ and Sudo mode returns land where they did; only the menu
  * places them under their section.
@@ -27,11 +28,19 @@ export type AccountRoutePath =
   | "/communication-preferences"
   | "/delete-account"
   | "/notifications"
+  | "/tickets"
   | "/apps"
   | "/permissions"
   | "/app-preferences";
 
-export type AccountSectionPath = "/" | "/personal-info" | "/security" | "/privacy" | "/notifications" | "/apps";
+export type AccountSectionPath =
+  | "/"
+  | "/personal-info"
+  | "/security"
+  | "/privacy"
+  | "/notifications"
+  | "/tickets"
+  | "/apps";
 
 export type AccountRoute = Readonly<{
   href: AccountRoutePath;
@@ -54,6 +63,7 @@ export const accountSections = [
   { href: "/security", label: "Güvenlik", icon: ShieldCheck },
   { href: "/privacy", label: "Veri ve gizlilik", icon: SlidersHorizontal },
   { href: "/notifications", label: "Bildirimler", icon: Bell },
+  { href: "/tickets", label: "Biletlerim", icon: Ticket },
   { href: "/apps", label: "Uygulamalar", icon: LayoutGrid },
 ] as const satisfies readonly AccountSection[];
 
@@ -74,6 +84,7 @@ export const accountRoutes = [
   },
   { href: "/delete-account", section: "/privacy", documentTitle: "Hesabı sil", title: "Hesabı sil", tone: "danger" },
   { href: "/notifications", section: "/notifications", documentTitle: "Bildirimler", title: "Bildirimler" },
+  { href: "/tickets", section: "/tickets", documentTitle: "Biletlerim", title: "Biletlerim" },
   { href: "/apps", section: "/apps", documentTitle: "Uygulamalar", title: "Uygulamalar" },
   { href: "/permissions", section: "/apps", documentTitle: "Yetkiler", title: "Yetkiler" },
   { href: "/app-preferences", section: "/apps", documentTitle: "Uygulama ayarları", title: "Uygulama ayarları" },
