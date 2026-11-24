@@ -961,7 +961,7 @@ describe("EmailManager", () => {
     });
   });
 
-  describe("SkyMail delivery warning", () => {
+  describe("SkyNotify delivery warning", () => {
     const warning = "Bu adrese posta ulaşmıyor.";
 
     function rowOf(address: string) {
@@ -1017,7 +1017,7 @@ describe("EmailManager", () => {
       expect(within(rowOf("ada@std.yildiz.edu.tr")).queryByText(warning)).not.toBeInTheDocument();
     });
 
-    it("works as before when the answer carries no delivery state (an older BFF or SkyMail unreachable)", async () => {
+    it("works as before when the answer carries no delivery state (an older BFF or SkyNotify unreachable)", async () => {
       mockApi({ email: [{ body: payload(withPersonal) }] });
       render(<EmailManager />);
       expect(await screen.findByRole("heading", { level: 2, name: "Kişisel e-posta" })).toBeInTheDocument();

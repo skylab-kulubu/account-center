@@ -7,7 +7,7 @@ import { emailDeliveryCopy, parseUndeliverable } from "@/lib/email-delivery";
 import { isObject, responseJson } from "@/lib/security-client";
 
 /**
- * The overview's line when SkyMail no longer mails one of the person's
+ * The overview's line when SkyNotify no longer mails one of the person's
  * addresses, read after the page is shown from `GET /api/account/email/delivery`
  * (which answers `200` with an empty list for any failure behind the session).
  * It links to the e-mail page, where the address carries the same warning.

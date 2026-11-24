@@ -78,10 +78,10 @@ const permissionsFixture: PermissionsPageData = {
         unlabelledCount: 1,
       },
       {
-        clientId: "skymail",
-        name: "SkyMail",
+        clientId: "skynotify",
+        name: "SkyNotify",
         description: "Kulübün toplu e-posta ve duyuru aracı.",
-        permissions: [{ code: "skymail:access", label: "SkyMail’e giriş", description: "SkyMail arayüzünü açabilirsin." }],
+        permissions: [{ code: "skynotify:access", label: "SkyNotify’a giriş", description: "SkyNotify arayüzünü açabilirsin." }],
         unlabelledCount: 0,
       },
     ],
@@ -91,7 +91,7 @@ const permissionsFixture: PermissionsPageData = {
         { clientId: "core", code: "certificate:issue" },
         { clientId: "core", code: "events:write" },
         { clientId: "core", code: "url:create" },
-        { clientId: "skymail", code: "skymail:access" },
+        { clientId: "skynotify", code: "skynotify:access" },
       ],
     },
   },
@@ -166,7 +166,7 @@ describe("Account REST-backed pages", () => {
     expect(nudge.compareDocumentPosition(screen.getByRole("heading", { name: "Güvenlik durumu" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows one line linking to the e-mail page when SkyMail no longer mails an address", async () => {
+  it("shows one line linking to the e-mail page when SkyNotify no longer mails an address", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => new Response(JSON.stringify(
       String(input) === "/api/account/email/delivery" ? { undeliverable: ["personal"] } : { primaryEmailNudge: null },
     ), { status: 200, headers: { "content-type": "application/json" } }));
@@ -228,12 +228,12 @@ describe("Account REST-backed pages", () => {
     expect(screen.getByText("Kısa bağlantı oluşturma")).toBeInTheDocument();
     expect(screen.getByText("Sertifika verme")).toBeInTheDocument();
     expect(screen.getByText(/1 teknik yetki daha var/)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "SkyMail" })).toBeInTheDocument();
-    expect(screen.getByText("SkyMail’e giriş")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "SkyNotify" })).toBeInTheDocument();
+    expect(screen.getByText("SkyNotify’a giriş")).toBeInTheDocument();
     expect(document.querySelector("form, button")).toBeNull();
 
     const outside = textOutsideTechnicalDetails();
-    for (const code of ["url:create", "certificate:issue", "events:write", "skymail:access", "/UYELER"]) {
+    for (const code of ["url:create", "certificate:issue", "events:write", "skynotify:access", "/UYELER"]) {
       expect(outside).not.toContain(code);
     }
     const details = document.querySelector("details");

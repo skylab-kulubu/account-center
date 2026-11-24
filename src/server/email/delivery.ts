@@ -3,30 +3,30 @@ import "server-only";
 import { shownUndeliverable } from "@/lib/email-delivery";
 import type { UndeliverableEmailKind } from "@/lib/email-delivery";
 import type { EmailView } from "@/server/email/view";
-import { namesSkyMail } from "@/server/inbox/service";
+import { namesSkyNotify } from "@/server/inbox/service";
 import type { AccountReadService } from "@/server/keycloak-account/service";
-import { SkyMailInboxError } from "@/server/skymail/inbox-client";
-import type { SkyMailEmailDeliveryClient } from "@/server/skymail/inbox-client";
+import { SkyNotifyInboxError } from "@/server/skynotify/inbox-client";
+import type { SkyNotifyEmailDeliveryClient } from "@/server/skynotify/inbox-client";
 
 type SessionIdentity = { id: string; subject: string };
 
 export type EmailDeliveryDependencies = {
   account: Pick<AccountReadService, "accessToken">;
-  /** `null` when `SKYMAIL_API_URL` is unset. */
-  skymailEmailDelivery?: SkyMailEmailDeliveryClient | null;
+  /** `null` when `SKYNOTIFY_API_URL` is unset. */
+  skynotifyEmailDelivery?: SkyNotifyEmailDeliveryClient | null;
 };
 
-/** What SkyMail answered and the token it accepted (the refreshed one after a `401`). */
+/** What SkyNotify answered and the token it accepted (the refreshed one after a `401`). */
 export type UndeliverableRead = { addresses: string[]; accessToken: string };
 
 /**
- * The addresses SkyMail no longer mails for this person, read with the
+ * The addresses SkyNotify no longer mails for this person, read with the
  * session's own token like the inbox (`InboxService`): nothing is sent
- * without SkyMail configured or a token naming `skymail`, and a SkyMail 401
+ * without SkyNotify configured or a token naming `skynotify`, and a SkyNotify 401
  * is retried once with a force-refreshed token. Every failure is an empty
  * list: the warning is advice and never in the way. Nothing is logged.
  * With `budgetMs`, an answer that takes longer is an empty list as well, so
- * a page that waits for it is never held up by SkyMail.
+ * a page that waits for it is never held up by SkyNotify.
  */
 export async function undeliverableAddresses(
   services: EmailDeliveryDependencies,
@@ -35,16 +35,16 @@ export async function undeliverableAddresses(
   options: { budgetMs?: number } = {},
 ): Promise<UndeliverableRead> {
   const none: UndeliverableRead = { addresses: [], accessToken };
-  const skymail = services.skymailEmailDelivery;
-  if (!skymail || !namesSkyMail(accessToken)) return none;
+  const skynotify = services.skynotifyEmailDelivery;
+  if (!skynotify || !namesSkyNotify(accessToken)) return none;
   const read = (async (): Promise<UndeliverableRead> => {
     try {
       try {
-        return { addresses: await skymail.undeliverableAddresses(accessToken), accessToken };
+        return { addresses: await skynotify.undeliverableAddresses(accessToken), accessToken };
       } catch (error) {
-        if (!(error instanceof SkyMailInboxError) || error.failure !== "unauthorized") throw error;
+        if (!(error instanceof SkyNotifyInboxError) || error.failure !== "unauthorized") throw error;
         const refreshed = await services.account.accessToken(session, { forceRefresh: true });
-        return { addresses: await skymail.undeliverableAddresses(refreshed), accessToken: refreshed };
+        return { addresses: await skynotify.undeliverableAddresses(refreshed), accessToken: refreshed };
       }
     } catch {
       return none;

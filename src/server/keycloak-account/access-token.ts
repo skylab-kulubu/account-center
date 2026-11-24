@@ -11,7 +11,7 @@ const requiredAccountRoles = ["manage-account", "view-profile"] as const;
  * `account-center-account-api` scope (K2 realm reconcile) adds the `core`
  * audience (for the person's own core `/v1/users/me` endpoints) without any
  * core roles, and, once e-skylab-keycloak's iletişim-servisi 04 is released,
- * `skymail` too (the person's own inbox, SkyMail `/v1/me/inbox`, no role).
+ * `skynotify` too (the person's own inbox, SkyNotify `/v1/me/inbox`, no role).
  * Both sets are accepted so that the Keycloak release can follow this one.
  * Matched with set semantics (order-free; a duplicate, missing or extra
  * audience rejects the token). The pre-K2 `account`-only token is rejected on
@@ -19,7 +19,7 @@ const requiredAccountRoles = ["manage-account", "view-profile"] as const;
  */
 export const ACCEPTED_AUDIENCE_SETS = [
   ["account", "core"],
-  ["account", "core", "skymail"],
+  ["account", "core", "skynotify"],
 ] as const;
 
 const MAX_AUTHORIZATION_CLIENTS = 64;
