@@ -694,6 +694,10 @@ body {
   font-weight: 600;
 }
 
+.tickets__heading:not(:first-of-type) {
+  margin-top: 12px;
+}
+
 .tickets__item {
   padding: 14px 16px;
 }

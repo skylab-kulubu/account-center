@@ -85,5 +85,6 @@ describe("tickets", () => {
     expect(ticketStatusLabel({ status: "waitlisted", eventCancelled: false })).toBe("Bekleme listesinde");
     expect(ticketStatusLabel({ status: "cancelled", eventCancelled: false })).toBe("İptal edildi");
     expect(ticketStatusLabel({ status: "active", eventCancelled: true })).toBe("Etkinlik iptal edildi");
+    expect(ticketStatusLabel({ status: "active", eventCancelled: false }, true)).toBe("Etkinlik bitti");
   });
 });

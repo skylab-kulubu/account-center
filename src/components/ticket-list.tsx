@@ -68,8 +68,8 @@ function failureMessage(error: unknown) {
   return problem ? `${problem.title}. ${problem.detail}` : "Bilet iptal edilemedi. Biraz sonra yeniden dene.";
 }
 
-function TicketRow({ ticket, onCancel }: { ticket: AccountTicket; onCancel?: (ticket: AccountTicket) => void }) {
-  const tone = ticket.status === "active" && !ticket.eventCancelled ? "positive" : ticket.status === "waitlisted" ? "warning" : "neutral";
+function TicketRow({ ticket, past = false, onCancel }: { ticket: AccountTicket; past?: boolean; onCancel?: (ticket: AccountTicket) => void }) {
+  const tone = past ? "neutral" : ticket.status === "waitlisted" ? "warning" : "positive";
   return (
     <ListItem
       className="tickets__item"
@@ -80,7 +80,7 @@ function TicketRow({ ticket, onCancel }: { ticket: AccountTicket; onCancel?: (ti
           {ticket.code ? <span className="tickets__code">{ticket.code}</span> : null}
         </>
       }
-      leading={<StatusBadge tone={tone}>{ticketStatusLabel(ticket)}</StatusBadge>}
+      leading={<StatusBadge tone={tone}>{ticketStatusLabel(ticket, past)}</StatusBadge>}
       trailing={
         <span className="tickets__actions">
           {ticket.ticketUrl ? (
@@ -142,7 +142,7 @@ export function TicketList({ initial, csrfToken }: { initial: AccountTicket[]; c
           <h2 className="tickets__heading">Geçmiş</h2>
           <ListPanel framed status={{ kind: "ready" }}>
             {past.map((ticket) => (
-              <TicketRow key={ticket.id} ticket={ticket} />
+              <TicketRow key={ticket.id} past ticket={ticket} />
             ))}
           </ListPanel>
         </>

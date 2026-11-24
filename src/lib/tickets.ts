@@ -137,10 +137,11 @@ export function groupTickets(tickets: readonly AccountTicket[], now: number) {
   return { upcoming, past };
 }
 
-/** What the card says about the ticket. */
-export function ticketStatusLabel(ticket: Pick<AccountTicket, "status" | "eventCancelled">): string {
+/** What the card says about the ticket; `ended`: its Event is over. */
+export function ticketStatusLabel(ticket: Pick<AccountTicket, "status" | "eventCancelled">, ended = false): string {
   if (ticket.status === "cancelled") return "İptal edildi";
   if (ticket.eventCancelled) return "Etkinlik iptal edildi";
+  if (ended) return "Etkinlik bitti";
   return ticket.status === "waitlisted" ? "Bekleme listesinde" : "Etkin";
 }
 
