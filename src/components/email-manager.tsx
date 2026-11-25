@@ -49,7 +49,7 @@ export type EmailPayload = {
   csrfToken: string;
   /** K4c: the nudge the BFF says to show, `null` for none (also for an older BFF without the member). */
   primaryEmailNudge: PrimaryEmailNudge | null;
-  /** Which addresses SkyMail no longer mails; `[]` for none (also for an older BFF without the member). */
+  /** Which addresses SkyNotify no longer mails; `[]` for none (also for an older BFF without the member). */
   undeliverable: UndeliverableEmailKind[];
 };
 

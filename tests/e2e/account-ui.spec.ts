@@ -20,7 +20,7 @@ const routes = [
   { href: "/delete-account", heading: "Hesabı sil" },
 ] as const;
 
-/** Pages that read core or SkyMail: the session carries the contract-shaped token (mock core, `scripts/e2e-mock-core.mjs`). */
+/** Pages that read core or SkyNotify: the session carries the contract-shaped token (mock core, `scripts/e2e-mock-core.mjs`). */
 const contractRoutes = [
   { href: "/communication-preferences", heading: "İletişim tercihleri" },
   { href: "/notifications", heading: "Bildirimler" },
@@ -51,7 +51,7 @@ const profiles: ReadonlyArray<{
 ];
 
 async function installSession(context: BrowserContext, label: string, contract = false) {
-  const fixture = await seedAuthenticatedSession(label, contract ? { contractToken: true, skymailAudience: true } : {});
+  const fixture = await seedAuthenticatedSession(label, contract ? { contractToken: true, skynotifyAudience: true } : {});
   await context.addCookies([{
     name: "__Host-sky-account",
     value: fixture.handle,
@@ -216,7 +216,7 @@ test("every account section and page remains accessible and responsive in the br
   }
 });
 
-test("the core- and SkyMail-backed pages remain accessible and responsive in the browser matrix", async ({
+test("the core- and SkyNotify-backed pages remain accessible and responsive in the browser matrix", async ({
   browser,
 }, testInfo) => {
   test.setTimeout(240_000);

@@ -4,11 +4,11 @@ import type { BrowserContext, Page } from "@playwright/test";
 import { csrfTokenFor, seedAuthenticatedSession } from "./auth-session";
 
 /**
- * SkyMail no longer mails one of the person's addresses (rabbitmq-olaylar 10
+ * SkyNotify no longer mails one of the person's addresses (rabbitmq-olaylar 10
  * and 14): the overview shows one line linking to `/email`, where the
  * address's row carries "Bu adrese posta ulaşmıyor.". The first test goes
- * through the real BFF: the mock serves SkyMail's `GET /v1/me/email-delivery`
- * for the session's `aud skymail` token and, for a `realm-` subject, the
+ * through the real BFF: the mock serves SkyNotify's `GET /v1/me/email-delivery`
+ * for the session's `aud skynotify` token and, for a `realm-` subject, the
  * realm's sky-account identity the BFF matches the addresses against. The
  * overview test answers the BFF reads with `page.route`, like the K4c nudge's
  * (the overview's server-side Account REST read would leave for the real
@@ -42,11 +42,11 @@ async function expectAccessible(page: Page) {
   expect(result.violations, JSON.stringify(result.violations, null, 2)).toEqual([]);
 }
 
-test("/email names the address SkyMail no longer mails, read through the real BFF", async ({ context, page, playwright }, testInfo) => {
+test("/email names the address SkyNotify no longer mails, read through the real BFF", async ({ context, page, playwright }, testInfo) => {
   test.skip(testInfo.project.name === "reduced-motion", "covered by desktop and mobile");
   const fixture = await seedAuthenticatedSession(
     `realm-email-delivery-${testInfo.project.name}-${testInfo.retry}`,
-    { contractToken: true, skymailAudience: true },
+    { contractToken: true, skynotifyAudience: true },
   );
   await addSessionCookie(context, fixture.handle);
   const mock = await playwright.request.newContext({ ignoreHTTPSErrors: true });
@@ -57,7 +57,7 @@ test("/email names the address SkyMail no longer mails, read through the real BF
       data: {
         undeliverable: [
           { address: personalEmail, since: "2026-10-25T09:00:00Z" },
-          // A former address SkyMail still finds by the person's `sub`: no longer theirs, no warning.
+          // A former address SkyNotify still finds by the person's `sub`: no longer theirs, no warning.
           { address: "ada-old@example.invalid", since: "2026-09-01T09:00:00Z" },
         ],
       },
@@ -73,7 +73,7 @@ test("/email names the address SkyMail no longer mails, read through the real BF
     await expect(page.getByRole("group", { name: schoolEmail })).toHaveCount(0);
     await expectAccessible(page);
 
-    // The overview's own read, from the page (the session cookie): only the kind, never SkyMail's address or date.
+    // The overview's own read, from the page (the session cookie): only the kind, never SkyNotify's address or date.
     const overview = await page.evaluate(async () => {
       const response = await fetch("/api/account/email/delivery", { cache: "no-store", credentials: "same-origin" });
       return { status: response.status, cacheControl: response.headers.get("cache-control"), body: await response.text() };

@@ -30,10 +30,10 @@ export type AuthConfig = {
   /** Canonical core origin for the person's own `/v1/users/me` endpoints; `null` keeps club-profile features off. */
   coreApiUrl: URL | null;
   /**
-   * SkyMail's API (`SKYMAIL_API_URL`, e.g. `https://api.yildizskylab.com/api/skymail`) for the
+   * SkyNotify's API (`SKYNOTIFY_API_URL`, e.g. `https://api.yildizskylab.com/api/skynotify`) for the
    * person's in-app inbox ("Bildirimlerim", iletişim-servisi 07); `null` keeps the page off.
    */
-  skymailApiUrl: URL | null;
+  skynotifyApiUrl: URL | null;
   accountErasure:
     | { mode: "off" }
     | { mode: "enforce"; coreApiUrl: URL };
@@ -135,10 +135,10 @@ function coreApiUrlConfig(): URL | null {
 }
 
 /** An HTTPS URL without credentials, query or fragment; a path is kept, written without a trailing slash. */
-function skymailApiUrlConfig(): URL | null {
-  if (!process.env.SKYMAIL_API_URL?.trim()) return null;
-  const value = required("SKYMAIL_API_URL");
-  const url = httpsUrl("SKYMAIL_API_URL");
+function skynotifyApiUrlConfig(): URL | null {
+  if (!process.env.SKYNOTIFY_API_URL?.trim()) return null;
+  const value = required("SKYNOTIFY_API_URL");
+  const url = httpsUrl("SKYNOTIFY_API_URL");
   if (
     url.username ||
     url.password ||
@@ -147,7 +147,7 @@ function skymailApiUrlConfig(): URL | null {
     value.endsWith("/") ||
     value !== `${url.origin}${url.pathname === "/" ? "" : url.pathname}`
   ) {
-    throw new Error("SKYMAIL_API_URL must be a canonical credential-free HTTPS URL without a trailing slash, query or fragment.");
+    throw new Error("SKYNOTIFY_API_URL must be a canonical credential-free HTTPS URL without a trailing slash, query or fragment.");
   }
   return url;
 }
@@ -238,7 +238,7 @@ export function getAuthConfig(): AuthConfig {
     sessionRotationSeconds: 15 * 60,
     previousHandleGraceSeconds: 30,
     coreApiUrl,
-    skymailApiUrl: skymailApiUrlConfig(),
+    skynotifyApiUrl: skynotifyApiUrlConfig(),
     accountErasure: accountErasureConfig(coreApiUrl),
     ytuIdpAlias: ytuIdpAliasConfig(),
   };

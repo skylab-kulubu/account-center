@@ -19,14 +19,14 @@ import { inboxDisabledProblem, toInboxProblem } from "@/server/inbox/problem";
 import type { InboxProblem } from "@/server/inbox/problem";
 import { inboxServiceFor } from "@/server/inbox/service";
 import type { InboxService } from "@/server/inbox/service";
-import { SkyMailInboxError } from "@/server/skymail/inbox-client";
+import { SkyNotifyInboxError } from "@/server/skynotify/inbox-client";
 
 /**
  * Browser BFF routes for the in-app inbox ("Bildirimlerim", iletişim-servisi
- * 07; SkyMail `docs/inbox.md`). Reading needs an active session behind the
+ * 07; SkyNotify `docs/inbox.md`). Reading needs an active session behind the
  * access gate; marking also needs the exact configured origin and the
  * session-bound CSRF proof, like the preference writes. No Sudo mode: read
- * marks change nothing about the account. SkyMail is called only from here,
+ * marks change nothing about the account. SkyNotify is called only from here,
  * with the session's token; the browser never holds it.
  */
 
@@ -45,10 +45,10 @@ function withRotatedHandle(response: NextResponse, sessionUse: SessionUse) {
   return response;
 }
 
-/** A Keycloak-side 401 ends the local session like every account route; a SkyMail 401 only reports it. */
+/** A Keycloak-side 401 ends the local session like every account route; a SkyNotify 401 only reports it. */
 async function failureResponse(request: NextRequest, services: Services, sessionUse: SessionUse, error: unknown) {
   const response = problemResponse(request, toInboxProblem(error));
-  if (response.status === 401 && !(error instanceof SkyMailInboxError)) {
+  if (response.status === 401 && !(error instanceof SkyNotifyInboxError)) {
     try {
       await services.sessions.revokeSession(sessionUse.session.id);
     } catch {
@@ -127,8 +127,8 @@ export async function readInbox(request: NextRequest) {
 
 /**
  * `GET /api/account/inbox/counts`: `{ counts: { unseen, unread } }`, the shell's badge. A badge is a
- * hint, never an error: any failure past the session check (SkyMail down, a token that does not name
- * SkyMail, a token the account service cannot hand out) answers `{ counts: null }` (200), ends no
+ * hint, never an error: any failure past the session check (SkyNotify down, a token that does not name
+ * SkyNotify, a token the account service cannot hand out) answers `{ counts: null }` (200), ends no
  * session and logs nothing; the page itself reports what is wrong. The shell asks on every page, so
  * a refusal here must not sign the person out (the session refresh decides that).
  */

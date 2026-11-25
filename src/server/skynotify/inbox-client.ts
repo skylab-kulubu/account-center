@@ -13,9 +13,9 @@ import type { InboxCounts, InboxItem, InboxItemAction, InboxPage } from "@/lib/i
 import { brandCrossBundleError } from "@/server/cross-bundle-error";
 
 /**
- * Client for SkyMail's person endpoints (`/v1/me/inbox…`, skymail-backend
+ * Client for SkyNotify's person endpoints (`/v1/me/inbox…`, skynotify-backend
  * `docs/inbox.md`), called with the person's own Account Center user token:
- * SkyMail wants `aud ∋ skymail` (Keycloak, iletişim-servisi 04) and a
+ * SkyNotify wants `aud ∋ skynotify` (Keycloak, iletişim-servisi 04) and a
  * person's token, no role. Transport rules follow the core clients: an
  * HTTPS base, bounded timeouts and bodies, no retries, no redirects,
  * status-and-code-only errors and no upstream body in errors or logs.
@@ -29,35 +29,35 @@ const MAX_RESPONSE_BYTES = 512 * 1_024;
 const MAX_UNDELIVERABLE = 50;
 const MAX_ADDRESS_LENGTH = 320;
 
-export type SkyMailInboxFailure =
-  /** SkyMail did not accept the bearer (no `aud skymail`, expired). */
+export type SkyNotifyInboxFailure =
+  /** SkyNotify did not accept the bearer (no `aud skynotify`, expired). */
   | "unauthorized"
   /** A refusal of the caller (a service account's token, the account access gate). */
   | "forbidden"
   /** The item is not the person's, or gone. */
   | "not_found"
-  /** SkyMail refused the request itself (a cursor it does not know). */
+  /** SkyNotify refused the request itself (a cursor it does not know). */
   | "rejected"
-  /** SkyMail did not answer, or answered a 5xx of its own. */
+  /** SkyNotify did not answer, or answered a 5xx of its own. */
   | "unavailable"
   /** A 2xx whose body is not the documented one. */
   | "contract"
-  /** The session's token does not name SkyMail yet (no `aud skymail`): nothing was sent. */
+  /** The session's token does not name SkyNotify yet (no `aud skynotify`): nothing was sent. */
   | "not_enabled"
   | "invalid_input";
 
-export class SkyMailInboxError extends Error {
+export class SkyNotifyInboxError extends Error {
   static {
-    brandCrossBundleError(this, "SkyMailInboxError");
+    brandCrossBundleError(this, "SkyNotifyInboxError");
   }
 
-  constructor(readonly failure: SkyMailInboxFailure) {
-    super(`SkyMail inbox request failed: ${failure}.`);
-    this.name = "SkyMailInboxError";
+  constructor(readonly failure: SkyNotifyInboxFailure) {
+    super(`SkyNotify inbox request failed: ${failure}.`);
+    this.name = "SkyNotifyInboxError";
   }
 }
 
-export interface SkyMailInboxClient {
+export interface SkyNotifyInboxClient {
   list(accessToken: string, cursor?: string): Promise<InboxPage>;
   counts(accessToken: string): Promise<InboxCounts>;
   mark(accessToken: string, id: string, action: InboxItemAction): Promise<InboxItem>;
@@ -66,11 +66,11 @@ export interface SkyMailInboxClient {
 }
 
 /**
- * `GET /v1/me/email-delivery` (skymail-backend `docs`, hub rabbitmq-olaylar 10):
+ * `GET /v1/me/email-delivery` (skynotify-backend `docs`, hub rabbitmq-olaylar 10):
  * the person's own suppressed addresses. Only the address is used; `since`
  * is checked for shape and dropped.
  */
-export interface SkyMailEmailDeliveryClient {
+export interface SkyNotifyEmailDeliveryClient {
   undeliverableAddresses(accessToken: string): Promise<string[]>;
 }
 
@@ -79,7 +79,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function requireBearer(accessToken: string) {
-  if (!BEARER_TOKEN.test(accessToken)) throw new SkyMailInboxError("invalid_input");
+  if (!BEARER_TOKEN.test(accessToken)) throw new SkyNotifyInboxError("invalid_input");
   return `Bearer ${accessToken}`;
 }
 
@@ -98,29 +98,29 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   }
 }
 
-function failureOf(status: number): SkyMailInboxError {
-  if (status === 401) return new SkyMailInboxError("unauthorized");
-  if (status === 403) return new SkyMailInboxError("forbidden");
-  if (status === 404) return new SkyMailInboxError("not_found");
-  if (status >= 400 && status < 500) return new SkyMailInboxError("rejected");
-  return new SkyMailInboxError("unavailable");
+function failureOf(status: number): SkyNotifyInboxError {
+  if (status === 401) return new SkyNotifyInboxError("unauthorized");
+  if (status === 403) return new SkyNotifyInboxError("forbidden");
+  if (status === 404) return new SkyNotifyInboxError("not_found");
+  if (status >= 400 && status < 500) return new SkyNotifyInboxError("rejected");
+  return new SkyNotifyInboxError("unavailable");
 }
 
-/** The base must be HTTPS without credentials, query or fragment; a path (`/api/skymail`) is kept. */
-export function skyMailBaseUrl(value: URL): URL {
+/** The base must be HTTPS without credentials, query or fragment; a path (`/api/skynotify`) is kept. */
+export function skyNotifyBaseUrl(value: URL): URL {
   if (value.protocol !== "https:" || value.username || value.password || value.search || value.hash) {
-    throw new Error("SkyMail API URL must be a credential-free HTTPS URL without query or fragment.");
+    throw new Error("SkyNotify API URL must be a credential-free HTTPS URL without query or fragment.");
   }
   const base = new URL(value.href);
   if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`;
   return base;
 }
 
-export class SkyMailInboxHttpClient implements SkyMailInboxClient, SkyMailEmailDeliveryClient {
+export class SkyNotifyInboxHttpClient implements SkyNotifyInboxClient, SkyNotifyEmailDeliveryClient {
   readonly #base: URL;
 
   constructor(baseUrl: URL) {
-    this.#base = skyMailBaseUrl(baseUrl);
+    this.#base = skyNotifyBaseUrl(baseUrl);
   }
 
   async #request(method: "GET" | "POST", path: string, accessToken: string): Promise<unknown> {
@@ -135,45 +135,45 @@ export class SkyMailInboxHttpClient implements SkyMailInboxClient, SkyMailEmailD
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch {
-      throw new SkyMailInboxError("unavailable");
+      throw new SkyNotifyInboxError("unavailable");
     }
     if (response.status === 200) {
       const body = await readBoundedJson(response);
-      if (body === undefined) throw new SkyMailInboxError("contract");
+      if (body === undefined) throw new SkyNotifyInboxError("contract");
       return body;
     }
     await response.body?.cancel().catch(() => undefined);
-    if (response.status >= 200 && response.status < 300) throw new SkyMailInboxError("contract");
+    if (response.status >= 200 && response.status < 300) throw new SkyNotifyInboxError("contract");
     throw failureOf(response.status);
   }
 
   async list(accessToken: string, cursor?: string) {
-    if (cursor !== undefined && !isInboxCursor(cursor)) throw new SkyMailInboxError("invalid_input");
+    if (cursor !== undefined && !isInboxCursor(cursor)) throw new SkyNotifyInboxError("invalid_input");
     const query = new URLSearchParams({ limit: String(INBOX_PAGE_SIZE) });
     if (cursor !== undefined) query.set("cursor", cursor);
     const page = parseInboxPage(await this.#request("GET", `v1/me/inbox?${query}`, accessToken));
-    if (!page) throw new SkyMailInboxError("contract");
+    if (!page) throw new SkyNotifyInboxError("contract");
     return page;
   }
 
   async counts(accessToken: string) {
     const counts = parseInboxCounts(await this.#request("GET", "v1/me/inbox/counts", accessToken));
-    if (!counts) throw new SkyMailInboxError("contract");
+    if (!counts) throw new SkyNotifyInboxError("contract");
     return counts;
   }
 
   async mark(accessToken: string, id: string, action: InboxItemAction) {
-    if (!isInboxItemId(id) || !isInboxItemAction(action)) throw new SkyMailInboxError("invalid_input");
+    if (!isInboxItemId(id) || !isInboxItemAction(action)) throw new SkyNotifyInboxError("invalid_input");
     const item = parseInboxItem(await this.#request("POST", `v1/me/inbox/${encodeURIComponent(id)}/${action}`, accessToken));
-    if (!item) throw new SkyMailInboxError("contract");
+    if (!item) throw new SkyNotifyInboxError("contract");
     return item;
   }
 
   async markAll(accessToken: string, action: "read-all" | "seen-all") {
-    if (action !== "read-all" && action !== "seen-all") throw new SkyMailInboxError("invalid_input");
+    if (action !== "read-all" && action !== "seen-all") throw new SkyNotifyInboxError("invalid_input");
     const body = await this.#request("POST", `v1/me/inbox/${action}`, accessToken);
     if (!isRecord(body) || typeof body.updated !== "number" || !Number.isSafeInteger(body.updated) || body.updated < 0) {
-      throw new SkyMailInboxError("contract");
+      throw new SkyNotifyInboxError("contract");
     }
     return body.updated;
   }
@@ -181,7 +181,7 @@ export class SkyMailInboxHttpClient implements SkyMailInboxClient, SkyMailEmailD
   async undeliverableAddresses(accessToken: string) {
     const body = await this.#request("GET", "v1/me/email-delivery", accessToken);
     const rows = isRecord(body) ? body.undeliverable : undefined;
-    if (!Array.isArray(rows) || rows.length > MAX_UNDELIVERABLE) throw new SkyMailInboxError("contract");
+    if (!Array.isArray(rows) || rows.length > MAX_UNDELIVERABLE) throw new SkyNotifyInboxError("contract");
     return rows.map((row: unknown) => {
       if (
         !isRecord(row) ||
@@ -189,7 +189,7 @@ export class SkyMailInboxHttpClient implements SkyMailInboxClient, SkyMailEmailD
         row.address.length < 1 ||
         row.address.length > MAX_ADDRESS_LENGTH ||
         typeof row.since !== "string"
-      ) throw new SkyMailInboxError("contract");
+      ) throw new SkyNotifyInboxError("contract");
       return row.address;
     });
   }

@@ -25,7 +25,7 @@ export default async function AccountLayout({ children }: Readonly<{ children: R
     <AccountShell
       logoutCsrfToken={services.sessions.csrfToken(session.session.id)}
       embedded={embedded}
-      inboxEnabled={services.skymailInbox !== null}
+      inboxEnabled={services.skynotifyInbox !== null}
       sandbox={isSandbox({ appUrl: config.appUrl, issuer: config.issuer })}
       // The person's profile is read beside the page, not before it: the menu opens and signs
       // out at once, and shows the name and photo when they arrive
