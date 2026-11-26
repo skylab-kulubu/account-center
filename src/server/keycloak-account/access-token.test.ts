@@ -47,12 +47,12 @@ describe("Account REST access token contract", () => {
     vi.restoreAllMocks();
   });
 
-  it("pins the accepted audience sets: today's, and today's with skymail (iletişim-servisi 04)", () => {
-    expect(ACCEPTED_AUDIENCE_SETS).toEqual([["account", "core"], ["account", "core", "skymail"]]);
+  it("pins the accepted audience sets: today's, and today's with skynotify (iletişim-servisi 04)", () => {
+    expect(ACCEPTED_AUDIENCE_SETS).toEqual([["account", "core"], ["account", "core", "skynotify"]]);
   });
 
-  it("accepts the token with the skymail audience the Keycloak release adds", () => {
-    expect(validateAccountAccessToken(jwt(claims({ aud: ["skymail", "account", "core"] })), expected, now))
+  it("accepts the token with the skynotify audience the Keycloak release adds", () => {
+    expect(validateAccountAccessToken(jwt(claims({ aud: ["skynotify", "account", "core"] })), expected, now))
       .toMatchObject({ expiresAt: new Date("2026-09-20T12:05:00.000Z") });
   });
 
@@ -78,9 +78,9 @@ describe("Account REST access token contract", () => {
     ["a duplicated legacy audience", { aud: ["account", "account"] }],
     ["a duplicated audience", { aud: ["account", "account", "core"] }],
     ["an extra audience", { aud: ["account", "core", "skyforms"] }],
-    ["skymail and another extra audience", { aud: ["account", "core", "skymail", "skyforms"] }],
-    ["skymail without core", { aud: ["account", "skymail"] }],
-    ["a duplicated skymail audience", { aud: ["account", "core", "skymail", "skymail"] }],
+    ["skynotify and another extra audience", { aud: ["account", "core", "skynotify", "skyforms"] }],
+    ["skynotify without core", { aud: ["account", "skynotify"] }],
+    ["a duplicated skynotify audience", { aud: ["account", "core", "skynotify", "skynotify"] }],
     ["only the core audience", { aud: ["core"] }],
     ["only the core audience as a bare string", { aud: "core" }],
     ["an empty audience", { aud: [] }],

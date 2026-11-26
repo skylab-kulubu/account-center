@@ -35,7 +35,7 @@ import { CoreConsentsHttpClient } from "@/server/core/consents-client";
 import { CoreProfileHttpClient } from "@/server/core/profile-client";
 import { CoreSkyPassWalletHttpClient } from "@/server/core/skypass-wallet-client";
 import { SkyAccountHttpClient } from "@/server/sky-account/client";
-import { SkyMailInboxHttpClient } from "@/server/skymail/inbox-client";
+import { SkyNotifyInboxHttpClient } from "@/server/skynotify/inbox-client";
 import { NoticeDismissals, PostgresNoticeDismissalRepository } from "@/server/notice-dismissals/store";
 
 type AuthServices = ReturnType<typeof createAuthServices>;
@@ -88,7 +88,7 @@ function createAuthServices() {
     : null;
   const coreConsents = config.coreApiUrl ? new CoreConsentsHttpClient(config.coreApiUrl) : null;
   const coreAppPreferences = config.coreApiUrl ? new CoreAppPreferencesHttpClient(config.coreApiUrl) : null;
-  const skymailInbox = config.skymailApiUrl ? new SkyMailInboxHttpClient(config.skymailApiUrl) : null;
+  const skynotifyInbox = config.skynotifyApiUrl ? new SkyNotifyInboxHttpClient(config.skynotifyApiUrl) : null;
   const accountDeletion = config.accountErasure.mode === "enforce"
     ? new AccountDeletionOrchestrator(
         new PostgresAccountDeletionRepository(pool),
@@ -115,9 +115,9 @@ function createAuthServices() {
     coreCommunicationPreferences,
     coreConsents,
     coreAppPreferences,
-    skymailInbox,
-    /** The same SkyMail client, for `GET /v1/me/email-delivery`; `null` when `SKYMAIL_API_URL` is unset. */
-    skymailEmailDelivery: skymailInbox,
+    skynotifyInbox,
+    /** The same SkyNotify client, for `GET /v1/me/email-delivery`; `null` when `SKYNOTIFY_API_URL` is unset. */
+    skynotifyEmailDelivery: skynotifyInbox,
     noticeDismissals,
     backchannelLogout: new BackchannelLogoutService(
       new KeycloakBackchannelLogoutVerifier(config),

@@ -21,7 +21,7 @@ function collectPageErrors(page: Page) {
 }
 
 async function installSession(context: BrowserContext, label: string) {
-  const fixture = await seedAuthenticatedSession(label, { contractToken: true, skymailAudience: true });
+  const fixture = await seedAuthenticatedSession(label, { contractToken: true, skynotifyAudience: true });
   await context.addCookies([{
     name: sessionCookieName,
     value: fixture.handle,
@@ -40,7 +40,7 @@ async function inboxState(request: APIRequestContext, subject: string): Promise<
   return response.json() as Promise<InboxState>;
 }
 
-test("Bildirimlerim lists the inbox, clears the badge, marks read and archives through SkyMail", async ({ context, page, playwright }, testInfo) => {
+test("Bildirimlerim lists the inbox, clears the badge, marks read and archives through SkyNotify", async ({ context, page, playwright }, testInfo) => {
   test.setTimeout(90_000);
   const fixture = await installSession(context, `notifications-${testInfo.project.name}-${testInfo.retry}`);
   const inspector = await playwright.request.newContext({ ignoreHTTPSErrors: true });

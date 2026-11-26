@@ -6,7 +6,7 @@
  *
  * Sources (read from each application's authorization code): core
  * `internal/authz`, forms-backend `HasRoleAsync("skyforms:*", "forms")` and
- * forms-frontend `resource_access.forms`, skymail-backend `RequireAnyPermission`,
+ * forms-frontend `resource_access.forms`, skynotify-backend `RequireAnyPermission`,
  * cms-backend `RequireRole("cms:access")` per Site client. Superadmin
  * authorizes through core roles and Keycloak groups, so it has no roles of
  * its own here. The catalog is informational only: nothing in Account Center
@@ -100,43 +100,43 @@ export const applicationCatalog: readonly ApplicationDefinition[] = [
     },
   },
   {
-    clientIds: ["skymail"],
-    name: "SkyMail",
+    clientIds: ["skynotify"],
+    name: "SkyNotify",
     description: "Kulübün toplu e-posta ve duyuru aracı.",
     roles: {
-      "skymail:access": {
-        label: "SkyMail’e giriş",
-        description: "SkyMail arayüzünü açabilirsin.",
+      "skynotify:access": {
+        label: "SkyNotify’a giriş",
+        description: "SkyNotify arayüzünü açabilirsin.",
       },
-      "skymail:templates:read": {
+      "skynotify:templates:read": {
         label: "Şablonları görme",
         description: "E-posta şablonlarını görüntüleyebilirsin.",
       },
-      "skymail:templates:write": {
+      "skynotify:templates:write": {
         label: "Şablon düzenleme",
         description: "E-posta şablonu oluşturabilir, düzenleyebilir ve silebilirsin.",
       },
-      "skymail:lists:read": {
+      "skynotify:lists:read": {
         label: "Alıcı listelerini görme",
         description: "Alıcı listelerini ve içindeki kişileri görüntüleyebilirsin.",
       },
-      "skymail:lists:write": {
+      "skynotify:lists:write": {
         label: "Alıcı listesi yönetimi",
         description: "Alıcı listesi oluşturabilir, kişi ekleyip çıkarabilirsin.",
       },
-      "skymail:mails:read": {
+      "skynotify:mails:read": {
         label: "Gönderimleri görme",
         description: "Planlanan ve gönderilen e-postaları ve kuyruklarını görüntüleyebilirsin.",
       },
-      "skymail:mails:write": {
+      "skynotify:mails:write": {
         label: "E-posta gönderme",
         description: "Toplu ya da tekil e-posta gönderimi oluşturabilirsin; başkalarının toplu gönderimlerinin içeriğini de okursun.",
       },
-      "skymail:mails:send": {
+      "skynotify:mails:send": {
         label: "Gönderim başlatma",
         description: "Hazırlanan gönderimleri yola çıkarabilirsin.",
       },
-      "skymail:system-mails:read": {
+      "skynotify:system-mails:read": {
         label: "Sistem postalarını okuma",
         description: "Kişilere tek tek giden sistem postalarının içeriğini görebilirsin.",
       },

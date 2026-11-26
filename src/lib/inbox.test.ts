@@ -15,7 +15,7 @@ const raw = {
 };
 
 describe("inbox contract", () => {
-  it("reads SkyMail's item and page, ignoring members it does not know", () => {
+  it("reads SkyNotify's item and page, ignoring members it does not know", () => {
     expect(parseInboxItem(raw)).toEqual({
       id: raw.id,
       type: raw.type,

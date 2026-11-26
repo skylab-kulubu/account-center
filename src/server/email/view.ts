@@ -31,8 +31,8 @@ export type EmailView = {
 /**
  * Public JSON of `GET /api/account/email`: the view plus the session CSRF
  * proof, the K4c nudge to show (`null`: none, also when it was dismissed
- * or the dismissals could not be read) and which of the addresses SkyMail
- * no longer mails (`[]` also when SkyMail could not be asked).
+ * or the dismissals could not be read) and which of the addresses SkyNotify
+ * no longer mails (`[]` also when SkyNotify could not be asked).
  */
 export type EmailPayload = EmailView & {
   csrfToken: string;

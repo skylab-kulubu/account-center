@@ -3,18 +3,18 @@ import "server-only";
 import { InboxInputError } from "@/server/inbox/service";
 import type { AccountProblem } from "@/server/keycloak-account/problem";
 import { toAccountProblem } from "@/server/keycloak-account/problem";
-import { SkyMailInboxError } from "@/server/skymail/inbox-client";
+import { SkyNotifyInboxError } from "@/server/skynotify/inbox-client";
 
 export type InboxProblem = AccountProblem & { code?: "inbox_disabled" | "inbox_not_enabled" };
 
 const PROBLEM_BASE = "https://my.yildizskylab.com/problems/";
 
-/** `SKYMAIL_API_URL` is unset in this environment. */
+/** `SKYNOTIFY_API_URL` is unset in this environment. */
 export const inboxDisabledProblem: InboxProblem = {
   type: `${PROBLEM_BASE}inbox-disabled`,
   title: "Bildirimler bu ortamda kapalı",
   status: 503,
-  detail: "Bu ortamda SkyMail bağlantısı tanımlı değil; bildirimler burada görünmez.",
+  detail: "Bu ortamda SkyNotify bağlantısı tanımlı değil; bildirimler burada görünmez.",
   code: "inbox_disabled",
 };
 
@@ -27,21 +27,21 @@ export function toInboxProblem(error: unknown): InboxProblem {
       detail: "İstek beklenen biçimde değil. Sayfayı yenileyip yeniden dene.",
     };
   }
-  if (!(error instanceof SkyMailInboxError)) return toAccountProblem(error);
+  if (!(error instanceof SkyNotifyInboxError)) return toAccountProblem(error);
   switch (error.failure) {
     case "unauthorized":
       return {
         type: `${PROBLEM_BASE}inbox-reauthentication`,
         title: "Bildirimler için yeniden giriş yapman gerekiyor",
         status: 401,
-        detail: "Oturumunun SkyMail erişimi doğrulanamadı. Yeniden giriş yapmak sorunu genellikle çözer.",
+        detail: "Oturumunun SkyNotify erişimi doğrulanamadı. Yeniden giriş yapmak sorunu genellikle çözer.",
       };
     case "forbidden":
       return {
         type: `${PROBLEM_BASE}inbox-forbidden`,
         title: "Bildirimler bu hesap için kullanılamıyor",
         status: 403,
-        detail: "SkyMail bu hesabın bildirimlerini göstermedi; hesabın silinmeye alınmış olabilir.",
+        detail: "SkyNotify bu hesabın bildirimlerini göstermedi; hesabın silinmeye alınmış olabilir.",
       };
     case "not_found":
       return {
@@ -69,7 +69,7 @@ export function toInboxProblem(error: unknown): InboxProblem {
     case "invalid_input":
       return {
         type: `${PROBLEM_BASE}inbox-rejected`,
-        title: "SkyMail isteği kabul etmedi",
+        title: "SkyNotify isteği kabul etmedi",
         status: 400,
         detail: "Sayfayı yenileyip yeniden dene.",
       };
@@ -78,7 +78,7 @@ export function toInboxProblem(error: unknown): InboxProblem {
         type: `${PROBLEM_BASE}inbox-unavailable`,
         title: "Bildirimlere şu anda ulaşılamıyor",
         status: 503,
-        detail: "SkyMail yanıt vermedi. Kısa bir süre sonra yeniden deneyebilirsin.",
+        detail: "SkyNotify yanıt vermedi. Kısa bir süre sonra yeniden deneyebilirsin.",
       };
   }
 }

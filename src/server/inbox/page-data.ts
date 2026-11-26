@@ -14,7 +14,7 @@ export type InboxPageData = {
 };
 
 /**
- * The first page of the inbox for the active session. SkyMail down, or off in
+ * The first page of the inbox for the active session. SkyNotify down, or off in
  * this environment, answers a problem the page shows in its place; the rest
  * of Hesap Merkezi is untouched.
  */

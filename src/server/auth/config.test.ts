@@ -158,23 +158,23 @@ describe("authentication configuration", () => {
     }
   });
 
-  it("keeps SkyMail's inbox URL optional, HTTPS and canonical, with its path", () => {
+  it("keeps SkyNotify's inbox URL optional, HTTPS and canonical, with its path", () => {
     environment("3600");
-    expect(getAuthConfig().skymailApiUrl).toBeNull();
-    process.env.SKYMAIL_API_URL = "https://api.yildizskylab.com/api/skymail";
-    expect(getAuthConfig().skymailApiUrl?.href).toBe("https://api.yildizskylab.com/api/skymail");
-    process.env.SKYMAIL_API_URL = "https://skymail.internal.example";
-    expect(getAuthConfig().skymailApiUrl?.origin).toBe("https://skymail.internal.example");
+    expect(getAuthConfig().skynotifyApiUrl).toBeNull();
+    process.env.SKYNOTIFY_API_URL = "https://api.yildizskylab.com/api/skynotify";
+    expect(getAuthConfig().skynotifyApiUrl?.href).toBe("https://api.yildizskylab.com/api/skynotify");
+    process.env.SKYNOTIFY_API_URL = "https://skynotify.internal.example";
+    expect(getAuthConfig().skynotifyApiUrl?.origin).toBe("https://skynotify.internal.example");
     for (const invalid of [
-      "http://api.yildizskylab.com/api/skymail",
-      "https://api.yildizskylab.com/api/skymail/",
-      "https://user:secret@api.yildizskylab.com/api/skymail",
-      "https://api.yildizskylab.com/api/skymail?x=1",
-      "https://api.yildizskylab.com/api/skymail#x",
-      "https://API.yildizskylab.com/api/skymail",
+      "http://api.yildizskylab.com/api/skynotify",
+      "https://api.yildizskylab.com/api/skynotify/",
+      "https://user:secret@api.yildizskylab.com/api/skynotify",
+      "https://api.yildizskylab.com/api/skynotify?x=1",
+      "https://api.yildizskylab.com/api/skynotify#x",
+      "https://API.yildizskylab.com/api/skynotify",
     ]) {
-      process.env.SKYMAIL_API_URL = invalid;
-      expect(() => getAuthConfig(), invalid).toThrow(/SKYMAIL_API_URL/);
+      process.env.SKYNOTIFY_API_URL = invalid;
+      expect(() => getAuthConfig(), invalid).toThrow(/SKYNOTIFY_API_URL/);
     }
   });
 });
