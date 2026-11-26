@@ -25,11 +25,11 @@ function when(value: string) {
 
 type Problem = { title: string; detail: string; status: number; code?: string };
 
-/** Why the inbox is not shown: off in this environment (no SkyMail), or a failure worth a retry or a fresh login. */
+/** Why the inbox is not shown: off in this environment (no SkyNotify), or a failure worth a retry or a fresh login. */
 export function InboxNotice({ problem }: { problem: Problem }) {
   const off = problem.code === "inbox_disabled";
   if (problem.code === "inbox_not_enabled") {
-    // The session's token does not name SkyMail: before e-skylab-keycloak's iletişim-servisi 04 is
+    // The session's token does not name SkyNotify: before e-skylab-keycloak's iletişim-servisi 04 is
     // released a new login would not change that, so nothing is offered but the sentence.
     return (
       <Notice icon={BellOff} title={problem.title} tone="info">

@@ -489,7 +489,7 @@ a.settings-row:hover .settings-row__chevron {
   line-height: 1.5;
 }
 
-/* SkyMail no longer mails an address: one line under it on /email, one line on the overview. */
+/* SkyNotify no longer mails an address: one line under it on /email, one line on the overview. */
 .settings-row__copy small.email-delivery-warning {
   display: inline-flex;
   align-items: center;

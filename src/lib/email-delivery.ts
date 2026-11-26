@@ -1,8 +1,8 @@
 /**
- * Which of the person's own addresses SkyMail no longer mails (a bounce or a
- * complaint suppressed it, skymail-backend `GET /v1/me/email-delivery`). The
- * BFF matches SkyMail's addresses against the person's Primary, School and
- * Personal e-mail and hands the browser only these kinds: never SkyMail's
+ * Which of the person's own addresses SkyNotify no longer mails (a bounce or a
+ * complaint suppressed it, skynotify-backend `GET /v1/me/email-delivery`). The
+ * BFF matches SkyNotify's addresses against the person's Primary, School and
+ * Personal e-mail and hands the browser only these kinds: never SkyNotify's
  * addresses or dates. Only the panel lifts a suppression (ADR 0073 karar 7),
  * so the page offers no action of its own.
  */

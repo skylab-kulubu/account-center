@@ -238,17 +238,17 @@ test("validates the optional club-profile Core origin whenever it is present", (
   );
 });
 
-test("validates the optional SkyMail inbox URL whenever it is present", () => {
-  assert.doesNotThrow(() => validateEnvironment({ ...valid, SKYMAIL_API_URL: "https://api.yildizskylab.com/api/skymail" }));
-  assert.doesNotThrow(() => validateEnvironment({ ...valid, SKYMAIL_API_URL: "" }));
+test("validates the optional SkyNotify inbox URL whenever it is present", () => {
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, SKYNOTIFY_API_URL: "https://api.yildizskylab.com/api/skynotify" }));
+  assert.doesNotThrow(() => validateEnvironment({ ...valid, SKYNOTIFY_API_URL: "" }));
   for (const invalid of [
-    "http://api.yildizskylab.com/api/skymail",
-    "https://api.yildizskylab.com/api/skymail/",
-    "https://u:p@api.yildizskylab.com/api/skymail",
-    "https://api.yildizskylab.com/api/skymail?x=1",
-    "https://<skymail-url>",
+    "http://api.yildizskylab.com/api/skynotify",
+    "https://api.yildizskylab.com/api/skynotify/",
+    "https://u:p@api.yildizskylab.com/api/skynotify",
+    "https://api.yildizskylab.com/api/skynotify?x=1",
+    "https://<skynotify-url>",
   ]) {
-    assert.throws(() => validateEnvironment({ ...valid, SKYMAIL_API_URL: invalid }), /SKYMAIL_API_URL/, invalid);
+    assert.throws(() => validateEnvironment({ ...valid, SKYNOTIFY_API_URL: invalid }), /SKYNOTIFY_API_URL/, invalid);
   }
 });
 

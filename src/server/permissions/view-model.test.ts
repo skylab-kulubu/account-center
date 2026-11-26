@@ -148,44 +148,44 @@ describe("Permissions view model", () => {
       const model = buildPermissionsViewModel({
         groups: [],
         authorization: {
-          skymail: ["skymail:lists:write", "skymail:access"],
+          skynotify: ["skynotify:lists:write", "skynotify:access"],
           core: ["url:create", "certificate:issue"],
         },
       });
       expect(model.applications.map(({ clientId, name }) => ({ clientId, name }))).toEqual([
         { clientId: "core", name: "SKY LAB hesabı" },
-        { clientId: "skymail", name: "SkyMail" },
+        { clientId: "skynotify", name: "SkyNotify" },
       ]);
       expect(model.applications[0]?.permissions).toEqual([
         { code: "url:create", label: "Kısa bağlantı oluşturma", description: expect.stringContaining("kısa bağlantı") },
         { code: "certificate:issue", label: "Sertifika verme", description: expect.stringContaining("sertifika") },
       ]);
       expect(model.applications[1]?.permissions.map(({ label }) => label)).toEqual([
-        "SkyMail’e giriş",
+        "SkyNotify’a giriş",
         "Alıcı listesi yönetimi",
       ]);
       expect(model.technical.roles).toEqual([
         { clientId: "core", code: "certificate:issue" },
         { clientId: "core", code: "url:create" },
-        { clientId: "skymail", code: "skymail:access" },
-        { clientId: "skymail", code: "skymail:lists:write" },
+        { clientId: "skynotify", code: "skynotify:access" },
+        { clientId: "skynotify", code: "skynotify:lists:write" },
       ]);
     });
 
-    it("explains SkyMail's content roles: system mails and others' bulk sends", () => {
+    it("explains SkyNotify's content roles: system mails and others' bulk sends", () => {
       const model = buildPermissionsViewModel({
         groups: [],
-        authorization: { skymail: ["skymail:system-mails:read", "skymail:mails:write"] },
+        authorization: { skynotify: ["skynotify:system-mails:read", "skynotify:mails:write"] },
       });
       expect(model.applications[0]?.unlabelledCount).toBe(0);
       expect(model.applications[0]?.permissions).toEqual([
         {
-          code: "skymail:mails:write",
+          code: "skynotify:mails:write",
           label: "E-posta gönderme",
           description: expect.stringContaining("başkalarının toplu gönderimlerinin içeriğini de"),
         },
         {
-          code: "skymail:system-mails:read",
+          code: "skynotify:system-mails:read",
           label: "Sistem postalarını okuma",
           description: expect.stringContaining("sistem postalarının içeriğini"),
         },

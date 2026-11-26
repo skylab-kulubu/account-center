@@ -136,7 +136,7 @@ describe("InboxNotice", () => {
     expect(screen.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", "/login?returnTo=%2Fnotifications");
   });
 
-  it("says the inbox is not on yet for a token that does not name SkyMail, and promises no login fix", () => {
+  it("says the inbox is not on yet for a token that does not name SkyNotify, and promises no login fix", () => {
     const { container } = render(<InboxNotice problem={{ title: "Bildirimler henüz açık değil", detail: "Bildirimler açıldığında burada görünür.", status: 503, code: "inbox_not_enabled" }} />);
     expect(screen.getByText("Bildirimler henüz açık değil")).toBeInTheDocument();
     expect(within(container).queryByRole("link")).toBeNull();

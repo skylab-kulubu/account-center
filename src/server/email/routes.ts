@@ -338,17 +338,17 @@ async function emailRead(
 }
 
 /**
- * How long `GET /api/account/email` waits for SkyMail's delivery state; the
- * addresses are answered without the warning when SkyMail is slower.
+ * How long `GET /api/account/email` waits for SkyNotify's delivery state; the
+ * addresses are answered without the warning when SkyNotify is slower.
  */
 const EMAIL_PAGE_DELIVERY_BUDGET_MS = 1_500;
 
 /**
  * `GET /api/account/email`: both addresses, the primary, the CSRF proof, the
- * K4c nudge and which addresses SkyMail no longer mails. The nudge and the
+ * K4c nudge and which addresses SkyNotify no longer mails. The nudge and the
  * delivery state are optional: when the person's dismissals cannot be read
  * the page shows no nudge rather than one they may have dismissed, and when
- * SkyMail cannot be asked it shows no warning.
+ * SkyNotify cannot be asked it shows no warning.
  */
 export function emailRoute(request: NextRequest) {
   return emailRead(request, async (services, session, auth) => {
@@ -407,10 +407,10 @@ export async function primaryEmailNudgeRoute(request: NextRequest) {
 
 /**
  * `GET /api/account/email/delivery`: the overview's line, only which kinds
- * of the person's addresses SkyMail no longer mails (never SkyMail's
+ * of the person's addresses SkyNotify no longer mails (never SkyNotify's
  * addresses or dates). Like the nudge it never ends the session: once the
  * session is known, any failure is `200 { undeliverable: [] }`. The
- * addresses are read from the SPI only when SkyMail named any.
+ * addresses are read from the SPI only when SkyNotify named any.
  */
 export async function emailDeliveryRoute(request: NextRequest) {
   const services = getAuthServices();
@@ -428,7 +428,7 @@ export async function emailDeliveryRoute(request: NextRequest) {
     const accessToken = await services.account.accessToken(session);
     const read = await undeliverableAddresses(services, session, accessToken);
     if (read.addresses.length > 0) {
-      // The token SkyMail accepted: after its 401 that is the refreshed one, which the SPI accepts too.
+      // The token SkyNotify accepted: after its 401 that is the refreshed one, which the SPI accepts too.
       const identity = await services.skyAccount.identity({ accessToken: read.accessToken });
       payload = { undeliverable: undeliverableKinds(read.addresses, emailView(identity)) };
     }

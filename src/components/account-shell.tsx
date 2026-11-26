@@ -17,7 +17,7 @@ export const SESSION_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;
 /**
  * The inbox's unseen count for the navigation badge (`GET /api/account/inbox/counts`), read when
  * the shell opens and when the window comes back; cleared when the inbox page marks all seen.
- * Off (null) without SkyMail, and on any failure: a badge is a hint, never an error.
+ * Off (null) without SkyNotify, and on any failure: a badge is a hint, never an error.
  */
 export function useInboxUnseen(enabled: boolean, csrfToken: string) {
   const [unseen, setUnseen] = useState<number | null>(null);
@@ -108,7 +108,7 @@ export function AccountShell({
   account?: ReactNode;
   /** Opened inside SkyApp's WebView, whose own top bar handles back, close and the account. */
   embedded?: boolean;
-  /** SkyMail is configured (`SKYMAIL_API_URL`): Bildirimler is shown and its badge read. */
+  /** SkyNotify is configured (`SKYNOTIFY_API_URL`): Bildirimler is shown and its badge read. */
   inboxEnabled?: boolean;
   /** This Account Center serves the sandbox: a strip at the top and a badge beside the account. */
   sandbox?: boolean;

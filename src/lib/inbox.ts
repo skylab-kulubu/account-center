@@ -1,18 +1,18 @@
 /**
- * The person's in-app inbox ("Bildirimlerim"), as SkyMail serves it
- * (skymail-backend `docs/inbox.md`, iletişim-servisi 05 and 07). Shared by
- * the BFF, which parses SkyMail's answers fail-closed, and the page, which
+ * The person's in-app inbox ("Bildirimlerim"), as SkyNotify serves it
+ * (skynotify-backend `docs/inbox.md`, iletişim-servisi 05 and 07). Shared by
+ * the BFF, which parses SkyNotify's answers fail-closed, and the page, which
  * shows them. An item is plain text: nothing here is ever read as HTML.
  */
 
 /** Said on window when the inbox was marked seen, so the shell's badge clears. */
 export const INBOX_SEEN_EVENT = "account-center:inbox-seen";
 
-/** SkyMail keeps an item 90 days (S5). */
+/** SkyNotify keeps an item 90 days (S5). */
 export const INBOX_RETENTION_DAYS = 90;
-/** One page of the list; SkyMail takes 1–100. */
+/** One page of the list; SkyNotify takes 1–100. */
 export const INBOX_PAGE_SIZE = 30;
-/** SkyMail's cursors are opaque; this bounds what the BFF passes on. */
+/** SkyNotify's cursors are opaque; this bounds what the BFF passes on. */
 const CURSOR = /^[A-Za-z0-9_=-]{1,512}$/;
 const ITEM_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -66,7 +66,7 @@ function boundedText(value: unknown, max: number): value is string {
   return typeof value === "string" && value.length <= max;
 }
 
-/** One item, or null when it is not SkyMail's documented shape. Members it does not know are ignored. */
+/** One item, or null when it is not SkyNotify's documented shape. Members it does not know are ignored. */
 export function parseInboxItem(value: unknown): InboxItem | null {
   if (
     !isRecord(value) ||
@@ -121,10 +121,10 @@ const SKYLAB_HOST = /^(?:[a-z0-9-]+\.)*yildizskylab\.com$/;
 
 /**
  * Where an item opens on the web: an https address on yildizskylab.com or
- * one of its subdomains, as SkyMail allowed it. An in-app path (`/events/…`,
+ * one of its subdomains, as SkyNotify allowed it. An in-app path (`/events/…`,
  * `/news/…`) belongs to sky-app, which opens it itself (iletişim-servisi 08);
  * the web has no page for it, so the item shows without a link here. Nothing
- * else is ever followed: the check is SkyMail's again, so a later SkyMail rule
+ * else is ever followed: the check is SkyNotify's again, so a later SkyNotify rule
  * change cannot turn an item into an open redirect.
  */
 export function inboxLinkHref(link: string): string | null {

@@ -156,7 +156,7 @@ describe("AccountShell inbox badge", () => {
     return within(screen.getByRole("navigation", { name: "Hesap ayarları" }));
   }
 
-  it("lists Bildirimler only when SkyMail is configured", () => {
+  it("lists Bildirimler only when SkyNotify is configured", () => {
     stub(0);
     const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
     expect(sideNav().queryByRole("link", { name: /Bildirimler/ })).toBeNull();
@@ -185,7 +185,7 @@ describe("AccountShell inbox badge", () => {
     expect(within(link).queryByText("4")).toBeNull();
   });
 
-  it("reads no counts without SkyMail, and shows nothing for zero or a body it does not know", async () => {
+  it("reads no counts without SkyNotify, and shows nothing for zero or a body it does not know", async () => {
     const fetch = stub(0);
     const { unmount } = render(<AccountShell logoutCsrfToken="csrf-value"><p>İçerik</p></AccountShell>);
     expect(fetch.mock.calls.some(([url]) => url === "/api/account/inbox/counts")).toBe(false);

@@ -9,7 +9,7 @@ import { POST as READ_ALL } from "@/app/api/account/inbox/read-all/route";
 import { POST as SEEN_ALL } from "@/app/api/account/inbox/seen-all/route";
 import type { InboxPage } from "@/lib/inbox";
 import { AccountReauthenticationRequiredError } from "@/server/keycloak-account/service";
-import { SkyMailInboxError } from "@/server/skymail/inbox-client";
+import { SkyNotifyInboxError } from "@/server/skynotify/inbox-client";
 
 const mocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
@@ -39,13 +39,13 @@ const item = {
 };
 const page: InboxPage = { items: [item], nextCursor: null };
 
-function buildServices(options: { skymail?: boolean } = {}) {
+function buildServices(options: { skynotify?: boolean } = {}) {
   return {
     config: { appUrl: new URL("https://my.yildizskylab.com") },
     sessionAccess: { authenticate: mocks.authenticate, authenticateMutation: mocks.authenticateMutation },
     sessions: { revokeSession: mocks.revokeLocalSession, csrfToken: () => "session-bound-csrf" },
     account: { accessToken: mocks.accessToken },
-    skymailInbox: options.skymail === false ? null : { list: mocks.list, counts: mocks.counts, mark: mocks.mark, markAll: mocks.markAll },
+    skynotifyInbox: options.skynotify === false ? null : { list: mocks.list, counts: mocks.counts, mark: mocks.mark, markAll: mocks.markAll },
   };
 }
 
@@ -69,8 +69,8 @@ function post(path: string, options: { origin?: string; csrf?: string } = {}) {
 
 const params = (id: string, action: string) => ({ params: Promise.resolve({ id, action }) });
 
-/** A JWT-shaped token (unsigned: the BFF reads its audience only, SkyMail checks it). */
-function token(name: string, aud: string[] = ["account", "core", "skymail"]) {
+/** A JWT-shaped token (unsigned: the BFF reads its audience only, SkyNotify checks it). */
+function token(name: string, aud: string[] = ["account", "core", "skynotify"]) {
   const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
   return `${part({ alg: "RS256" })}.${part({ sub: name, aud })}.c2ln`;
 }
@@ -104,7 +104,7 @@ describe("inbox BFF routes", () => {
     expect(mocks.list).toHaveBeenLastCalledWith(USER_TOKEN, "next_1");
   });
 
-  it("refuses a cursor it does not take without calling SkyMail", async () => {
+  it("refuses a cursor it does not take without calling SkyNotify", async () => {
     expect((await LIST(get("/api/account/inbox?cursor=a%20b"))).status).toBe(400);
     expect(mocks.list).not.toHaveBeenCalled();
   });
@@ -126,7 +126,7 @@ describe("inbox BFF routes", () => {
     expect(mocks.markAll.mock.calls.map(([, action]) => action)).toEqual(["read-all", "seen-all"]);
   });
 
-  it("refuses another origin, a wrong CSRF proof and an unknown action before SkyMail", async () => {
+  it("refuses another origin, a wrong CSRF proof and an unknown action before SkyNotify", async () => {
     expect((await READ_ALL(post("/api/account/inbox/read-all", { origin: "https://attacker.invalid" }))).status).toBe(403);
     mocks.authenticateMutation.mockResolvedValueOnce({ status: "forbidden" });
     expect((await READ_ALL(post("/api/account/inbox/read-all", { csrf: "wrong" }))).status).toBe(403);
@@ -136,8 +136,8 @@ describe("inbox BFF routes", () => {
     expect(mocks.mark).not.toHaveBeenCalled();
   });
 
-  it("retries once with a refreshed token when SkyMail refuses the bearer", async () => {
-    mocks.list.mockRejectedValueOnce(new SkyMailInboxError("unauthorized")).mockResolvedValueOnce(page);
+  it("retries once with a refreshed token when SkyNotify refuses the bearer", async () => {
+    mocks.list.mockRejectedValueOnce(new SkyNotifyInboxError("unauthorized")).mockResolvedValueOnce(page);
     const FRESH = token("fresh-token");
     mocks.accessToken.mockResolvedValueOnce(token("stale-token")).mockResolvedValueOnce(FRESH);
 
@@ -146,7 +146,7 @@ describe("inbox BFF routes", () => {
     expect(mocks.list).toHaveBeenLastCalledWith(FRESH, undefined);
   });
 
-  it("sends no token without the skymail audience, forces no refresh and keeps the session", async () => {
+  it("sends no token without the skynotify audience, forces no refresh and keeps the session", async () => {
     mocks.accessToken.mockResolvedValue(token("old-session", ["account", "core"]));
     const badge = await COUNTS(get("/api/account/inbox/counts"));
     expect(badge.status).toBe(200);
@@ -160,10 +160,10 @@ describe("inbox BFF routes", () => {
     expect(mocks.revokeLocalSession).not.toHaveBeenCalled();
   });
 
-  it("keeps the local session on a SkyMail 401 but ends it on a Keycloak one", async () => {
-    mocks.list.mockRejectedValue(new SkyMailInboxError("unauthorized"));
-    const skymail = await LIST(get("/api/account/inbox"));
-    expect(skymail.status).toBe(401);
+  it("keeps the local session on a SkyNotify 401 but ends it on a Keycloak one", async () => {
+    mocks.list.mockRejectedValue(new SkyNotifyInboxError("unauthorized"));
+    const skynotify = await LIST(get("/api/account/inbox"));
+    expect(skynotify.status).toBe(401);
     expect(mocks.revokeLocalSession).not.toHaveBeenCalled();
 
     mocks.accessToken.mockRejectedValue(new AccountReauthenticationRequiredError());
@@ -173,7 +173,7 @@ describe("inbox BFF routes", () => {
   });
 
   it("answers the badge null on any failure, ending no session", async () => {
-    for (const error of [new SkyMailInboxError("unavailable"), new SkyMailInboxError("contract"), new AccountReauthenticationRequiredError()]) {
+    for (const error of [new SkyNotifyInboxError("unavailable"), new SkyNotifyInboxError("contract"), new AccountReauthenticationRequiredError()]) {
       mocks.counts.mockRejectedValueOnce(error);
       const response = await COUNTS(get("/api/account/inbox/counts"));
       expect(response.status).toBe(200);
@@ -184,17 +184,17 @@ describe("inbox BFF routes", () => {
     expect(mocks.revokeLocalSession).not.toHaveBeenCalled();
   });
 
-  it("maps SkyMail's failures to problems without its body", async () => {
+  it("maps SkyNotify's failures to problems without its body", async () => {
     for (const [failure, status] of [["unavailable", 503], ["contract", 502], ["not_found", 404], ["forbidden", 403]] as const) {
-      mocks.list.mockRejectedValueOnce(new SkyMailInboxError(failure));
+      mocks.list.mockRejectedValueOnce(new SkyNotifyInboxError(failure));
       const response = await LIST(get("/api/account/inbox"));
       expect(response.status, failure).toBe(status);
       expect(response.headers.get("content-type")).toBe("application/problem+json");
     }
   });
 
-  it("is off without SkyMail and says so", async () => {
-    mocks.services = buildServices({ skymail: false });
+  it("is off without SkyNotify and says so", async () => {
+    mocks.services = buildServices({ skynotify: false });
     const read = await LIST(get("/api/account/inbox"));
     expect(read.status).toBe(503);
     await expect(read.json()).resolves.toMatchObject({ code: "inbox_disabled" });

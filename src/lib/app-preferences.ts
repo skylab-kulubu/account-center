@@ -18,7 +18,7 @@ const APP_LABELS: Readonly<Record<string, string>> = {
   forms: "Forms",
   panel: "Yönetim paneli",
   account: "Hesap Merkezi",
-  skymail: "SkyMail",
+  skynotify: "SkyNotify",
 };
 
 /** The app's Turkish name; an app this build does not know shows under its own name. */

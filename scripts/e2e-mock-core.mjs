@@ -347,7 +347,7 @@ export function startMockCore({
     }
     return state;
   };
-  /** subject → the person's SkyMail inbox (`/skymail/v1/me/inbox…`, iletişim-servisi 07) and the marks it received. */
+  /** subject → the person's SkyNotify inbox (`/skynotify/v1/me/inbox…`, iletişim-servisi 07) and the marks it received. */
   const inboxes = new Map();
   const inboxFor = (sub) => {
     let state = inboxes.get(sub);
@@ -385,17 +385,17 @@ export function startMockCore({
   };
 
   /**
-   * subject → the addresses SkyMail no longer mails for the person (`/skymail/v1/me/email-delivery`,
+   * subject → the addresses SkyNotify no longer mails for the person (`/skynotify/v1/me/email-delivery`,
    * rabbitmq-olaylar 10). Empty until `PUT /__e2e/email-delivery/{sub}` sets `{ undeliverable: [...] }`.
    */
   const deliveries = new Map();
 
-  /** SkyMail's person endpoints as `docs/inbox.md` serves them: aud skymail, the person's own items. */
-  function skymailInbox(request, response, url) {
-    const claims = decodeBearer(request.headers.authorization, "skymail");
+  /** SkyNotify's person endpoints as `docs/inbox.md` serves them: aud skynotify, the person's own items. */
+  function skynotifyInbox(request, response, url) {
+    const claims = decodeBearer(request.headers.authorization, "skynotify");
     if (!claims) return problem(response, 401, "Unauthorized");
     const state = inboxFor(claims.sub);
-    const path = url.pathname.slice("/skymail/v1/me/inbox".length);
+    const path = url.pathname.slice("/skynotify/v1/me/inbox".length);
     const now = new Date().toISOString();
     const live = () => state.items.filter((item) => item.archived_at === null);
     if (path === "" && request.method === "GET") return json(response, 200, { items: live(), next_cursor: null });
@@ -684,7 +684,7 @@ export function startMockCore({
       if (inboxInspection && request.method === "GET") {
         return json(response, 200, inboxFor(decodeURIComponent(inboxInspection[1])));
       }
-      if (url.pathname.startsWith("/skymail/v1/me/inbox")) return skymailInbox(request, response, url);
+      if (url.pathname.startsWith("/skynotify/v1/me/inbox")) return skynotifyInbox(request, response, url);
       const deliveryInspection = /^\/__e2e\/email-delivery\/([^/]+)$/.exec(url.pathname);
       if (deliveryInspection && request.method === "PUT") {
         let body;
@@ -697,8 +697,8 @@ export function startMockCore({
         deliveries.set(decodeURIComponent(deliveryInspection[1]), body.undeliverable);
         return json(response, 200, { undeliverable: body.undeliverable });
       }
-      if (url.pathname === "/skymail/v1/me/email-delivery" && request.method === "GET") {
-        const claims = decodeBearer(request.headers.authorization, "skymail");
+      if (url.pathname === "/skynotify/v1/me/email-delivery" && request.method === "GET") {
+        const claims = decodeBearer(request.headers.authorization, "skynotify");
         if (!claims) return problem(response, 401, "Unauthorized");
         response.setHeader("cache-control", "no-store");
         return json(response, 200, { undeliverable: deliveries.get(claims.sub) ?? [] });

@@ -1,9 +1,9 @@
 // @vitest-environment node
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SkyMailInboxError, SkyMailInboxHttpClient } from "@/server/skymail/inbox-client";
+import { SkyNotifyInboxError, SkyNotifyInboxHttpClient } from "@/server/skynotify/inbox-client";
 
-const base = new URL("https://api.yildizskylab.com/api/skymail");
+const base = new URL("https://api.yildizskylab.com/api/skynotify");
 const token = "server-held-user-token";
 const item = {
   id: "5d0c2f9e-0000-4000-8000-000000000001",
@@ -23,16 +23,16 @@ function json(value: unknown, status = 200) {
 
 async function failureOf(promise: Promise<unknown>) {
   const error = await promise.then(() => null, (caught: unknown) => caught);
-  expect(error).toBeInstanceOf(SkyMailInboxError);
-  return (error as SkyMailInboxError).failure;
+  expect(error).toBeInstanceOf(SkyNotifyInboxError);
+  return (error as SkyNotifyInboxError).failure;
 }
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("SkyMail inbox HTTP client", () => {
+describe("SkyNotify inbox HTTP client", () => {
   it("requires an HTTPS base without credentials, query or fragment and keeps its path", () => {
-    for (const invalid of ["http://api.yildizskylab.com/api/skymail", "https://u:p@api.yildizskylab.com", "https://api.yildizskylab.com/?x=1"]) {
-      expect(() => new SkyMailInboxHttpClient(new URL(invalid))).toThrow(/SkyMail API URL/);
+    for (const invalid of ["http://api.yildizskylab.com/api/skynotify", "https://u:p@api.yildizskylab.com", "https://api.yildizskylab.com/?x=1"]) {
+      expect(() => new SkyNotifyInboxHttpClient(new URL(invalid))).toThrow(/SkyNotify API URL/);
     }
   });
 
@@ -40,12 +40,12 @@ describe("SkyMail inbox HTTP client", () => {
     const fetch = vi.fn().mockResolvedValue(json({ items: [item], next_cursor: "next_1" }));
     vi.stubGlobal("fetch", fetch);
 
-    const page = await new SkyMailInboxHttpClient(base).list(token, "cursor_1");
+    const page = await new SkyNotifyInboxHttpClient(base).list(token, "cursor_1");
 
     expect(page.items.map(({ id }) => id)).toEqual([item.id]);
     expect(page.nextCursor).toBe("next_1");
     const [url, init] = fetch.mock.calls[0] as [URL, RequestInit];
-    expect(url.href).toBe("https://api.yildizskylab.com/api/skymail/v1/me/inbox?limit=30&cursor=cursor_1");
+    expect(url.href).toBe("https://api.yildizskylab.com/api/skynotify/v1/me/inbox?limit=30&cursor=cursor_1");
     expect(init).toMatchObject({ method: "GET", redirect: "error", cache: "no-store" });
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${token}`);
   });
@@ -56,20 +56,20 @@ describe("SkyMail inbox HTTP client", () => {
       .mockResolvedValueOnce(json({ updated: 3 }))
       .mockResolvedValueOnce(json({ unseen: 0, unread: 2 }));
     vi.stubGlobal("fetch", fetch);
-    const client = new SkyMailInboxHttpClient(base);
+    const client = new SkyNotifyInboxHttpClient(base);
 
     await expect(client.mark(token, item.id, "read")).resolves.toMatchObject({ readAt: "2026-10-25T10:00:00Z" });
     await expect(client.markAll(token, "seen-all")).resolves.toBe(3);
     await expect(client.counts(token)).resolves.toEqual({ unseen: 0, unread: 2 });
     expect(fetch.mock.calls.map(([url, init]) => `${(init as RequestInit).method} ${(url as URL).pathname}`)).toEqual([
-      `POST /api/skymail/v1/me/inbox/${item.id}/read`,
-      "POST /api/skymail/v1/me/inbox/seen-all",
-      "GET /api/skymail/v1/me/inbox/counts",
+      `POST /api/skynotify/v1/me/inbox/${item.id}/read`,
+      "POST /api/skynotify/v1/me/inbox/seen-all",
+      "GET /api/skynotify/v1/me/inbox/counts",
     ]);
   });
 
   it("maps refusals by status and fails closed on a body it does not know", async () => {
-    const client = new SkyMailInboxHttpClient(base);
+    const client = new SkyNotifyInboxHttpClient(base);
     for (const [status, failure] of [[401, "unauthorized"], [403, "forbidden"], [404, "not_found"], [400, "rejected"], [503, "unavailable"]] as const) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ code: "x" }, status)));
       expect(await failureOf(client.counts(token))).toBe(failure);
@@ -83,7 +83,7 @@ describe("SkyMail inbox HTTP client", () => {
   it("sends nothing for an id, action or cursor it does not take", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
-    const client = new SkyMailInboxHttpClient(base);
+    const client = new SkyNotifyInboxHttpClient(base);
     expect(await failureOf(client.mark(token, "../admin", "read"))).toBe("invalid_input");
     expect(await failureOf(client.mark(token, item.id, "delete" as never))).toBe("invalid_input");
     expect(await failureOf(client.list(token, "a b"))).toBe("invalid_input");
@@ -97,16 +97,16 @@ describe("SkyMail inbox HTTP client", () => {
       }));
       vi.stubGlobal("fetch", fetch);
 
-      expect(await new SkyMailInboxHttpClient(base).undeliverableAddresses(token)).toEqual(["ada@example.com"]);
+      expect(await new SkyNotifyInboxHttpClient(base).undeliverableAddresses(token)).toEqual(["ada@example.com"]);
       const [url, init] = fetch.mock.calls[0] as [URL, RequestInit];
-      expect(url.href).toBe("https://api.yildizskylab.com/api/skymail/v1/me/email-delivery");
+      expect(url.href).toBe("https://api.yildizskylab.com/api/skynotify/v1/me/email-delivery");
       expect(init).toMatchObject({ method: "GET", redirect: "error", cache: "no-store" });
       expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${token}`);
     });
 
     it("answers an empty list as nothing undeliverable", async () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ undeliverable: [] })));
-      expect(await new SkyMailInboxHttpClient(base).undeliverableAddresses(token)).toEqual([]);
+      expect(await new SkyNotifyInboxHttpClient(base).undeliverableAddresses(token)).toEqual([]);
     });
 
     it.each([
@@ -116,7 +116,7 @@ describe("SkyMail inbox HTTP client", () => {
       ["too many rows", { undeliverable: Array.from({ length: 51 }, (_, index) => ({ address: `a${index}@example.com`, since: "x" })) }],
     ])("refuses %s as contract drift", async (_label, body) => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body)));
-      expect(await failureOf(new SkyMailInboxHttpClient(base).undeliverableAddresses(token))).toBe("contract");
+      expect(await failureOf(new SkyNotifyInboxHttpClient(base).undeliverableAddresses(token))).toBe("contract");
     });
 
     it("maps a refused bearer and an outage", async () => {
@@ -124,7 +124,7 @@ describe("SkyMail inbox HTTP client", () => {
         .mockResolvedValueOnce(new Response(null, { status: 401 }))
         .mockResolvedValueOnce(new Response(null, { status: 503 }))
         .mockRejectedValueOnce(new TypeError("fetch failed")));
-      const client = new SkyMailInboxHttpClient(base);
+      const client = new SkyNotifyInboxHttpClient(base);
       expect(await failureOf(client.undeliverableAddresses(token))).toBe("unauthorized");
       expect(await failureOf(client.undeliverableAddresses(token))).toBe("unavailable");
       expect(await failureOf(client.undeliverableAddresses(token))).toBe("unavailable");
