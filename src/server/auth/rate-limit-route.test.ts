@@ -59,10 +59,10 @@ function mount(trustedProxy: AuthTrustedProxy) {
 }
 
 /** One anonymous login as Traefik forwards it: the visitor, then the proxy hop. */
-function login(forwardedFor: string) {
+function login(forwardedFor: string, accept?: string) {
   return loginRoute(
-    new NextRequest("https://my.yildizskylab.com/api/auth/login", {
-      headers: { "x-forwarded-for": forwardedFor },
+    new NextRequest("https://my.yildizskylab.com/api/auth/login?returnTo=%2Fsessions", {
+      headers: { "x-forwarded-for": forwardedFor, ...(accept ? { accept } : {}) },
     }),
   );
 }
@@ -100,6 +100,25 @@ describe("anonymous login rate limiting through the route", () => {
     const spoofed = await login(`203.0.113.42, ${neighbour}`);
     expect(spoofed.status).toBe(303);
     expect(repository.bucketCount).toBe(2);
+  });
+
+  it("shows a browser the 429 scene and keeps the JSON for a script", async () => {
+    mount("traefik");
+    const visitor = "203.0.113.42, 10.0.1.109";
+    await drainLoginBudget(visitor);
+
+    const page = await login(visitor, "text/html,application/xhtml+xml,*/*;q=0.8");
+    expect(page.status).toBe(429);
+    expect(page.headers.get("retry-after")).toBe("50");
+    expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(page.headers.get("content-security-policy")).toMatch(/^default-src 'none'/);
+    const body = await page.text();
+    expect(body).toMatch(/<h1>(Biraz yavaşla|Bir dakika bekle)<\/h1>/);
+    expect(body).toContain('href="/api/auth/login?returnTo=%2Fsessions"');
+
+    const script = await login(visitor, "application/json");
+    expect(script.status).toBe(429);
+    expect(await script.json()).toEqual({ error: "too_many_requests" });
   });
 
   it("shares one global budget across every visitor when no client address is readable", async () => {
