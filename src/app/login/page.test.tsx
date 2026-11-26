@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { ERROR_SCENE_VARIANTS, errorSceneText } from "@skylab-kulubu/skylcn-ui";
 import LoginPage from "@/app/login/page";
 
 afterEach(cleanup);
@@ -28,5 +29,16 @@ describe("login page", () => {
 
     await renderLogin({ loggedOut: "1" });
     expect(screen.getByRole("status")).toHaveTextContent("Bu cihazdaki Hesap Merkezi oturumu kapatıldı.");
+  });
+
+  it("draws the session scene when the account gate ended the session, its button signing in again", async () => {
+    await renderLogin({ sessionEnded: "1", returnTo: "/sessions" });
+    const titles = ERROR_SCENE_VARIANTS.sessionExpired.map((variant) => errorSceneText("sessionExpired", "tr", variant).title);
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(titles).toContain(heading.textContent);
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Yeniden giriş yap" }))
+      .toHaveAttribute("href", "/api/auth/login?returnTo=%2Fsessions");
+    expect(screen.queryByText("Bu cihazdaki Hesap Merkezi oturumu kapatıldı.")).not.toBeInTheDocument();
   });
 });

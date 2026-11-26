@@ -110,8 +110,8 @@ importers:
   .:
     dependencies:
       '@skylab-kulubu/skylcn-ui':
-        specifier: 0.2.2
-        version: 0.2.2(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(redux@5.0.1)
+        specifier: https://github.com/skylab-kulubu/skylcn-ui/releases/download/v0.3.0-onizleme.1/skylab-kulubu-skylcn-ui-0.3.0-onizleme.1.tgz
+        version: https://github.com/skylab-kulubu/skylcn-ui/releases/download/v0.3.0-onizleme.1/skylab-kulubu-skylcn-ui-0.3.0-onizleme.1.tgz(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(redux@5.0.1)
       ioredis:
         specifier: 5.9.2
         version: 5.9.2(supports-color@7.2.0)
@@ -835,8 +835,9 @@ packages:
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
 
-  '@skylab-kulubu/skylcn-ui@0.2.2':
-    resolution: {integrity: sha512-p/L20412d8QshCjD/dDfxIjU84WBLv0MwOsgEKTqibnFr3iAWhPF8tfzVaV8YRQVd3muGUiKmue18legI6GNVw==}
+  '@skylab-kulubu/skylcn-ui@https://github.com/skylab-kulubu/skylcn-ui/releases/download/v0.3.0-onizleme.1/skylab-kulubu-skylcn-ui-0.3.0-onizleme.1.tgz':
+    resolution: {integrity: sha512-7HEZTuhOicjIW9mgf9zGECQ2sG3fypFHJ9ut5m1iCfVnEQyxEMhoIGbBSAcw4B7ubMoz4oqSJsEGd/EJnhbmAw==, tarball: https://github.com/skylab-kulubu/skylcn-ui/releases/download/v0.3.0-onizleme.1/skylab-kulubu-skylcn-ui-0.3.0-onizleme.1.tgz}
+    version: 0.3.0-onizleme.1
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -3710,7 +3711,7 @@ snapshots:
 
   '@rtsao/scc@1.1.0': {}
 
-  '@skylab-kulubu/skylcn-ui@0.2.2(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(redux@5.0.1)':
+  '@skylab-kulubu/skylcn-ui@https://github.com/skylab-kulubu/skylcn-ui/releases/download/v0.3.0-onizleme.1/skylab-kulubu-skylcn-ui-0.3.0-onizleme.1.tgz(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(redux@5.0.1)':
     dependencies:
       '@base-ui/react': 1.9.0(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@tanstack/react-table': 9.2.8(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
