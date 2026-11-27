@@ -408,6 +408,11 @@ jobs:
             --retry-delay 1 http://127.0.0.1:33100/api/ready
           RETIRED_HANDOFF_TEST_ORIGIN=http://127.0.0.1:33100 node scripts/assert-retired-handoff.mjs
           EDGE_PATHS_TEST_ORIGIN=http://127.0.0.1:33100 node scripts/assert-edge-paths.mjs
+          # The 503 page draws its scene with the rules read from the standalone build (outputFileTracingIncludes)
+          unavailable_status="$(curl --silent --show-error --output "$RUNNER_TEMP/unavailable.html" \
+            --write-out '%{http_code}' http://127.0.0.1:33100/api/auth/unavailable)"
+          test "$unavailable_status" = 503
+          grep -qF '.skylcn-scene' "$RUNNER_TEMP/unavailable.html"
       - name: Save the verified candidate for publish
         id: save
         if: env.PUBLISH == 'true'
