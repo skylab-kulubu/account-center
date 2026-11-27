@@ -25,7 +25,7 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
-    "@skylab-kulubu/skylcn-ui": "0.2.2",
+    "@skylab-kulubu/skylcn-ui": "https://github.com/skylab-kulubu/skylcn-ui/releases/download/v0.3.0-onizleme.1/skylab-kulubu-skylcn-ui-0.3.0-onizleme.1.tgz",
     "ioredis": "5.9.2",
     "jose": "6.2.12",
     "lucide-react": "1.55.0",

@@ -768,7 +768,9 @@ test("blocked session is revoked and clears its stale cookie without a redirect 
   await page.goto("/");
 
   await expect(page).toHaveURL(/\/login\?sessionEnded=1$/);
-  await expect(page.getByRole("heading", { name: "Hesap Merkezi’ne giriş yap" })).toBeVisible();
+  // The session scene: one of its drawings' titles, and its button signs in again
+  await expect(page.getByRole("heading", { level: 1, name: /^(Oturumun kapandı|Oturumun süresi doldu|Uzun süre ayrı kaldın)$/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Yeniden giriş yap" })).toHaveAttribute("href", /^\/api\/auth\/login\?returnTo=/);
   expect(cleanupRequests).toBe(1);
   expect(
     (await context.cookies(baseUrl)).find((cookie) => cookie.name === sessionCookieName),
@@ -792,7 +794,8 @@ test("malformed gate state returns retryable 503 without touching the session", 
   const response = await unavailableResponse;
 
   await expect(page).toHaveURL(/\/api\/auth\/unavailable$/);
-  await expect(page.getByRole("heading", { name: "Hesap Merkezi şu anda kullanılamıyor" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sunucumuz yerinde yok" })).toBeVisible();
+  expect(response?.headers()["content-security-policy"]).toMatch(/^default-src 'none'; style-src 'sha256-/);
   expect(response?.status()).toBe(503);
   expect(response?.headers()["cache-control"]).toBe("no-store");
   expect(response?.headers()["retry-after"]).toBe("3");

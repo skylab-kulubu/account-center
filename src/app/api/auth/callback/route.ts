@@ -19,6 +19,7 @@ import {
   OidcProviderStageError,
 } from "@/server/auth/oidc-protocol";
 import { getAuthServices } from "@/server/auth/services";
+import { errorSceneResponse, wantsHtml } from "@/server/error-scene-html";
 import { UpstreamSessionExpiredError } from "@/server/auth/sessions";
 import { completeSudoReauthentication } from "@/server/auth/sudo-reauthentication";
 import { completeYtuLink, YTU_LINK_QUERY } from "@/server/identity/ytu-link";
@@ -35,6 +36,12 @@ export async function GET(request: NextRequest) {
   const services = getAuthServices();
   const rateLimit = await services.anonymousRateLimit.consume(request, "callback");
   if (!rateLimit.allowed) {
+    // A browser's page load gets the 429 scene, its button starting over (the code in this address is spent); a script keeps the JSON.
+    if (wantsHtml(request)) {
+      return errorSceneResponse("tooManyRequests", 429, "/", {
+        "Retry-After": String(rateLimit.retryAfterSeconds),
+      });
+    }
     const response = NextResponse.json({ error: "too_many_requests" }, { status: 429 });
     response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
     return noStore(response);

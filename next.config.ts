@@ -35,6 +35,11 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["@skylab-kulubu/skylcn-ui"],
   },
   output: "standalone",
+  // The error pages the auth routes answer as plain HTML read the scenes' rules at run time
+  // (src/server/error-scene-html.ts); the standalone build carries the file for them.
+  outputFileTracingIncludes: {
+    "/api/auth/*": ["./node_modules/@skylab-kulubu/skylcn-ui/dist/error-scenes/error-scene.css"],
+  },
   poweredByHeader: false,
   async redirects() {
     // The v1 "Kişisel bilgiler" page became "Kimlik"; old links keep working.
